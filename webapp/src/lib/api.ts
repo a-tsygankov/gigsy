@@ -127,6 +127,39 @@ export class ApiClient {
   getReportSummary(): Promise<ReportSummary> {
     return this.request("GET", "/api/reports/summary");
   }
+
+  // ── sync (offline outbox drain, docs/plan.md §7) ─────────────────
+  sync(ops: SyncOp[]): Promise<{ results: SyncOpResult[] }> {
+    return this.request("POST", "/api/sync", { ops });
+  }
+
+  // ── debug (hidden console; JWT-guarded server-side) ──────────────
+  getDebugLogs(limit: number): Promise<{ entries: WorkerLogEntry[] }> {
+    return this.request("GET", `/api/debug/logs?limit=${limit}`);
+  }
+}
+
+export interface SyncOp {
+  entity: "client" | "gig" | "expense";
+  op: "upsert" | "delete";
+  id: string;
+  /** Client edit time (epoch ms) — the LWW conflict signal. */
+  modifiedAt: number;
+  payload?: unknown;
+}
+
+export interface SyncOpResult {
+  id: string;
+  status: "applied" | "skipped" | "error";
+  reason?: string;
+}
+
+/** Shape of backend log entries (mirrors backend/src/logger.ts). */
+export interface WorkerLogEntry {
+  ts: number;
+  level: string;
+  msg: string;
+  data?: unknown;
 }
 
 /** Unauthenticated auth endpoints (used by AuthManager). */
@@ -138,10 +171,25 @@ export class AuthApiClient implements AuthApi {
     this.fetchFn = fetchFn ?? fetch.bind(globalThis);
   }
 
-  async getConfig(): Promise<{ googleClientId: string }> {
+  async getConfig(): Promise<{ googleClientId: string; testAuthEnabled: boolean }> {
     const res = await this.fetchFn("/api/auth/config");
     if (!res.ok) throw new ApiError(res.status, "config unavailable");
-    return (await res.json()) as { googleClientId: string };
+    return (await res.json()) as {
+      googleClientId: string;
+      testAuthEnabled: boolean;
+    };
+  }
+
+  /** Google-free sign-in for tests/dev. The endpoint only exists
+   * outside production (404 there) — this throws in that case. */
+  async testLogin(email: string): Promise<AuthSession> {
+    const res = await this.fetchFn("/api/auth/test-login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) throw new ApiError(res.status, "test auth unavailable");
+    return (await res.json()) as AuthSession;
   }
 
   async loginWithGoogle(idToken: string): Promise<AuthSession> {

@@ -8,10 +8,14 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       // The service worker precaches the app shell so the PWA loads
-      // with zero connectivity (docs/plan.md §7). Icons land with the
-      // Phase 3 design pass — the manifest ships without them until
-      // then, so installability is limited but the offline shell
-      // already works.
+      // with zero connectivity (docs/plan.md §7). Icons come from
+      // scripts/generate-icons.mjs (committed output — rerun after
+      // changing the mark).
+      includeAssets: [
+        "icons/apple-touch-icon.png",
+        "icons/favicon-32.png",
+        "icons/favicon-16.png",
+      ],
       manifest: {
         name: "Gigsy",
         short_name: "Gigsy",
@@ -23,7 +27,14 @@ export default defineConfig({
         display: "standalone",
         start_url: "/",
         scope: "/",
-        icons: [],
+        // "any" + "maskable" kept separate: Android picks maskable
+        // for adaptive icons; iOS uses the apple-touch-icon link.
+        icons: [
+          { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "/icons/icon-192-maskable.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+          { src: "/icons/icon-512-maskable.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+        ],
       },
     }),
   ],

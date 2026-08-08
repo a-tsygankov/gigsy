@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useServices } from "../lib/app-context.tsx";
+import { useData } from "../lib/app-context.tsx";
 import type { ClientInput } from "../lib/types.ts";
 import { Header } from "../components/Header.tsx";
 import { Field } from "../components/Scaffold.tsx";
@@ -10,7 +10,7 @@ import { btnDanger, btnGhost, btnPrimary, inputCls } from "../components/ui.ts";
 export function ClientEdit() {
   const { id = "new" } = useParams();
   const isNew = id === "new";
-  const { api } = useServices();
+  const api = useData();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { appLog, clientLogBuffer, type LogEntry } from "../lib/logger.ts";
+import type { ApiClient } from "../lib/api.ts";
+import { clientLogBuffer, type LogEntry } from "../lib/logger.ts";
 import { fetchTierVersions, type TierVersions } from "../lib/versions.ts";
 import { settings, type AppSettings } from "../lib/settings.ts";
 import { LogList } from "./LogList.tsx";
@@ -17,21 +18,23 @@ export interface ConsoleDataSource {
   getSettings(): AppSettings;
 }
 
-export const defaultDataSource: ConsoleDataSource = {
-  getVersions: () => fetchTierVersions(),
-  getWorkerLogs: async (limit) => {
-    try {
-      const res = await fetch(`/api/debug/logs?limit=${limit}`);
-      if (!res.ok) return null;
-      const body = (await res.json()) as { entries: LogEntry[] };
-      return body.entries;
-    } catch {
-      return null;
-    }
-  },
-  getClientLogs: () => clientLogBuffer.toArray(),
-  getSettings: () => settings.get(),
-};
+/** Build the app's data source around the authed ApiClient —
+ * /api/debug/* is JWT-guarded, so worker logs need the bearer token
+ * (signed out they degrade to the "unreachable" marker). */
+export function makeConsoleDataSource(api: ApiClient): ConsoleDataSource {
+  return {
+    getVersions: () => fetchTierVersions(),
+    getWorkerLogs: async (limit) => {
+      try {
+        return (await api.getDebugLogs(limit)).entries as LogEntry[];
+      } catch {
+        return null;
+      }
+    },
+    getClientLogs: () => clientLogBuffer.toArray(),
+    getSettings: () => settings.get(),
+  };
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -57,14 +60,14 @@ function VersionRow({ tier, value, testId }: { tier: string; value: string; test
 
 interface Props {
   onClose: () => void;
-  dataSource?: ConsoleDataSource;
+  dataSource: ConsoleDataSource;
 }
 
 /** The hidden debug console — opened by 3 taps on the app logo.
  * Shows tier versions (on open), app settings, and the client/worker
  * log feeds. Every remote value degrades to an explicit marker so the
  * console works fully offline. */
-export function HiddenConsole({ onClose, dataSource = defaultDataSource }: Props) {
+export function HiddenConsole({ onClose, dataSource }: Props) {
   const [versions, setVersions] = useState<TierVersions | null>(null);
   const [workerLogs, setWorkerLogs] = useState<LogEntry[] | null>(null);
   const [clientLogs, setClientLogs] = useState<LogEntry[]>([]);

@@ -2,9 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- Favicons + apple-touch-icon land with the Phase 3 design pass
-         (see docs/plan.md §14) — the PWA manifest's icons array is
-         empty until then too. -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
+    <!-- iOS ignores the manifest icons array — it wants this link. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <!-- iOS PWA polish: hide the Safari chrome and make the status
          bar transparent when launched from the home screen. -->
     <meta name="apple-mobile-web-app-capable" content="yes" />

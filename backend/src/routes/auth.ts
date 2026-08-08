@@ -43,6 +43,15 @@ const GoogleLogin = z.object({
   authCode: z.string().min(1).optional(),
 });
 
+const TestLogin = z.object({ email: z.string().email() });
+
+/** Test auth exists ONLY outside production — dev/E2E sign-in without
+ * Google. The production build answers 404 as if the route never
+ * existed. */
+function testAuthEnabled(env: Bindings): boolean {
+  return env.ENVIRONMENT !== "production";
+}
+
 const Refresh = z.object({ refreshToken: z.string().min(1) });
 
 async function issueSession(
@@ -68,7 +77,20 @@ export function makeAuthRouter(deps: AuthDeps = defaultAuthDeps) {
   return new Hono<{ Bindings: Bindings }>()
     // Public: the webapp bootstraps Google Identity Services from
     // this so the client ID lives once, in wrangler.toml [vars].
-    .get("/config", (c) => c.json({ googleClientId: c.env.GOOGLE_CLIENT_ID }))
+    .get("/config", (c) =>
+      c.json({
+        googleClientId: c.env.GOOGLE_CLIENT_ID,
+        testAuthEnabled: testAuthEnabled(c.env),
+      }),
+    )
+    .post("/test-login", zValidator("json", TestLogin), async (c) => {
+      if (!testAuthEnabled(c.env)) return c.json({ error: "not found" }, 404);
+      const { email } = c.req.valid("json");
+      const now = Date.now();
+      const user = await UsersRepo.for(c.env.DB).upsertByEmail(email, now);
+      const session = await issueSession(c.env, user.id, now);
+      return c.json({ ...session, user: { id: user.id, email: user.email } });
+    })
     .post("/google", zValidator("json", GoogleLogin), async (c) => {
       const { idToken, authCode } = c.req.valid("json");
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useServices } from "../lib/app-context.tsx";
+import { useData } from "../lib/app-context.tsx";
 import type { ExpenseInput } from "../lib/types.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { Header } from "../components/Header.tsx";
@@ -11,7 +11,7 @@ import { btnDanger, btnGhost, btnPrimary, inputCls } from "../components/ui.ts";
 export function ExpenseEdit() {
   const { id = "new" } = useParams();
   const isNew = id === "new";
-  const { api } = useServices();
+  const api = useData();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 

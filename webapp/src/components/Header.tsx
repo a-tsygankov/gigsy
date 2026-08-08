@@ -1,5 +1,33 @@
-import { useAuthState, useServices } from "../lib/app-context.tsx";
+import { useAuthState, useServices, useSyncState } from "../lib/app-context.tsx";
 import { useConsoleTap } from "./ConsoleProvider.tsx";
+
+/** Offline/pending indicator — quiet when everything is synced. */
+function SyncBadge() {
+  const sync = useSyncState();
+  if (sync === null) return null;
+  if (!sync.online) {
+    return (
+      <span
+        data-testid="sync-offline"
+        className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600"
+      >
+        offline
+      </span>
+    );
+  }
+  if (sync.pendingCount > 0) {
+    return (
+      <span
+        data-testid="sync-pending"
+        title={`${sync.pendingCount} change(s) waiting to sync`}
+        className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+      >
+        {sync.pendingCount}↑
+      </span>
+    );
+  }
+  return null;
+}
 
 export function Header({ title }: { title: string }) {
   const { auth } = useServices();
@@ -18,6 +46,7 @@ export function Header({ title }: { title: string }) {
             Gigsy
           </span>
           <h1 className="text-sm font-medium text-slate-500">{title}</h1>
+          <SyncBadge />
         </div>
         <button
           type="button"

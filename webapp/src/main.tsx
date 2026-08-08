@@ -15,7 +15,14 @@ appLog.info("app started", { version: CLIENT_VERSION });
 
 const services = createAppServices();
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
+  defaultOptions: {
+    // networkMode "always": TanStack Query's default pauses queries
+    // AND mutations while navigator.onLine is false — but ours are
+    // local-first (Dexie) and must run offline; the data layer does
+    // its own network handling (docs/plan.md §7).
+    queries: { staleTime: 30_000, retry: 1, networkMode: "always" },
+    mutations: { networkMode: "always" },
+  },
 });
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

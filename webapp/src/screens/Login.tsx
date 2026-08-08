@@ -67,6 +67,25 @@ export function Login() {
             </p>
           )}
           <div ref={buttonHost} data-testid="google-button-host" />
+          {config.data?.testAuthEnabled === true && (
+            // Google-free sign-in — the backend only serves this
+            // outside production, so the button can never ship there.
+            <button
+              type="button"
+              data-testid="test-signin"
+              onClick={() => {
+                void authApi
+                  .testLogin("dev@test.local")
+                  .then((session) => auth.adoptSession(session))
+                  .catch(() => setError("Test sign-in failed."));
+              }}
+              className="mt-3 w-full rounded-xl border border-dashed border-slate-300 px-4 py-2
+                         text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50
+                         focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            >
+              Dev sign-in (no Google)
+            </button>
+          )}
           {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
         </div>
       </div>

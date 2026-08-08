@@ -112,6 +112,22 @@ describe("AuthManager", () => {
     expect(await auth.getAccessToken()).toBeNull();
   });
 
+  it("adoptSession installs an externally-obtained session (test auth)", async () => {
+    const kv = memoryKV();
+    const auth = new AuthManager(stubApi(), kv, () => 0);
+
+    await auth.adoptSession({
+      accessToken: "at-test",
+      refreshToken: "rt-test",
+      user: USER,
+    });
+
+    expect(auth.isSignedIn()).toBe(true);
+    expect(auth.getUser()).toEqual(USER);
+    expect(await auth.getAccessToken()).toBe("at-test");
+    expect(await kv.get("gigsy.refreshToken")).toBe("rt-test");
+  });
+
   it("notifies subscribers on state changes", async () => {
     const auth = new AuthManager(stubApi(), memoryKV(), () => 0);
     const listener = vi.fn();
