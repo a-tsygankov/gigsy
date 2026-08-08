@@ -66,6 +66,10 @@ export function ExpenseEdit() {
       setAmountError("Enter a valid dollar amount.");
       return;
     }
+    if (cents <= 0) {
+      setAmountError("The amount must be greater than zero.");
+      return;
+    }
     setAmountError(null);
     save.mutate({
       amountCents: cents,

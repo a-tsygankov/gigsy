@@ -40,6 +40,20 @@ export class OfflineDataService {
     void this.engine.notifyLocalChange();
   }
 
+  /** Money invariant (user requirement 2026-08-08): amounts are
+   * strictly positive when present; "no amount" is null, never 0.
+   * Enforced here — not just in screens — because an offline write
+   * with a bad amount would later sync-error and be poison-dropped. */
+  private assertPositive(
+    amounts: Record<string, number | null | undefined>,
+  ): void {
+    for (const [field, value] of Object.entries(amounts)) {
+      if (value != null && value <= 0) {
+        throw new Error(`${field} must be a positive amount`);
+      }
+    }
+  }
+
   private require<T>(record: T | null): T {
     if (record === null) throw new Error("not found");
     return record;
@@ -53,6 +67,10 @@ export class OfflineDataService {
     return this.require(await this.store.getGig(id));
   }
   async putGig(id: string, input: GigInput): Promise<Gig> {
+    this.assertPositive({
+      amountOfferedCents: input.amountOfferedCents,
+      amountPaidCents: input.amountPaidCents,
+    });
     const record = await this.store.putGig(id, input);
     this.nudge();
     return record;
@@ -87,6 +105,7 @@ export class OfflineDataService {
     return this.require(await this.store.getExpense(id));
   }
   async putExpense(id: string, input: ExpenseInput): Promise<Expense> {
+    this.assertPositive({ amountCents: input.amountCents });
     const record = await this.store.putExpense(id, input);
     this.nudge();
     return record;
@@ -107,6 +126,10 @@ export class OfflineDataService {
     return this.require(await this.store.getService(id));
   }
   async putService(id: string, input: ServiceInput): Promise<Service> {
+    this.assertPositive({
+      amountOfferedCents: input.amountOfferedCents,
+      amountPaidCents: input.amountPaidCents,
+    });
     const record = await this.store.putService(id, input);
     this.nudge();
     return record;
@@ -127,6 +150,7 @@ export class OfflineDataService {
     return this.require(await this.store.getPayment(id));
   }
   async putPayment(id: string, input: PaymentInput): Promise<Payment> {
+    this.assertPositive({ amountCents: input.amountCents });
     const record = await this.store.putPayment(id, input);
     this.nudge();
     return record;

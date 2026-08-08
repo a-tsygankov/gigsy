@@ -62,4 +62,36 @@ describe("OfflineDataService", () => {
     await data.getReportSummary();
     expect(reports.getReportSummary).toHaveBeenCalled();
   });
+
+  it("rejects zero/negative money before it can reach the outbox", async () => {
+    // A locally-stored bad amount would sync-error later and be
+    // poison-dropped — block it at the write, offline included.
+    const { data, store, engine } = makeService();
+    const SVC = "22222222-2222-4222-8222-222222222222";
+    const PAY = "33333333-3333-4333-8333-333333333333";
+    const EXP = "44444444-4444-4444-8444-444444444444";
+
+    await expect(data.putGig(G1, { amountOfferedCents: 0 })).rejects.toThrow(
+      /positive/,
+    );
+    await expect(
+      data.putService(SVC, { gigId: G1, description: "x", amountPaidCents: -1 }),
+    ).rejects.toThrow(/positive/);
+    await expect(data.putPayment(PAY, { amountCents: 0 })).rejects.toThrow(
+      /positive/,
+    );
+    await expect(data.putExpense(EXP, { amountCents: -500 })).rejects.toThrow(
+      /positive/,
+    );
+
+    expect(await store.pendingCount()).toBe(0);
+    expect(engine.notifyLocalChange).not.toHaveBeenCalled();
+  });
+
+  it("still accepts positive amounts and null (not set)", async () => {
+    const { data } = makeService();
+    await expect(
+      data.putGig(G1, { amountOfferedCents: 15000, amountPaidCents: null }),
+    ).resolves.toMatchObject({ amountOfferedCents: 15000 });
+  });
 });

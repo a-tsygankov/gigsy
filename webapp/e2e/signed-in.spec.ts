@@ -61,9 +61,11 @@ test("a completed unpaid gig with a service reaches the dashboard drill-down", a
   // server-computed, so the data must be synced before it can show.
   await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 15_000 });
 
-  // Dashboard: the job shows in "waiting to be paid".
+  // Dashboard: the job shows in "waiting to be paid". Prior e2e runs
+  // accumulate rows on the shared dev user — assert on the first
+  // match rather than a unique one.
   await page.getByRole("link", { name: "Home" }).click();
-  const row = page.getByTestId("unpaid-jobs").getByText("$190.00");
+  const row = page.getByTestId("unpaid-jobs").getByText("$190.00").first();
   await expect(row).toBeVisible({ timeout: 15_000 });
 });
 

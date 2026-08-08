@@ -53,6 +53,15 @@ describe("/api/expenses", () => {
     expect(res.status).toBe(400);
   });
 
+  it("400s on zero or negative amounts", async () => {
+    expect(
+      (await api(U1, "PUT", `/api/expenses/${E1}`, { amountCents: 0 })).status,
+    ).toBe(400);
+    expect(
+      (await api(U1, "PUT", `/api/expenses/${E1}`, { amountCents: -500 })).status,
+    ).toBe(400);
+  });
+
   it("delete is user-scoped", async () => {
     await api(U1, "PUT", `/api/expenses/${E1}`, { amountCents: 100 });
     expect((await api(U2, "DELETE", `/api/expenses/${E1}`)).status).toBe(404);

@@ -9,6 +9,11 @@ import { GIG_STATUSES } from "../db/schema.ts";
 
 export const entityId = z.string().uuid();
 
+// Money is always strictly positive when present — a zero or negative
+// payment/expense/offer is a data-entry mistake, and "no amount" is
+// expressed as null, never 0 (user requirement 2026-08-08).
+const positiveCents = z.number().int().positive();
+
 export const ClientInput = z.object({
   name: z.string().min(1).max(200),
   contactInfo: z.string().max(1000).nullish(),
@@ -24,8 +29,8 @@ export const GigInput = z.object({
   location: z.string().max(500).nullish(),
   dateTime: z.number().int().nullish(),
   calendarEventId: z.string().max(200).nullish(),
-  amountOfferedCents: z.number().int().nullish(),
-  amountPaidCents: z.number().int().nullish(),
+  amountOfferedCents: positiveCents.nullish(),
+  amountPaidCents: positiveCents.nullish(),
   notes: z.string().max(4000).nullish(),
   source: z.enum(GIG_SOURCES).default("manual"),
 });
@@ -34,8 +39,8 @@ export type GigInputT = z.infer<typeof GigInput>;
 export const ServiceInput = z.object({
   gigId: entityId,
   description: z.string().min(1).max(1000),
-  amountOfferedCents: z.number().int().nullish(),
-  amountPaidCents: z.number().int().nullish(),
+  amountOfferedCents: positiveCents.nullish(),
+  amountPaidCents: positiveCents.nullish(),
   paymentId: entityId.nullish(),
   isCompleted: z.boolean().default(false),
 });
@@ -45,7 +50,7 @@ export type ServiceInputT = z.infer<typeof ServiceInput>;
 // endpoint (server-controlled keys).
 export const PaymentInput = z.object({
   gigId: entityId.nullish(),
-  amountCents: z.number().int(),
+  amountCents: positiveCents,
   paidAt: z.number().int().nullish(),
   notes: z.string().max(4000).nullish(),
 });
@@ -53,7 +58,7 @@ export type PaymentInputT = z.infer<typeof PaymentInput>;
 
 export const ExpenseInput = z.object({
   gigId: entityId.nullish(),
-  amountCents: z.number().int(),
+  amountCents: positiveCents,
   category: z.string().max(100).nullish(),
   receiptR2Key: z.string().max(500).nullish(),
   notes: z.string().max(4000).nullish(),
