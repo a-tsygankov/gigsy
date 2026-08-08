@@ -128,6 +128,42 @@ describe("LocalStore CRUD + outbox", () => {
     expect(ops[0]?.op).toBe("upsert");
   });
 
+  it("stores services and payments with byGig queries and outbox ops", async () => {
+    const { store } = makeStore(() => 1000);
+    const PAY = "44444444-4444-4444-8444-444444444444";
+    const SVC = "55555555-5555-4555-8555-555555555555";
+
+    await store.putGig(G1, { status: "confirmed" });
+    await store.putPayment(PAY, { gigId: G1, amountCents: 5000 });
+    await store.putService(SVC, {
+      gigId: G1,
+      description: "Extra table",
+      amountOfferedCents: 5000,
+      paymentId: PAY,
+      isCompleted: true,
+    });
+
+    const services = await store.listServicesByGig(G1);
+    expect(services).toHaveLength(1);
+    expect(services[0]?.isCompleted).toBe(true);
+    expect((await store.listPaymentsByGig(G1))[0]?.amountCents).toBe(5000);
+
+    const ops = await store.pendingOps();
+    expect(ops.map((o) => o.entity).sort()).toEqual(["gig", "payment", "service"]);
+  });
+
+  it("removing a service enqueues its delete op", async () => {
+    const { store } = makeStore();
+    const SVC = "55555555-5555-4555-8555-555555555555";
+    await store.putGig(G1, {});
+    await store.putService(SVC, { gigId: G1, description: "x" });
+    await store.removeService(SVC);
+
+    expect(await store.getService(SVC)).toBeNull();
+    const op = (await store.pendingOps()).find((o) => o.entity === "service");
+    expect(op?.op).toBe("delete");
+  });
+
   it("different users get isolated databases", async () => {
     const a = makeStore(() => 1, "user-a");
     const b = makeStore(() => 1, "user-b");

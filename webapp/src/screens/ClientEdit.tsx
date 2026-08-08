@@ -1,11 +1,52 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
-import type { ClientInput } from "../lib/types.ts";
+import type { Gig, ClientInput } from "../lib/types.ts";
+import { formatMoney } from "../lib/format.ts";
 import { Header } from "../components/Header.tsx";
+import { StatusPill } from "../components/StatusPill.tsx";
 import { Field } from "../components/Scaffold.tsx";
 import { btnDanger, btnGhost, btnPrimary, inputCls } from "../components/ui.ts";
+
+/** One row in the client's job history. */
+function JobRow({ gig }: { gig: Gig }) {
+  return (
+    <Link
+      to={`/gigs/${gig.id}`}
+      className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-shadow hover:shadow"
+    >
+      <span className="min-w-0 truncate text-slate-700">
+        {gig.dateTime !== null
+          ? new Date(gig.dateTime).toLocaleDateString()
+          : "No date"}
+        {gig.location !== null ? ` · ${gig.location}` : ""}
+      </span>
+      <span className="ml-2 flex shrink-0 items-center gap-2">
+        {(gig.amountPaidCents ?? gig.amountOfferedCents) !== null && (
+          <span className="text-xs font-semibold text-slate-700">
+            {formatMoney(gig.amountPaidCents ?? gig.amountOfferedCents ?? 0)}
+          </span>
+        )}
+        <StatusPill status={gig.status} />
+      </span>
+    </Link>
+  );
+}
+
+function JobGroup({ title, gigs }: { title: string; gigs: Gig[] }) {
+  if (gigs.length === 0) return null;
+  return (
+    <div>
+      <h3 className="mb-1 text-xs font-medium text-slate-500">{title}</h3>
+      <div className="space-y-2">
+        {gigs.map((gig) => (
+          <JobRow key={gig.id} gig={gig} />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function ClientEdit() {
   const { id = "new" } = useParams();
@@ -19,6 +60,12 @@ export function ClientEdit() {
     queryFn: () => api.getClient(id),
     enabled: !isNew,
   });
+  const gigs = useQuery({
+    queryKey: ["gigs"],
+    queryFn: () => api.listGigs(),
+    enabled: !isNew,
+  });
+  const clientGigs = (gigs.data ?? []).filter((g) => g.clientId === id);
 
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
@@ -116,17 +163,43 @@ export function ClientEdit() {
               </button>
             </div>
             {!isNew && (
-              <button
-                type="button"
-                className={`${btnDanger} w-full`}
-                disabled={remove.isPending}
-                onClick={() => {
-                  if (window.confirm("Delete this client? Gigs keep their history."))
-                    remove.mutate();
-                }}
-              >
-                Delete client
-              </button>
+              <>
+                {/* ── all jobs for this client, grouped by state ── */}
+                <section className="space-y-3 pt-2" data-testid="client-jobs">
+                  <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Jobs
+                  </h2>
+                  {clientGigs.length === 0 && (
+                    <p className="text-xs text-slate-400">No jobs yet for this client.</p>
+                  )}
+                  <JobGroup
+                    title="Upcoming & leads"
+                    gigs={clientGigs.filter((g) =>
+                      ["lead", "confirmed"].includes(g.status),
+                    )}
+                  />
+                  <JobGroup
+                    title="Completed — not paid"
+                    gigs={clientGigs.filter((g) => g.status === "completed")}
+                  />
+                  <JobGroup
+                    title="Paid"
+                    gigs={clientGigs.filter((g) => g.status === "paid")}
+                  />
+                </section>
+
+                <button
+                  type="button"
+                  className={`${btnDanger} w-full`}
+                  disabled={remove.isPending}
+                  onClick={() => {
+                    if (window.confirm("Delete this client? Gigs keep their history."))
+                      remove.mutate();
+                  }}
+                >
+                  Delete client
+                </button>
+              </>
             )}
           </>
         )}

@@ -119,6 +119,54 @@ describe("ApiClient", () => {
     expect(body.entries).toHaveLength(1);
   });
 
+  it("services/payments/dashboard endpoints hit the right URLs", async () => {
+    const seen: string[] = [];
+    const fetchFn = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(`${init?.method ?? "GET"} ${String(url)}`);
+      return jsonResponse(
+        String(url).includes("dashboard")
+          ? { completedCount: 0, expectedCents: 0, unpaidCents: 0, unpaidJobs: [] }
+          : String(url).includes("?") || init?.method === "PUT"
+            ? { id: "x" }
+            : { items: [] },
+      );
+    }) as typeof fetch;
+    const api = new ApiClient(stubTokens(), fetchFn);
+
+    await api.listServices();
+    await api.putService("s1", { gigId: "g1", description: "d" });
+    await api.listPayments();
+    await api.getDashboard({ futureFrom: 5, futureTo: 9 });
+
+    expect(seen).toEqual([
+      "GET /api/services",
+      "PUT /api/services/s1",
+      "GET /api/payments",
+      "GET /api/reports/dashboard?futureFrom=5&futureTo=9",
+    ]);
+  });
+
+  it("uploads a payment confirmation with bearer + content type", async () => {
+    let seenAuth = "";
+    let seenType = "";
+    let seenMethod = "";
+    const fetchFn = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      seenMethod = init?.method ?? "";
+      const headers = new Headers(init?.headers);
+      seenAuth = headers.get("Authorization") ?? "";
+      seenType = headers.get("content-type") ?? "";
+      return jsonResponse({ confirmationR2Key: "k" });
+    }) as typeof fetch;
+    const api = new ApiClient(stubTokens(), fetchFn);
+
+    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" });
+    await api.uploadPaymentConfirmation("p1", blob);
+
+    expect(seenMethod).toBe("PUT");
+    expect(seenAuth).toBe("Bearer token-1");
+    expect(seenType).toBe("image/png");
+  });
+
   it("POSTs sync ops and returns per-op results", async () => {
     let seenBody = "";
     const fetchFn = (async (_url: RequestInfo | URL, init?: RequestInit) => {

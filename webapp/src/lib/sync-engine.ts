@@ -20,7 +20,14 @@ import { appLog } from "./logger.ts";
 import type { LocalStore } from "./local-store.ts";
 import type { SyncEntityName } from "./db.ts";
 import type { SyncOp, SyncOpResult } from "./api.ts";
-import type { Client, Expense, Gig, ReportSummary } from "./types.ts";
+import type {
+  Client,
+  Expense,
+  Gig,
+  Payment,
+  ReportSummary,
+  Service,
+} from "./types.ts";
 
 /** The slice of ApiClient the engine needs (DIP — tests stub this). */
 export interface SyncApi {
@@ -28,9 +35,13 @@ export interface SyncApi {
   listGigs(): Promise<Gig[]>;
   listClients(): Promise<Client[]>;
   listExpenses(): Promise<Expense[]>;
+  listServices(): Promise<Service[]>;
+  listPayments(): Promise<Payment[]>;
   getGig(id: string): Promise<Gig>;
   getClient(id: string): Promise<Client>;
   getExpense(id: string): Promise<Expense>;
+  getService(id: string): Promise<Service>;
+  getPayment(id: string): Promise<Payment>;
 }
 
 export interface SyncState {
@@ -187,13 +198,14 @@ export class SyncEngine {
     id: string,
   ): Promise<void> {
     try {
-      const record =
-        entity === "gig"
-          ? await this.api.getGig(id)
-          : entity === "client"
-            ? await this.api.getClient(id)
-            : await this.api.getExpense(id);
-      await this.store.applyServerRecord(entity, record);
+      const getters = {
+        gig: () => this.api.getGig(id),
+        client: () => this.api.getClient(id),
+        expense: () => this.api.getExpense(id),
+        service: () => this.api.getService(id),
+        payment: () => this.api.getPayment(id),
+      } as const;
+      await this.store.applyServerRecord(entity, await getters[entity]());
     } catch (e) {
       appLog.warn("failed to adopt server copy", { entity, id, error: String(e) });
     }
@@ -205,6 +217,8 @@ export class SyncEngine {
       await this.pullEntity("gig", await this.api.listGigs());
       await this.pullEntity("client", await this.api.listClients());
       await this.pullEntity("expense", await this.api.listExpenses());
+      await this.pullEntity("service", await this.api.listServices());
+      await this.pullEntity("payment", await this.api.listPayments());
     } catch (e) {
       appLog.info("sync pull failed — will retry", { error: String(e) });
     }
@@ -212,7 +226,7 @@ export class SyncEngine {
 
   private async pullEntity(
     entity: SyncEntityName,
-    serverRows: (Gig | Client | Expense)[],
+    serverRows: (Gig | Client | Expense | Service | Payment)[],
   ): Promise<void> {
     const serverIds = new Set(serverRows.map((r) => r.id));
 

@@ -13,9 +13,13 @@ import type {
   ExpenseInput,
   Gig,
   GigInput,
+  Payment,
+  PaymentInput,
+  Service,
+  ServiceInput,
 } from "./types.ts";
 
-export type ServerRecord = Gig | Client | Expense;
+export type ServerRecord = Gig | Client | Expense | Service | Payment;
 
 function opKeyOf(entity: SyncEntityName, id: string): string {
   return `${entity}:${id}`;
@@ -143,6 +147,94 @@ export class LocalStore {
     await this.removeEntity("expense", id);
   }
 
+  // ── services ─────────────────────────────────────────────────────
+  async listServices(): Promise<Service[]> {
+    const services = await this.db.services.toArray();
+    return services.sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  async listServicesByGig(gigId: string): Promise<Service[]> {
+    const services = await this.db.services.where("gigId").equals(gigId).toArray();
+    return services.sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  async getService(id: string): Promise<Service | null> {
+    return (await this.db.services.get(id)) ?? null;
+  }
+
+  async putService(id: string, input: ServiceInput): Promise<Service> {
+    const now = this.clock();
+    const existing = await this.db.services.get(id);
+    const record: Service = {
+      id,
+      gigId: input.gigId,
+      description: input.description,
+      amountOfferedCents: input.amountOfferedCents ?? null,
+      amountPaidCents: input.amountPaidCents ?? null,
+      paymentId: input.paymentId ?? null,
+      isCompleted: input.isCompleted ?? false,
+      createdAt: existing?.createdAt ?? now,
+      modifiedAt: now,
+    };
+    const payload: ServiceInput = {
+      gigId: record.gigId,
+      description: record.description,
+      amountOfferedCents: record.amountOfferedCents,
+      amountPaidCents: record.amountPaidCents,
+      paymentId: record.paymentId,
+      isCompleted: record.isCompleted,
+    };
+    await this.write("service", id, record, payload, now);
+    return record;
+  }
+
+  async removeService(id: string): Promise<void> {
+    await this.removeEntity("service", id);
+  }
+
+  // ── payments ─────────────────────────────────────────────────────
+  async listPayments(): Promise<Payment[]> {
+    const payments = await this.db.payments.toArray();
+    return payments.sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  async listPaymentsByGig(gigId: string): Promise<Payment[]> {
+    const payments = await this.db.payments.where("gigId").equals(gigId).toArray();
+    return payments.sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  async getPayment(id: string): Promise<Payment | null> {
+    return (await this.db.payments.get(id)) ?? null;
+  }
+
+  async putPayment(id: string, input: PaymentInput): Promise<Payment> {
+    const now = this.clock();
+    const existing = await this.db.payments.get(id);
+    const record: Payment = {
+      id,
+      gigId: input.gigId ?? null,
+      amountCents: input.amountCents,
+      paidAt: input.paidAt ?? null,
+      // Server-owned; preserved locally, refreshed by pull.
+      confirmationR2Key: existing?.confirmationR2Key ?? null,
+      notes: input.notes ?? null,
+      createdAt: existing?.createdAt ?? now,
+      modifiedAt: now,
+    };
+    const payload: PaymentInput = {
+      gigId: record.gigId,
+      amountCents: record.amountCents,
+      paidAt: record.paidAt,
+      notes: record.notes,
+    };
+    await this.write("payment", id, record, payload, now);
+    return record;
+  }
+
+  async removePayment(id: string): Promise<void> {
+    await this.removeEntity("payment", id);
+  }
+
   // ── outbox + server-applied writes ──────────────────────────────
   async pendingOps(): Promise<PendingOp[]> {
     return this.db.pendingOps.orderBy("queuedAt").toArray();
@@ -188,6 +280,10 @@ export class LocalStore {
         return this.db.clients;
       case "expense":
         return this.db.expenses;
+      case "service":
+        return this.db.services;
+      case "payment":
+        return this.db.payments;
     }
   }
 

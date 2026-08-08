@@ -26,10 +26,45 @@ test.beforeEach(async ({ page, request, baseURL }) => {
   await expect(page.getByTestId("tab-bar")).toBeVisible();
 });
 
-test("dev sign-in lands on the gig list with navigation", async ({ page }) => {
+test("dev sign-in lands on the dashboard with navigation", async ({ page }) => {
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByTestId("tile-unpaid")).toBeVisible();
+  await page.getByRole("link", { name: "Gigs" }).click();
   await expect(page.getByRole("heading", { name: "Gigs" })).toBeVisible();
   await page.getByRole("link", { name: "Clients" }).click();
   await expect(page.getByRole("heading", { name: "Clients" })).toBeVisible();
+});
+
+test("a completed unpaid gig with a service reaches the dashboard drill-down", async ({
+  page,
+}) => {
+  const marker = `unpaid-booth-${Date.now()}`;
+
+  // Create a completed gig: offered 200, paid 50.
+  await page.getByRole("link", { name: "Gigs" }).click();
+  await page.getByRole("link", { name: "Add gig" }).click();
+  await page.getByLabel("Location").fill(marker);
+  await page.getByLabel("Status").selectOption("completed");
+  await page.getByLabel("Offered ($)").fill("200");
+  await page.getByLabel("Paid ($)").fill("50");
+  await page.getByRole("button", { name: "Save gig" }).click();
+
+  // Add a service on it: offered 40, unpaid.
+  await page.getByText(marker).click();
+  await page.getByRole("link", { name: "+ Add service" }).click();
+  await page.getByLabel("Description").fill("Overtime hour");
+  await page.getByLabel("Offered ($)").fill("40");
+  await page.getByRole("button", { name: "Save service" }).click();
+  await expect(page.getByText("Overtime hour")).toBeVisible();
+
+  // Wait for the outbox to drain (badge clears) — the dashboard is
+  // server-computed, so the data must be synced before it can show.
+  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 15_000 });
+
+  // Dashboard: the job shows in "waiting to be paid".
+  await page.getByRole("link", { name: "Home" }).click();
+  const row = page.getByTestId("unpaid-jobs").getByText("$190.00");
+  await expect(row).toBeVisible({ timeout: 15_000 });
 });
 
 test("a gig created while offline shows up instantly and drains on reconnect", async ({
@@ -37,6 +72,9 @@ test("a gig created while offline shows up instantly and drains on reconnect", a
   context,
 }) => {
   const marker = `offline-booth-${Date.now()}`;
+
+  await page.getByRole("link", { name: "Gigs" }).click();
+  await expect(page.getByRole("heading", { name: "Gigs" })).toBeVisible();
 
   await context.setOffline(true);
 

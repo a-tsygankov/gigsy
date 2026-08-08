@@ -8,13 +8,21 @@
  * CLIENT's edit time — it is the LWW conflict signal across devices,
  * so the edit moment (not the upload moment) must win ties.
  */
-import { ClientInput, ExpenseInput, GigInput } from "../domain/schemas.ts";
+import {
+  ClientInput,
+  ExpenseInput,
+  GigInput,
+  PaymentInput,
+  ServiceInput,
+} from "../domain/schemas.ts";
 import { ClientsRepo } from "../repos/clients.ts";
 import { ExpensesRepo } from "../repos/expenses.ts";
 import { GigsRepo } from "../repos/gigs.ts";
+import { PaymentsRepo } from "../repos/payments.ts";
+import { ServicesRepo } from "../repos/services.ts";
 import type { UpsertResult } from "../repos/clients.ts";
 
-export type SyncEntity = "client" | "gig" | "expense";
+export type SyncEntity = "client" | "gig" | "expense" | "service" | "payment";
 
 export interface SyncOpBase {
   entity: SyncEntity;
@@ -74,16 +82,19 @@ export async function applySyncOps(
   const clientsRepo = ClientsRepo.for(d1);
   const gigsRepo = GigsRepo.for(d1);
   const expensesRepo = ExpensesRepo.for(d1);
+  const servicesRepo = ServicesRepo.for(d1);
+  const paymentsRepo = PaymentsRepo.for(d1);
   const results: SyncOpResult[] = [];
 
   for (const op of ops) {
     if (op.op === "delete") {
-      const repo =
-        op.entity === "client"
-          ? clientsRepo
-          : op.entity === "gig"
-            ? gigsRepo
-            : expensesRepo;
+      const repo = {
+        client: clientsRepo,
+        gig: gigsRepo,
+        expense: expensesRepo,
+        service: servicesRepo,
+        payment: paymentsRepo,
+      }[op.entity];
       const removed = await repo.remove(userId, op.id);
       results.push(removed ? applied(op.id) : skipped(op.id, "not found"));
       continue;
@@ -142,6 +153,74 @@ export async function applySyncOps(
                 amountPaidCents: parsed.data.amountPaidCents ?? null,
                 notes: parsed.data.notes ?? null,
                 source: parsed.data.source,
+              },
+              { now, modifiedAt: op.modifiedAt },
+            ),
+          ),
+        );
+        break;
+      }
+      case "service": {
+        const parsed = ServiceInput.safeParse(op.payload);
+        if (!parsed.success) {
+          results.push(errored(op.id, "invalid payload"));
+          break;
+        }
+        if ((await gigsRepo.get(userId, parsed.data.gigId)) === null) {
+          results.push(errored(op.id, "gigId does not reference your gig"));
+          break;
+        }
+        if (
+          parsed.data.paymentId != null &&
+          (await paymentsRepo.get(userId, parsed.data.paymentId)) === null
+        ) {
+          results.push(errored(op.id, "paymentId does not reference your payment"));
+          break;
+        }
+        const existing = await servicesRepo.get(userId, op.id);
+        results.push(
+          await lwwUpsert(op.id, op.modifiedAt, existing, () =>
+            servicesRepo.upsert(
+              userId,
+              op.id,
+              {
+                gigId: parsed.data.gigId,
+                description: parsed.data.description,
+                amountOfferedCents: parsed.data.amountOfferedCents ?? null,
+                amountPaidCents: parsed.data.amountPaidCents ?? null,
+                paymentId: parsed.data.paymentId ?? null,
+                isCompleted: parsed.data.isCompleted,
+              },
+              { now, modifiedAt: op.modifiedAt },
+            ),
+          ),
+        );
+        break;
+      }
+      case "payment": {
+        const parsed = PaymentInput.safeParse(op.payload);
+        if (!parsed.success) {
+          results.push(errored(op.id, "invalid payload"));
+          break;
+        }
+        if (
+          parsed.data.gigId != null &&
+          (await gigsRepo.get(userId, parsed.data.gigId)) === null
+        ) {
+          results.push(errored(op.id, "gigId does not reference your gig"));
+          break;
+        }
+        const existing = await paymentsRepo.get(userId, op.id);
+        results.push(
+          await lwwUpsert(op.id, op.modifiedAt, existing, () =>
+            paymentsRepo.upsert(
+              userId,
+              op.id,
+              {
+                gigId: parsed.data.gigId ?? null,
+                amountCents: parsed.data.amountCents,
+                paidAt: parsed.data.paidAt ?? null,
+                notes: parsed.data.notes ?? null,
               },
               { now, modifiedAt: op.modifiedAt },
             ),

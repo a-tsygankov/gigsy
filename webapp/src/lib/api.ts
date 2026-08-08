@@ -13,11 +13,16 @@ import type { AuthApi, AuthSession, SessionTokens } from "./auth-store.ts";
 import type {
   Client,
   ClientInput,
+  DashboardSummary,
   Expense,
   ExpenseInput,
   Gig,
   GigInput,
+  Payment,
+  PaymentInput,
   ReportSummary,
+  Service,
+  ServiceInput,
 } from "./types.ts";
 
 export interface TokenSource {
@@ -123,9 +128,73 @@ export class ApiClient {
     return this.request("DELETE", `/api/expenses/${id}`);
   }
 
+  // ── services ─────────────────────────────────────────────────────
+  async listServices(): Promise<Service[]> {
+    return (await this.request<{ items: Service[] }>("GET", "/api/services")).items;
+  }
+  getService(id: string): Promise<Service> {
+    return this.request("GET", `/api/services/${id}`);
+  }
+  putService(id: string, input: ServiceInput): Promise<Service> {
+    return this.request("PUT", `/api/services/${id}`, input);
+  }
+  deleteService(id: string): Promise<void> {
+    return this.request("DELETE", `/api/services/${id}`);
+  }
+
+  // ── payments ─────────────────────────────────────────────────────
+  async listPayments(): Promise<Payment[]> {
+    return (await this.request<{ items: Payment[] }>("GET", "/api/payments")).items;
+  }
+  getPayment(id: string): Promise<Payment> {
+    return this.request("GET", `/api/payments/${id}`);
+  }
+  putPayment(id: string, input: PaymentInput): Promise<Payment> {
+    return this.request("PUT", `/api/payments/${id}`, input);
+  }
+  deletePayment(id: string): Promise<void> {
+    return this.request("DELETE", `/api/payments/${id}`);
+  }
+
+  /** Online-only: upload the proof photo/mail for a payment. */
+  async uploadPaymentConfirmation(
+    id: string,
+    file: Blob,
+  ): Promise<{ confirmationR2Key: string }> {
+    const token = await this.tokens.getAccessToken();
+    const res = await this.fetchFn(`/api/payments/${id}/confirmation`, {
+      method: "PUT",
+      headers: {
+        ...(token !== null ? { Authorization: `Bearer ${token}` } : {}),
+        "content-type": file.type || "application/octet-stream",
+      },
+      body: file,
+    });
+    if (!res.ok) throw new ApiError(res.status, "confirmation upload failed");
+    return (await res.json()) as { confirmationR2Key: string };
+  }
+
+  /** Fetch the confirmation object for preview; null when absent. */
+  async getPaymentConfirmationBlob(id: string): Promise<Blob | null> {
+    const token = await this.tokens.getAccessToken();
+    const res = await this.fetchFn(`/api/payments/${id}/confirmation`, {
+      headers: token !== null ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return res.blob();
+  }
+
   // ── reports ──────────────────────────────────────────────────────
   getReportSummary(): Promise<ReportSummary> {
     return this.request("GET", "/api/reports/summary");
+  }
+
+  getDashboard(window: { futureFrom?: number; futureTo?: number } = {}): Promise<DashboardSummary> {
+    const params = new URLSearchParams();
+    if (window.futureFrom !== undefined) params.set("futureFrom", String(window.futureFrom));
+    if (window.futureTo !== undefined) params.set("futureTo", String(window.futureTo));
+    const qs = params.toString();
+    return this.request("GET", `/api/reports/dashboard${qs ? `?${qs}` : ""}`);
   }
 
   // ── sync (offline outbox drain, docs/plan.md §7) ─────────────────
@@ -140,7 +209,7 @@ export class ApiClient {
 }
 
 export interface SyncOp {
-  entity: "client" | "gig" | "expense";
+  entity: "client" | "gig" | "expense" | "service" | "payment";
   op: "upsert" | "delete";
   id: string;
   /** Client edit time (epoch ms) — the LWW conflict signal. */

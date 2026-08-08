@@ -5,6 +5,7 @@ import type { Bindings } from "../env.ts";
 import { requireAuth, type AuthVars } from "../middleware/auth.ts";
 import { entityId } from "../domain/schemas.ts";
 import { reportSummary, type ReportFilters } from "../services/reports.ts";
+import { dashboardSummary, type DashboardWindow } from "../services/dashboard.ts";
 
 const SummaryQuery = z.object({
   from: z.coerce.number().int().nonnegative().optional(),
@@ -22,4 +23,22 @@ export const reportsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars 
       ...(q.clientId !== undefined ? { clientId: q.clientId } : {}),
     };
     return c.json(await reportSummary(c.env.DB, c.get("userId"), filters));
-  });
+  })
+  .get(
+    "/dashboard",
+    zValidator(
+      "query",
+      z.object({
+        futureFrom: z.coerce.number().int().nonnegative().optional(),
+        futureTo: z.coerce.number().int().nonnegative().optional(),
+      }),
+    ),
+    async (c) => {
+      const q = c.req.valid("query");
+      const window: DashboardWindow = {
+        ...(q.futureFrom !== undefined ? { futureFrom: q.futureFrom } : {}),
+        ...(q.futureTo !== undefined ? { futureTo: q.futureTo } : {}),
+      };
+      return c.json(await dashboardSummary(c.env.DB, c.get("userId"), window));
+    },
+  );

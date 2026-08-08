@@ -9,9 +9,9 @@
  * idempotent and LWW anyway).
  */
 import Dexie, { type EntityTable } from "dexie";
-import type { Client, Expense, Gig } from "./types.ts";
+import type { Client, Expense, Gig, Payment, Service } from "./types.ts";
 
-export type SyncEntityName = "client" | "gig" | "expense";
+export type SyncEntityName = "client" | "gig" | "expense" | "service" | "payment";
 
 export interface PendingOp {
   /** `${entity}:${entityId}` — primary key, one op per record. */
@@ -31,6 +31,8 @@ export class GigsyUserDB extends Dexie {
   gigs!: EntityTable<Gig, "id">;
   clients!: EntityTable<Client, "id">;
   expenses!: EntityTable<Expense, "id">;
+  services!: EntityTable<Service, "id">;
+  payments!: EntityTable<Payment, "id">;
   pendingOps!: EntityTable<PendingOp, "opKey">;
 
   constructor(userId: string) {
@@ -40,6 +42,11 @@ export class GigsyUserDB extends Dexie {
       clients: "id, name, modifiedAt",
       expenses: "id, createdAt, modifiedAt",
       pendingOps: "opKey, queuedAt",
+    });
+    // v2: gig services + payment entries (dashboard feature).
+    this.version(2).stores({
+      services: "id, gigId, modifiedAt",
+      payments: "id, gigId, createdAt, modifiedAt",
     });
   }
 }
