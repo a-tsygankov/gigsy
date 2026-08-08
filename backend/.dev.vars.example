@@ -1,3 +1,9 @@
 # Copy to .dev.vars (gitignored) — wrangler dev overlays these on
 # wrangler.toml [vars] for LOCAL runs only.
 ENVIRONMENT=development
+# Dev-only fake secrets so local wrangler dev can issue sessions
+# (test-login, JWTs). Production values come from `wrangler secret put`.
+AUTH_SECRET=local-dev-auth-secret-do-not-ship
+REFRESH_TOKEN_ENC_KEY=bG9jYWwtZGV2LWtleS1sb2NhbC1kZXYta2V5LTEyMzQ=
+GOOGLE_CLIENT_SECRET=local-dev-unused
+GEMINI_API_KEY=local-dev-unused

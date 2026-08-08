@@ -1,12 +1,12 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { useServices } from "../lib/app-context.tsx";
+import { useData } from "../lib/app-context.tsx";
 import { Header } from "../components/Header.tsx";
 import { EmptyState, Fab, ListSkeleton } from "../components/Scaffold.tsx";
 import { card } from "../components/ui.ts";
 
 export function Clients() {
-  const { api } = useServices();
+  const api = useData();
   const clients = useQuery({
     queryKey: ["clients"],
     queryFn: () => api.listClients(),

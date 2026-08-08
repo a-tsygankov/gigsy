@@ -124,11 +124,76 @@ describe("POST /api/auth/google", () => {
 });
 
 describe("GET /api/auth/config", () => {
-  it("is public and returns the Google client id", async () => {
+  it("is public and returns the Google client id + test-auth flag", async () => {
     const app = appWith();
     const res = await app.request("/api/auth/config", {}, testEnv());
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ googleClientId: CLIENT_ID });
+    expect(await res.json()).toEqual({
+      googleClientId: CLIENT_ID,
+      testAuthEnabled: true,
+    });
+  });
+
+  it("reports test auth disabled in production", async () => {
+    const app = appWith();
+    const res = await app.request(
+      "/api/auth/config",
+      {},
+      { ...testEnv(), ENVIRONMENT: "production" },
+    );
+    expect(((await res.json()) as { testAuthEnabled: boolean }).testAuthEnabled).toBe(
+      false,
+    );
+  });
+});
+
+describe("POST /api/auth/test-login (testing bypass — never in production)", () => {
+  it("issues a working session for an arbitrary email outside production", async () => {
+    const app = appWith();
+    const res = await post(app, "/api/auth/test-login", {
+      email: "e2e@test.local",
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as LoginBody;
+    expect(body.user.email).toBe("e2e@test.local");
+
+    const claims = await verifyAccessToken({
+      token: body.accessToken,
+      secret: env.AUTH_SECRET,
+    });
+    expect(claims).toEqual({ userId: body.user.id });
+    expect(body.refreshToken.length).toBeGreaterThanOrEqual(32);
+  });
+
+  it("reuses the same user on repeat test logins", async () => {
+    const app = appWith();
+    const first = (await (
+      await post(app, "/api/auth/test-login", { email: "e2e@test.local" })
+    ).json()) as LoginBody;
+    const second = (await (
+      await post(app, "/api/auth/test-login", { email: "e2e@test.local" })
+    ).json()) as LoginBody;
+    expect(second.user.id).toBe(first.user.id);
+  });
+
+  it("is a 404 in production — indistinguishable from a missing route", async () => {
+    const app = appWith();
+    const res = await app.request(
+      "/api/auth/test-login",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "e2e@test.local" }),
+      },
+      { ...testEnv(), ENVIRONMENT: "production" },
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("400s on a malformed email", async () => {
+    const app = appWith();
+    const res = await post(app, "/api/auth/test-login", { email: "nope" });
+    expect(res.status).toBe(400);
   });
 });
 

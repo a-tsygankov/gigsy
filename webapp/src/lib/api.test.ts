@@ -101,4 +101,44 @@ describe("ApiClient", () => {
     const api = new ApiClient(stubTokens(), fetchFn);
     await expect(api.deleteExpense("e1")).resolves.toBeUndefined();
   });
+
+  it("fetches debug logs with the bearer token", async () => {
+    let seenAuth = "";
+    let seenUrl = "";
+    const fetchFn = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      seenUrl = String(url);
+      seenAuth = new Headers(init?.headers).get("Authorization") ?? "";
+      return jsonResponse({ entries: [{ ts: 1, level: "info", msg: "m" }] });
+    }) as typeof fetch;
+
+    const api = new ApiClient(stubTokens(), fetchFn);
+    const body = await api.getDebugLogs(25);
+
+    expect(seenUrl).toBe("/api/debug/logs?limit=25");
+    expect(seenAuth).toBe("Bearer token-1");
+    expect(body.entries).toHaveLength(1);
+  });
+
+  it("POSTs sync ops and returns per-op results", async () => {
+    let seenBody = "";
+    const fetchFn = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      seenBody = String(init?.body);
+      return jsonResponse({ results: [{ id: "x", status: "applied" }] });
+    }) as typeof fetch;
+
+    const api = new ApiClient(stubTokens(), fetchFn);
+    const ops = [
+      {
+        entity: "client" as const,
+        op: "upsert" as const,
+        id: "x",
+        modifiedAt: 5,
+        payload: { name: "A" },
+      },
+    ];
+    const body = await api.sync(ops);
+
+    expect(JSON.parse(seenBody)).toEqual({ ops });
+    expect(body.results[0]).toEqual({ id: "x", status: "applied" });
+  });
 });

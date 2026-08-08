@@ -93,6 +93,12 @@ export class AuthManager {
     await this.setSession(session, session.user);
   }
 
+  /** Install a session obtained outside the Google flow (the
+   * non-production test-login) — identical persistence semantics. */
+  async adoptSession(session: AuthSession): Promise<void> {
+    await this.setSession(session, session.user);
+  }
+
   /** App start: resurrect the session from the persisted refresh
    * token. A rejected token (rotated elsewhere / expired) wipes
    * local state — the user just sees the login screen. */

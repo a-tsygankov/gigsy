@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { useServices } from "../lib/app-context.tsx";
+import { useData } from "../lib/app-context.tsx";
 import { formatMoney } from "../lib/format.ts";
 import { Header } from "../components/Header.tsx";
 import { StatusPill } from "../components/StatusPill.tsx";
@@ -19,7 +19,7 @@ function dateLine(ms: number | null): string {
 }
 
 export function Gigs() {
-  const { api } = useServices();
+  const api = useData();
   const gigs = useQuery({ queryKey: ["gigs"], queryFn: () => api.listGigs() });
   const clients = useQuery({
     queryKey: ["clients"],
