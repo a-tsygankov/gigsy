@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "webapp",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "dev", "--port", "5192", "--strictPort"],
+      "cwd": "webapp",
+      "port": 5192
+    }
+  ]
+}

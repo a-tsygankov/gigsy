@@ -1,0 +1,202 @@
+name: Deploy
+
+# Auto-deploys backend (D1 migrations + Worker) and webapp (Pages) on
+# every push to main. Path filters keep PRs and unrelated commits cheap:
+# the backend job only runs when backend/** changed, same for webapp.
+#
+# Required secrets (bootstrap via scripts/setup-secrets.ps1):
+#   CLOUDFLARE_API_KEY     — Cloudflare *API token* (not the legacy
+#                            global API key) with Workers + D1 +
+#                            Pages edit scopes. Mapped at the use
+#                            site to the env var CLOUDFLARE_API_TOKEN
+#                            that wrangler reads at runtime.
+#   CLOUDFLARE_ACCOUNT_ID  — 32-char hex from the dashboard sidebar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      webapp:  ${{ steps.filter.outputs.webapp }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            webapp:
+              - 'webapp/**'
+
+  backend-test:
+    name: Backend test + typecheck
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@v4
+      # pnpm version comes from packageManager in root package.json.
+      # Setting `version:` here would clash with that and fail the run.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  backend-deploy:
+    name: Backend deploy
+    needs: [changes, backend-test]
+    # Path filter handles the common case (push to main with
+    # backend/** changes). workflow_dispatch is the manual escape
+    # hatch for when migrations land via a workflow-only PR or a
+    # prior deploy failed before applying them.
+    if: |
+      (github.event_name == 'push' && needs.changes.outputs.backend == 'true') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@v4
+      # pnpm version comes from packageManager in root package.json.
+      # Setting `version:` here would clash with that and fail the run.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      # Wrangler tracks applied migrations in d1_migrations — no
+      # continue-on-error tolerance loop needed.
+      - name: Apply D1 migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm db:migrate:remote
+
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:   ${{ secrets.CLOUDFLARE_API_KEY }}
+          accountId:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: backend
+          command: deploy
+
+  webapp-build:
+    name: Webapp typecheck + build
+    needs: changes
+    if: needs.changes.outputs.webapp == 'true'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: webapp } }
+    steps:
+      - uses: actions/checkout@v4
+      # pnpm version comes from packageManager in root package.json.
+      # Setting `version:` here would clash with that and fail the run.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm typecheck
+      - run: pnpm build
+
+  # On PRs only: deploy this PR's webapp to a per-branch Cloudflare
+  # Pages preview so the E2E job below runs against the actual code
+  # under review (the production alias only updates on push-to-main).
+  # E2E targets the exact deployment URL wrangler returns, so branch
+  # names containing "/" (e.g. feat/foo) work without slug guessing.
+  webapp-preview-deploy:
+    name: Webapp preview deploy (PR)
+    needs: [changes, webapp-build]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.webapp == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      preview_url: ${{ steps.deploy.outputs.deployment-url }}
+    defaults: { run: { working-directory: webapp } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm build
+      - name: Deploy to Pages (branch preview)
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:  ${{ secrets.CLOUDFLARE_API_KEY }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: webapp
+          command: pages deploy dist --project-name=gigsy-webapp --branch=${{ github.head_ref }} --commit-dirty=true
+
+  webapp-e2e:
+    name: Webapp E2E (Playwright)
+    needs: [changes, webapp-preview-deploy]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.webapp == 'true'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: webapp } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Run E2E against branch preview
+        env:
+          E2E_BASE_URL: ${{ needs.webapp-preview-deploy.outputs.preview_url }}
+        run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: webapp/playwright-report
+          retention-days: 7
+
+  webapp-deploy:
+    name: Webapp deploy
+    needs: [changes, webapp-build]
+    # Same path-filter + dispatch escape hatch as backend-deploy —
+    # without this, manually-dispatched runs only deploy the backend
+    # half and the SPA falls out of sync.
+    if: |
+      (github.event_name == 'push' && needs.changes.outputs.webapp == 'true') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: webapp } }
+    steps:
+      - uses: actions/checkout@v4
+      # pnpm version comes from packageManager in root package.json.
+      # Setting `version:` here would clash with that and fail the run.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm build
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:  ${{ secrets.CLOUDFLARE_API_KEY }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: webapp
+          command: pages deploy dist --project-name=gigsy-webapp --branch=main

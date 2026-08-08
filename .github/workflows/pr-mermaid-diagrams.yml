@@ -1,0 +1,25 @@
+name: PR Diagrams
+
+# Consumer stub for the reusable workflow at:
+#   https://github.com/a-tsygankov/tools/tree/main/pr-mermaid-diagrams
+#
+# Posts Claude-generated Mermaid diagrams as sticky PR comments.
+# Overview mode: auto on every push.
+# Per-file mode: comment `/diagrams per-file` (or `/diagrams path/a.ts ...`) on a PR.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  diagrams:
+    uses: a-tsygankov/tools/.github/workflows/pr-mermaid-diagrams.yml@v2
+    secrets:
+      PR_MERMAID_ANTHROPIC_API_KEY: ${{ secrets.PR_MERMAID_ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    permissions:
+      pull-requests: write
+      contents: read
+      issues: read

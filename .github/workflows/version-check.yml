@@ -1,0 +1,35 @@
+name: Version bump check
+
+# Fails the PR if any component (webapp, worker code, or schema
+# migrations) was modified WITHOUT a corresponding patch version bump.
+# The three version sources are:
+#
+#   webapp     webapp/package.json  ".version"
+#   worker     backend/package.json  ".version"
+#   schema     backend/migrations/   new numbered .sql file
+#
+# Doc-only PRs (*.md, docs/**) are exempt. See
+# scripts/check_version_bump.py for the full ruleset + extension
+# points.
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Verify patch bump
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # fetch-depth: 0 materialises the full history so the script
+          # can `git show base_ref:path` to diff against. Without it,
+          # the shallow clone only has the head commit and the diff
+          # against `origin/main` fails.
+          fetch-depth: 0
+
+      - name: Run version-bump check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python3 scripts/check_version_bump.py

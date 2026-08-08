@@ -1,0 +1,50 @@
+name = "gigsy-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Run once to provision (or `scripts/setup-secrets.ps1 -Provision`),
+# then paste the D1 ID in below:
+#   wrangler d1 create gigsy-db
+#   wrangler r2 bucket create gigsy-receipts
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gigsy-db"
+# Placeholder — replace with the ID printed by `wrangler d1 create`.
+# Local dev + tests don't validate it; remote deploy/migrate do.
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "RECEIPTS"
+bucket_name = "gigsy-receipts"
+
+# Calendar sync fan-out (Phase 6) — iterate users with pending
+# calendar-relevant changes every 15 min. The scheduled() stub in
+# src/index.ts is already exported, so enabling this is config-only.
+# Commented out until Phase 6 so we don't burn cron invocations on a
+# no-op.
+# [triggers]
+# crons = ["*/15 * * * *"]
+
+[vars]
+ENVIRONMENT = "development"
+# Public OAuth client ID (not a secret — it ships to the browser).
+# Create at https://console.cloud.google.com/apis/credentials with the
+# Calendar API enabled; paste the "Web application" client ID here.
+GOOGLE_CLIENT_ID = ""
+# AI extraction provider selection (docs/plan.md §8). Deliberately
+# config, not code — swap provider/model without touching call sites.
+AI_PROVIDER = "gemini"
+AI_MODEL = "gemini-2.5-flash"
+# Secrets — set via `wrangler secret put` (bootstrap with
+# scripts/setup-secrets.ps1 -Cloudflare). Full matrix: docs/plan.md §11.
+#   AUTH_SECRET             — HS256 JWT signing key
+#   REFRESH_TOKEN_ENC_KEY   — AES-GCM key for users.google_refresh_token_enc
+#   GOOGLE_CLIENT_SECRET    — OAuth code -> refresh token exchange
+#   GEMINI_API_KEY          — primary extraction provider
+#   ANTHROPIC_API_KEY       — optional fallback provider
+
+[observability]
+enabled = true

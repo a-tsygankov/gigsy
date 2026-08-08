@@ -1,0 +1,44 @@
+# Node
+node_modules/
+.pnpm-store/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Build output
+dist/
+build/
+.cache/
+*.tsbuildinfo
+
+# Cloudflare / Wrangler
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# Drizzle
+drizzle/meta/
+.drizzle/
+
+# Vite
+*.local
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Secrets
+.env
+.env.*
+!.env.example
+# setup-secrets.ps1 is committed with placeholders; a filled-in copy
+# must never be. Keep local copies under this name:
+scripts/setup-secrets.local.ps1

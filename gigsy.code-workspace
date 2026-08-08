@@ -1,0 +1,17 @@
+{
+  "folders": [
+    { "name": "gigsy", "path": "." },
+    { "name": "backend", "path": "backend" },
+    { "name": "webapp", "path": "webapp" }
+  ],
+  "settings": {
+    "files.eol": "\n",
+    "typescript.tsdk": "node_modules/typescript/lib"
+  },
+  "extensions": {
+    "recommendations": [
+      "bradlc.vscode-tailwindcss",
+      "esbenp.prettier-vscode"
+    ]
+  }
+}

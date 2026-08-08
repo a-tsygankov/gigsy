@@ -1,0 +1,22 @@
+{
+  "name": "gigsy",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Gigsy — personal gig-work tracker (PWA + Cloudflare Workers). See docs/plan.md.",
+  "scripts": {
+    "dev:backend": "pnpm --filter gigsy-backend dev",
+    "dev:webapp": "pnpm --filter gigsy-webapp dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "db:generate": "pnpm --filter gigsy-backend db:generate",
+    "db:migrate:local": "pnpm --filter gigsy-backend db:migrate:local",
+    "db:migrate:remote": "pnpm --filter gigsy-backend db:migrate:remote",
+    "deploy:backend": "pnpm --filter gigsy-backend deploy",
+    "deploy:webapp": "pnpm --filter gigsy-webapp deploy"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20"
+  }
+}
