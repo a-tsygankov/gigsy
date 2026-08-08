@@ -101,6 +101,26 @@ describe("POST /api/sync — service + payment entities", () => {
     expect(body.results[0]?.status).toBe("error");
   });
 
+  it("errors per-op on non-positive amounts (sync path enforces too)", async () => {
+    const body = await sync(U1, [
+      {
+        entity: "payment",
+        op: "upsert",
+        id: PAY,
+        modifiedAt: 5000,
+        payload: { amountCents: 0 },
+      },
+      {
+        entity: "service",
+        op: "upsert",
+        id: SVC,
+        modifiedAt: 5000,
+        payload: { gigId: GIG, description: "x", amountOfferedCents: -100 },
+      },
+    ]);
+    expect(body.results.map((r) => r.status)).toEqual(["error", "error"]);
+  });
+
   it("applies delete ops for both entities", async () => {
     await sync(U1, [
       {

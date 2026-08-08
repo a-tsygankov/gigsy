@@ -96,6 +96,10 @@ export function PaymentEdit() {
       setError("Enter a valid dollar amount.");
       return;
     }
+    if (cents <= 0) {
+      setError("A payment must be greater than zero.");
+      return;
+    }
     setError(null);
     save.mutate({
       amountCents: cents,

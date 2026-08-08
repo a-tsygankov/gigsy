@@ -95,6 +95,13 @@ export function ServiceEdit() {
       setError("Paid amount isn't a valid dollar value.");
       return;
     }
+    if (
+      (offeredCents !== null && offeredCents <= 0) ||
+      (paidCents !== null && paidCents <= 0)
+    ) {
+      setError("Amounts must be greater than zero — leave blank when not set.");
+      return;
+    }
     setError(null);
     save.mutate({
       gigId,

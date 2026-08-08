@@ -110,6 +110,10 @@ export function GigEdit() {
       setMoneyError("Paid amount isn't a valid dollar value.");
       return;
     }
+    if ((offered !== null && offered <= 0) || (paid !== null && paid <= 0)) {
+      setMoneyError("Amounts must be greater than zero — leave blank when not set.");
+      return;
+    }
     setMoneyError(null);
     save.mutate({
       clientId: form.clientId === "" ? null : form.clientId,

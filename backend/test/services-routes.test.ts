@@ -79,6 +79,27 @@ describe("/api/services", () => {
     expect(res.status).toBe(400);
   });
 
+  it("400s on zero or negative money amounts", async () => {
+    expect(
+      (
+        await api(U1, "PUT", `/api/services/${SVC}`, {
+          gigId: GIG,
+          description: "x",
+          amountOfferedCents: 0,
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await api(U1, "PUT", `/api/services/${SVC}`, {
+          gigId: GIG,
+          description: "x",
+          amountPaidCents: -1,
+        })
+      ).status,
+    ).toBe(400);
+  });
+
   it("lists only own services; delete is scoped", async () => {
     await api(U1, "PUT", `/api/services/${SVC}`, {
       gigId: GIG,
@@ -119,6 +140,15 @@ describe("/api/payments", () => {
     expect(
       ((await res.json()) as Record<string, unknown>)["confirmationR2Key"],
     ).toBeNull();
+  });
+
+  it("400s on zero or negative payment amounts", async () => {
+    expect(
+      (await api(U1, "PUT", `/api/payments/${PAY}`, { amountCents: 0 })).status,
+    ).toBe(400);
+    expect(
+      (await api(U1, "PUT", `/api/payments/${PAY}`, { amountCents: -2500 })).status,
+    ).toBe(400);
   });
 
   it("rejects a foreign gig link; scoping on get/delete", async () => {

@@ -63,6 +63,15 @@ describe("/api/gigs", () => {
     expect(res.status).toBe(400);
   });
 
+  it("400s on zero or negative money (null means not set)", async () => {
+    expect(
+      (await api(U1, "PUT", `/api/gigs/${G1}`, { amountOfferedCents: 0 })).status,
+    ).toBe(400);
+    expect(
+      (await api(U1, "PUT", `/api/gigs/${G1}`, { amountPaidCents: -100 })).status,
+    ).toBe(400);
+  });
+
   it("lists only own gigs", async () => {
     await api(U1, "PUT", `/api/gigs/${G1}`, {});
     const res = await api(U2, "GET", "/api/gigs");

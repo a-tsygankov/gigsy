@@ -55,7 +55,11 @@ Conventions:
 - **Timestamps are epoch milliseconds (INTEGER).** `modified_at` set on
   insert and bumped on every update — the conflict-resolution signal for
   offline sync (last-write-wins by `modified_at`).
-- **Money is integer cents** (`amount_offered_cents`), never REAL.
+- **Money is integer cents** (`amount_offered_cents`), never REAL, and
+  **strictly positive when present** — payments, expenses, and
+  offered/paid amounts reject zero and negatives at the zod boundary
+  (CRUD + sync), in the offline data service, and in the forms;
+  "no amount" is always `null`, never `0`.
 - Every query scoped `WHERE user_id = ?` from the verified JWT claim.
   This is the entire multi-tenancy boundary; never trust a
   client-supplied user ID.
