@@ -11,6 +11,9 @@ export default defineWorkersConfig({
           // Synthetic secrets so tests exercise the real code paths
           // without real credentials. Values are intentionally fake.
           bindings: {
+            // Tests assert the env echo — pin it regardless of what
+            // wrangler.toml [vars] ships to production.
+            ENVIRONMENT: "development",
             AUTH_SECRET: "integration-test-secret",
             REFRESH_TOKEN_ENC_KEY: "dGVzdC1rZXktdGVzdC1rZXktdGVzdC1rZXktdGVzdCE=",
             GOOGLE_CLIENT_SECRET: "test-google-client-secret",

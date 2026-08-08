@@ -11,9 +11,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "gigsy-db"
-# Placeholder — replace with the ID printed by `wrangler d1 create`.
-# Local dev + tests don't validate it; remote deploy/migrate do.
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "c835bca1-4691-4651-8ac1-91de4d6ca458"
 migrations_dir = "migrations"
 
 [[r2_buckets]]
@@ -29,7 +27,10 @@ bucket_name = "gigsy-receipts"
 # crons = ["*/15 * * * *"]
 
 [vars]
-ENVIRONMENT = "development"
+# What `wrangler deploy` ships. Local dev overrides this via
+# .dev.vars (gitignored — copy .dev.vars.example); tests pin their
+# own value in vitest.config.ts miniflare bindings.
+ENVIRONMENT = "production"
 # Public OAuth client ID (not a secret — it ships to the browser).
 # Create at https://console.cloud.google.com/apis/credentials with the
 # Calendar API enabled; paste the "Web application" client ID here.
