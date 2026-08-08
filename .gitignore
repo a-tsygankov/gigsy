@@ -28,6 +28,10 @@ test-results/
 playwright-report/
 playwright/.cache/
 
+# Python (version tooling)
+__pycache__/
+*.pyc
+
 # OS / editor
 .DS_Store
 Thumbs.db

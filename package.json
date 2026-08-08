@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "description": "Gigsy — personal gig-work tracker (PWA + Cloudflare Workers). See docs/plan.md.",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
     "dev:backend": "pnpm --filter gigsy-backend dev",
     "dev:webapp": "pnpm --filter gigsy-webapp dev",
     "build": "pnpm -r build",

@@ -29,6 +29,9 @@ jobs:
           # against `origin/main` fails.
           fetch-depth: 0
 
+      - name: Version tooling unit tests
+        run: python3 -m unittest discover -s scripts
+
       - name: Run version-bump check
         env:
           BASE_REF: ${{ github.base_ref }}

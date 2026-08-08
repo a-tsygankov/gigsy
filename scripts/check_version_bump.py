@@ -1,66 +1,37 @@
 #!/usr/bin/env python3
-"""Verify every component touched by this PR bumped its patch version.
+"""CI gate: verify every tier touched by this PR bumped its version.
 
 Runs as the `version-check` GitHub Actions job (see
 .github/workflows/version-check.yml). Local invocation:
 
     BASE_REF=main python3 scripts/check_version_bump.py
 
-The three tracked components and their version sources:
+Tier definitions live in version_rules.py (shared with the pre-commit
+auto-bumper, scripts/bump_versions.py — with the hook installed this
+check should never fire; it's the backstop for commits made without
+hooks, e.g. via the GitHub web UI).
 
-  webapp         webapp/package.json            `.version`
-  worker         backend/package.json           `.version`
-  schema         backend/migrations/*.sql       new migration filename
+  webapp   webapp/package.json   `.version`
+  worker   backend/package.json  `.version`
+  schema   backend/migrations/   a NEW numbered .sql file is the bump
 
-A PR touching `webapp/**` (excluding docs / lockfiles) is required to
-bump `webapp/package.json` `.version` vs. the base branch; same for
-the worker. Schema is "bumped" by adding a new numbered migration file.
-
-Pure-doc PRs (README, handoff, *.md) are exempt — they don't touch any
-component's runtime artefact.
-
-The script exits non-zero if ANY touched component skipped its bump,
-with `::error::` annotations the GitHub UI surfaces in the file diff.
+Pure-doc PRs (README, handoff, *.md, docs/) are exempt. Exits non-zero
+if ANY touched tier skipped its bump, with `::error::` annotations the
+GitHub UI surfaces in the file diff.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
-from dataclasses import dataclass
-from typing import Callable, Optional
+from pathlib import Path
+from typing import Optional
 
+sys.path.insert(0, str(Path(__file__).parent))
 
-# Doc-only files don't trigger a version bump.
-DOC_SUFFIXES = (".md", ".txt")
-DOC_PATHS = (
-    "gigsy-handoff.md",
-    "README.md",
-    "AGENTS.md",
-    "CLAUDE.md",
-    "docs/",
-)
-
-
-def is_doc_file(path: str) -> bool:
-    return path.endswith(DOC_SUFFIXES) or any(
-        path == p or path.startswith(p) for p in DOC_PATHS
-    )
-
-
-@dataclass
-class Check:
-    name: str
-    # Predicate: does this file path belong to this component?
-    matches: Callable[[str], bool]
-    # Path to the version-source file (always relative to repo root).
-    version_file: str
-    # Extract the version string from the file's full content. Returns
-    # None if the parser can't find one (parse error / format change).
-    extract: Callable[[str], Optional[str]]
+from version_rules import SCHEMA_DIR, TIERS, bump_patch, is_doc_file
 
 
 def package_json_version(content: str) -> Optional[str]:
@@ -68,37 +39,6 @@ def package_json_version(content: str) -> Optional[str]:
         return str(json.loads(content)["version"])
     except (KeyError, json.JSONDecodeError):
         return None
-
-
-def in_webapp(p: str) -> bool:
-    return p.startswith("webapp/") and not is_doc_file(p)
-
-
-def in_worker(p: str) -> bool:
-    # backend/migrations/ is the SCHEMA component; the worker check
-    # excludes it so a pure-migration PR only fails the schema check
-    # (not both). All other backend/** counts as worker code.
-    return (
-        p.startswith("backend/")
-        and not p.startswith("backend/migrations/")
-        and not is_doc_file(p)
-    )
-
-
-CHECKS: list[Check] = [
-    Check(
-        name="webapp",
-        matches=in_webapp,
-        version_file="webapp/package.json",
-        extract=package_json_version,
-    ),
-    Check(
-        name="worker",
-        matches=in_worker,
-        version_file="backend/package.json",
-        extract=package_json_version,
-    ),
-]
 
 
 def sh(cmd: list[str]) -> str:
@@ -137,19 +77,18 @@ def check_schema(touched: list[str], added: list[str]) -> Optional[str]:
     numbered migration file)."""
     touched_migrations = [
         p for p in touched
-        if p.startswith("backend/migrations/")
-        and not is_doc_file(p)
+        if p.startswith(SCHEMA_DIR) and not is_doc_file(p)
     ]
     if not touched_migrations:
         return None
     new_migrations = [
         p for p in added
-        if p.startswith("backend/migrations/") and p.endswith(".sql")
+        if p.startswith(SCHEMA_DIR) and p.endswith(".sql")
     ]
     if new_migrations:
         return None
     return (
-        "backend/migrations/ touched without a new migration .sql file. "
+        f"{SCHEMA_DIR} touched without a new migration .sql file. "
         "Schema changes need a new numbered migration; edit-in-place "
         "would skip Wrangler's d1_migrations tracker and fail to apply "
         "in production."
@@ -175,18 +114,18 @@ def main() -> int:
 
     errors: list[tuple[str, str]] = []
 
-    for check in CHECKS:
-        touched = [p for p in files if check.matches(p)]
+    for tier in TIERS:
+        touched = [p for p in files if tier.matches(p)]
         if not touched:
             continue
 
-        head_content = show_at(check.version_file, "HEAD")
-        base_content = show_at(check.version_file, base_ref)
+        head_content = show_at(tier.version_file, "HEAD")
+        base_content = show_at(tier.version_file, base_ref)
 
         if head_content is None:
             errors.append((
-                check.name,
-                f"{check.version_file} not found at HEAD",
+                tier.name,
+                f"{tier.version_file} not found at HEAD",
             ))
             continue
         if base_content is None:
@@ -194,23 +133,24 @@ def main() -> int:
             # definition. Nothing to compare against.
             continue
 
-        head_v = check.extract(head_content)
-        base_v = check.extract(base_content)
+        head_v = package_json_version(head_content)
+        base_v = package_json_version(base_content)
         if head_v is None or base_v is None:
             errors.append((
-                check.name,
-                f"could not parse version from {check.version_file}",
+                tier.name,
+                f"could not parse version from {tier.version_file}",
             ))
             continue
         if head_v == base_v:
             sample = ", ".join(touched[:3])
             more = f" (+{len(touched) - 3} more)" if len(touched) > 3 else ""
             errors.append((
-                check.name,
-                f"{check.version_file} version unchanged ({head_v}). "
-                f"This PR touches {len(touched)} file(s) in {check.name} "
+                tier.name,
+                f"{tier.version_file} version unchanged ({head_v}). "
+                f"This PR touches {len(touched)} file(s) in {tier.name} "
                 f"({sample}{more}); bump the patch version (e.g. {head_v} → "
-                f"{_bump_patch(head_v)}).",
+                f"{bump_patch(head_v)}), or install the auto-bump hook "
+                f"(pnpm install sets core.hooksPath).",
             ))
 
     try:
@@ -229,18 +169,8 @@ def main() -> int:
                   file=sys.stderr)
         return 1
 
-    print("All touched components bumped their version.")
+    print("All touched tiers bumped their version.")
     return 0
-
-
-def _bump_patch(v: str) -> str:
-    """Suggest the next patch (M.m.p → M.m.p+1). Best-effort; if the
-    version doesn't look like semver we just append '.1' so the error
-    message stays useful."""
-    parts = v.split(".")
-    if len(parts) == 3 and all(p.isdigit() for p in parts):
-        return f"{parts[0]}.{parts[1]}.{int(parts[2]) + 1}"
-    return f"{v}.1"
 
 
 if __name__ == "__main__":

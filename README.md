@@ -58,10 +58,25 @@ pnpm dev:webapp           # in another     — vite dev (proxies /api → :8787)
 3. Apply migrations: `pnpm db:migrate:local` (dev) /
    `pnpm db:migrate:remote` (prod — CI also does this on deploy).
 
-## CI/CD
+## CI/CD & versioning
 
 Push to `main` auto-deploys backend (D1 migrations + Worker) and webapp
 (Pages) via [`deploy.yml`](.github/workflows/deploy.yml), path-filtered
 per package. PRs get a branch preview on Pages + Playwright E2E against
-it, and must patch-bump the version of any touched component
-([`version-check.yml`](.github/workflows/version-check.yml)).
+it.
+
+Every tier (webapp, worker, schema) has its own version and it bumps
+**automatically**: `pnpm install` installs a pre-commit hook
+([`.githooks/pre-commit`](.githooks/pre-commit) →
+[`scripts/bump_versions.py`](scripts/bump_versions.py)) that
+patch-bumps whichever tiers the commit touches. Schema versions by
+adding a new numbered migration.
+[`version-check.yml`](.github/workflows/version-check.yml) is the CI
+backstop for commits made without hooks.
+
+## Hidden debug console
+
+Tap the **Gigsy logo 3× quickly** inside the app to open the debug
+console: tier versions (client/worker/schema + env), app settings, and
+the client- and worker-side log feeds (`GET /api/version`,
+`GET /api/debug/logs`).

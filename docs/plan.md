@@ -200,9 +200,49 @@ Bootstrap: `scripts/setup-secrets.ps1` (placeholders → `gh secret set`
   `workflow_dispatch` escape hatch deploys both.
 - `version-check.yml`: PR fails if webapp/worker/schema touched without
   a patch bump (`scripts/check_version_bump.py`, firmware check
-  removed).
+  removed). Runs the version-tooling unit tests first.
 - `pr-mermaid-diagrams.yml`: consumer stub of
   `a-tsygankov/tools` reusable workflow.
+
+## 12.1 Per-tier versioning (automatic)
+
+Every tier carries its own version; touching a tier bumps it
+automatically:
+
+- **webapp** — `webapp/package.json` `.version`, inlined into the
+  bundle at build time (`src/lib/versions.ts`).
+- **worker** — `backend/package.json` `.version`, inlined via JSON
+  import (`src/version.ts`).
+- **schema** — the latest applied migration name, read at runtime from
+  wrangler's `d1_migrations` tracker; a new numbered `.sql` file IS the
+  bump.
+
+Mechanics: the pre-commit hook (`.githooks/pre-commit`, installed by
+`pnpm install` via the root `prepare` script) runs
+`scripts/bump_versions.py`, which patch-bumps every tier the staged
+diff touches — unless that commit already changes the tier's version.
+Tier classification lives once in `scripts/version_rules.py`, shared
+with the CI gate `check_version_bump.py` (the backstop for hookless
+commits). `GET /api/version` reports worker + schema versions.
+
+## 12.2 Hidden debug console (webapp)
+
+Three taps on the app logo (within 600ms per tap —
+`src/lib/multi-tap.ts`, configurable) open a console overlay
+(`src/components/HiddenConsole.tsx`) that shows, in order:
+
+1. **Versions** on open — client / worker / schema / env, degrading to
+   explicit `unreachable` / `none applied` markers offline.
+2. **Settings** — the persisted app settings
+   (`src/lib/settings.ts`: typed store, injectable storage).
+3. **Client logs** — sink-based logger (`src/lib/logger.ts`) with a
+   ring buffer + global error/unhandledrejection capture.
+4. **Worker logs** — `GET /api/debug/logs`, served from the worker's
+   per-isolate ring buffer (`backend/src/logger.ts`); request logging
+   excludes `/api/health` and `/api/debug/*` (no feedback loop).
+
+Security note: `/api/debug/*` must move behind the JWT middleware when
+Phase 2 lands (TODO in `backend/src/routes/debug.ts`).
 
 ## 13. Phases
 

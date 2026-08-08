@@ -1,0 +1,27 @@
+#!/bin/sh
+# Auto-bump tier versions for staged changes (webapp / worker — see
+# scripts/bump_versions.py). Installed by `pnpm install` via the root
+# package.json "prepare" script:  git config core.hooksPath .githooks
+#
+# The CI version-check job stays as the backstop for commits made
+# without hooks (e.g. GitHub web UI edits).
+
+# Find a python that actually runs. On Windows, `python3` on PATH is
+# often the Microsoft Store alias stub that prints an install hint and
+# exits non-zero — `command -v` alone would pick it, so probe each
+# candidate with `-c pass`.
+PY=""
+for c in python3 python py; do
+  if command -v "$c" >/dev/null 2>&1 && "$c" -c "pass" >/dev/null 2>&1; then
+    PY="$c"
+    break
+  fi
+done
+
+if [ -z "$PY" ]; then
+  echo "pre-commit: no working python found — skipping auto version bump" >&2
+  echo "            (CI's version-check will still enforce bumps)" >&2
+  exit 0
+fi
+
+"$PY" "$(git rev-parse --show-toplevel)/scripts/bump_versions.py"

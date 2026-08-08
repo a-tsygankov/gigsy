@@ -14,6 +14,11 @@ for one-offs and one-time setup.
 | `./scripts/setup-secrets.ps1 -Cloudflare` | Set Worker secrets via `wrangler secret put` |
 | `./scripts/setup-secrets.ps1 -All` | GitHub + Cloudflare secrets in one go |
 | `python3 scripts/check_version_bump.py` | The version-check CI gate, runnable locally (`BASE_REF=main`) |
+| `python3 scripts/bump_versions.py` | Auto-bump versions of staged tiers (runs as the pre-commit hook) |
+| `python3 -m unittest discover -s scripts` | Version-tooling test suite (also runs in CI) |
+
+Tier classification is shared in `version_rules.py` — change rules
+there, both the bumper and the CI gate follow.
 
 `setup-secrets.ps1` ships with placeholders. Copy it to
 `setup-secrets.local.ps1` (gitignored), fill in the values there, and
