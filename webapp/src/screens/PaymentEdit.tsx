@@ -227,7 +227,7 @@ export function PaymentEdit() {
                 {gigId !== "" && (
                   <Link
                     to={`/gigs/${gigId}`}
-                    className="block text-center text-xs font-medium text-emerald-700 hover:underline"
+                    className="block py-2 text-center text-xs font-medium text-emerald-700 hover:underline"
                   >
                     Open related gig →
                   </Link>

@@ -44,7 +44,8 @@ export function Fab({ to, label }: { to: string; label: string }) {
     <Link
       to={to}
       aria-label={label}
-      className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full
+      className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-40 flex h-14 w-14
+                 items-center justify-center rounded-full
                  bg-emerald-600 text-2xl font-light text-white shadow-lg transition-all duration-150
                  hover:bg-emerald-700 hover:shadow-xl focus:outline-none focus-visible:ring-2
                  focus-visible:ring-emerald-500 focus-visible:ring-offset-2"

@@ -19,8 +19,10 @@ export default defineConfig({
   },
   projects: [
     {
+      // Primary devices are phones — the whole suite runs at a
+      // Chromium-based handset profile (viewport, touch, mobile UA).
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: { ...devices["Pixel 7"] },
     },
   ],
 });

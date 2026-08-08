@@ -11,7 +11,8 @@ export function TabBar() {
   return (
     <nav
       data-testid="tab-bar"
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur
+                 pb-[env(safe-area-inset-bottom)]"
     >
       <div className="mx-auto flex max-w-lg">
         {TABS.map((tab) => (
