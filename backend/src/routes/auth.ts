@@ -66,6 +66,9 @@ async function issueSession(
 
 export function makeAuthRouter(deps: AuthDeps = defaultAuthDeps) {
   return new Hono<{ Bindings: Bindings }>()
+    // Public: the webapp bootstraps Google Identity Services from
+    // this so the client ID lives once, in wrangler.toml [vars].
+    .get("/config", (c) => c.json({ googleClientId: c.env.GOOGLE_CLIENT_ID }))
     .post("/google", zValidator("json", GoogleLogin), async (c) => {
       const { idToken, authCode } = c.req.valid("json");
 

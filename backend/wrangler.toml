@@ -34,7 +34,7 @@ ENVIRONMENT = "production"
 # Public OAuth client ID (not a secret — it ships to the browser).
 # Create at https://console.cloud.google.com/apis/credentials with the
 # Calendar API enabled; paste the "Web application" client ID here.
-GOOGLE_CLIENT_ID = ""
+GOOGLE_CLIENT_ID = "340454994892-ga0f49ndb2oj6pnrmp5881it6cggjnsn.apps.googleusercontent.com"
 # AI extraction provider selection (docs/plan.md §8). Deliberately
 # config, not code — swap provider/model without touching call sites.
 AI_PROVIDER = "gemini"
