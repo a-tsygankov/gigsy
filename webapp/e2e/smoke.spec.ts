@@ -17,11 +17,14 @@ test("login screen shows a sign-in path (button or config notice)", async ({
 }) => {
   await page.goto("/login");
   // Unconfigured deployment → explanatory notice; configured → the
-  // rendered GIS iframe. Exactly one of the two ever exists, so the
-  // or() locator stays unambiguous.
+  // GIS button iframe. Exactly one of the two ever exists, so the
+  // or() locator stays unambiguous. Attachment (not visibility) is
+  // the assertion: on per-PR preview origins Google mounts the
+  // iframe but collapses it to hidden because the ephemeral origin
+  // can't be on the OAuth client's authorized list (no wildcards).
   const unconfigured = page.getByTestId("login-unconfigured");
   const gisIframe = page.getByTestId("google-button-host").locator("iframe");
-  await expect(unconfigured.or(gisIframe)).toBeVisible();
+  await expect(unconfigured.or(gisIframe)).toBeAttached();
 });
 
 test("tab bar is hidden while signed out", async ({ page }) => {
