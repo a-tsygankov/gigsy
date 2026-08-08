@@ -33,11 +33,14 @@ function Tile({
         ? "text-amber-700"
         : "text-slate-900";
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+    <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <p className="truncate text-xs font-medium uppercase tracking-wide text-slate-500">
         {label}
       </p>
-      <p data-testid={testId} className={`mt-1 text-2xl font-bold ${toneCls}`}>
+      <p
+        data-testid={testId}
+        className={`mt-1 text-2xl font-bold tabular-nums tracking-tight ${toneCls}`}
+      >
         {value}
       </p>
     </div>
@@ -77,7 +80,7 @@ export function Dashboard() {
           </span>
           <select
             data-testid="dashboard-window"
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-base
                        focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
             value={windowKey}
             onChange={(e) => setWindowKey(e.target.value as typeof windowKey)}
@@ -99,25 +102,29 @@ export function Dashboard() {
 
         {summary.data !== undefined && (
           <>
-            <div className="grid grid-cols-3 gap-3">
+            {/* Hero metric full-width (money amounts never clip on
+                narrow phones), supporting tiles in halves. */}
+            <div className="space-y-3">
               <Tile
-                label="Completed"
-                value={String(summary.data.completedCount)}
-                tone="neutral"
-                testId="tile-completed"
-              />
-              <Tile
-                label="Expected"
-                value={formatMoney(summary.data.expectedCents)}
-                tone="good"
-                testId="tile-expected"
-              />
-              <Tile
-                label="Unpaid"
+                label="Unpaid — waiting on clients"
                 value={formatMoney(summary.data.unpaidCents)}
                 tone="warn"
                 testId="tile-unpaid"
               />
+              <div className="grid grid-cols-2 gap-3">
+                <Tile
+                  label="Expected"
+                  value={formatMoney(summary.data.expectedCents)}
+                  tone="good"
+                  testId="tile-expected"
+                />
+                <Tile
+                  label="Completed jobs"
+                  value={String(summary.data.completedCount)}
+                  tone="neutral"
+                  testId="tile-completed"
+                />
+              </div>
             </div>
 
             <section>

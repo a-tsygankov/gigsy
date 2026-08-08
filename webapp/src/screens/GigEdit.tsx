@@ -234,7 +234,7 @@ export function GigEdit() {
                     </h2>
                     <Link
                       to={`/services/new?gigId=${id}`}
-                      className="text-xs font-medium text-emerald-700 hover:underline"
+                      className="inline-block py-2 text-xs font-medium text-emerald-700 hover:underline"
                     >
                       + Add service
                     </Link>
@@ -272,7 +272,7 @@ export function GigEdit() {
                     </h2>
                     <Link
                       to={`/payments/new?gigId=${id}`}
-                      className="text-xs font-medium text-emerald-700 hover:underline"
+                      className="inline-block py-2 text-xs font-medium text-emerald-700 hover:underline"
                     >
                       + Add payment
                     </Link>

@@ -35,7 +35,10 @@ export function Header({ title }: { title: string }) {
   const tap = useConsoleTap();
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200 bg-slate-50/90 backdrop-blur">
+    <header
+      className="sticky top-0 z-30 border-b border-slate-200 bg-slate-50/90 backdrop-blur
+                 pt-[env(safe-area-inset-top)]"
+    >
       <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-3">
         <div className="flex items-baseline gap-3">
           {/* The wordmark doubles as the hidden-console trigger. */}

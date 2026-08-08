@@ -11,7 +11,7 @@ export function AuthGate() {
 
   if (!ready || (signedIn && !dataReady)) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex min-h-dvh items-center justify-center bg-slate-50">
         <div className="h-8 w-8 animate-pulse rounded-full bg-emerald-200" aria-label="Loading" />
       </div>
     );
@@ -19,7 +19,7 @@ export function AuthGate() {
   if (!signedIn) return <Navigate to="/login" replace />;
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-16 text-slate-900">
+    <div className="min-h-dvh bg-slate-50 pb-[calc(4rem+env(safe-area-inset-bottom))] text-slate-900">
       <Outlet />
       <TabBar />
     </div>

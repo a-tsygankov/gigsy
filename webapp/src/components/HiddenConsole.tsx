@@ -88,7 +88,7 @@ export function HiddenConsole({ onClose, dataSource }: Props) {
   return (
     <div
       data-testid="hidden-console"
-      className="fixed inset-x-0 bottom-0 z-50 max-h-[75vh] overflow-y-auto rounded-t-2xl border-t border-slate-300 bg-white p-4 shadow-2xl"
+      className="fixed inset-x-0 bottom-0 z-50 max-h-[75dvh] overflow-y-auto rounded-t-2xl border-t border-slate-300 bg-white p-4 shadow-2xl pb-[calc(1rem+env(safe-area-inset-bottom))]"
     >
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-bold text-slate-800">Debug console</h2>
