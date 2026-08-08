@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import pkg from "../package.json";
+import { api } from "./helpers/api.ts";
 
 type VersionBody = {
   worker: { version: string; env: string };
@@ -43,10 +44,15 @@ describe("GET /api/version", () => {
 });
 
 describe("GET /api/debug/logs", () => {
+  it("401s without a token (debug endpoints are JWT-guarded)", async () => {
+    const res = await SELF.fetch("https://localhost/api/debug/logs");
+    expect(res.status).toBe(401);
+  });
+
   it("exposes recent request logs from the ring buffer", async () => {
     await SELF.fetch("https://localhost/api/some-page-to-log");
 
-    const res = await SELF.fetch("https://localhost/api/debug/logs");
+    const res = await api("debug-user", "GET", "/api/debug/logs");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       entries: { msg: string; data?: { path?: string } }[];
@@ -57,8 +63,8 @@ describe("GET /api/debug/logs", () => {
   });
 
   it("does not log its own /api/debug requests (no feedback loop)", async () => {
-    await SELF.fetch("https://localhost/api/debug/logs");
-    const res = await SELF.fetch("https://localhost/api/debug/logs");
+    await api("debug-user", "GET", "/api/debug/logs");
+    const res = await api("debug-user", "GET", "/api/debug/logs");
     const body = (await res.json()) as {
       entries: { data?: { path?: string } }[];
     };
@@ -71,7 +77,7 @@ describe("GET /api/debug/logs", () => {
     await SELF.fetch("https://localhost/api/first");
     await SELF.fetch("https://localhost/api/second");
 
-    const res = await SELF.fetch("https://localhost/api/debug/logs?limit=1");
+    const res = await api("debug-user", "GET", "/api/debug/logs?limit=1");
     const body = (await res.json()) as {
       entries: { data?: { path?: string } }[];
     };

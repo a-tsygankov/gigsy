@@ -22,6 +22,23 @@ export const users = sqliteTable("users", {
   modifiedAt: integer("modified_at").notNull(),
 });
 
+// Opaque rotating refresh tokens (docs/plan.md §6). Only SHA-256
+// hashes are stored — mirrors migrations/0001_refresh_tokens.sql.
+export const refreshTokens = sqliteTable(
+  "refresh_tokens",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    expiresAt: integer("expires_at").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => ({
+    userIdx: index("idx_refresh_tokens_user").on(t.userId),
+  }),
+);
+
 // Agencies/companies/individuals a user works gigs for. Private per
 // user — not shared even if two users work for the same agency.
 export const clients = sqliteTable(
