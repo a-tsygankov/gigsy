@@ -3,8 +3,14 @@ import type { Bindings } from "./env.ts";
 import { log } from "./logger.ts";
 import { versionRouter } from "./routes/version.ts";
 import { debugRouter } from "./routes/debug.ts";
+import { clientsRouter } from "./routes/clients.ts";
+import { gigsRouter } from "./routes/gigs.ts";
+import { expensesRouter } from "./routes/expenses.ts";
+import { syncRouter } from "./routes/sync.ts";
+import { reportsRouter } from "./routes/reports.ts";
+import type { AuthVars } from "./middleware/auth.ts";
 
-const app = new Hono<{ Bindings: Bindings }>();
+const app = new Hono<{ Bindings: Bindings; Variables: AuthVars }>();
 
 // One JSON line per request (Workers Logs ingests these; the hidden
 // console reads them back via /api/debug/logs). Skip the noisy
@@ -30,12 +36,15 @@ app.get("/api/health", (c) =>
 app.route("/api/version", versionRouter);
 app.route("/api/debug", debugRouter);
 
-// Phase 1+ routers mount here (docs/plan.md §5):
+// User-scoped routers — each mounts requireAuth itself.
+app.route("/api/clients", clientsRouter);
+app.route("/api/gigs", gigsRouter);
+app.route("/api/expenses", expensesRouter);
+app.route("/api/sync", syncRouter);
+app.route("/api/reports", reportsRouter);
+
+// Phase 2 mounts the Google auth router here (docs/plan.md §6):
 //   app.route("/api/auth", authRouter);
-//   app.route("/api/clients", clientsRouter);
-//   app.route("/api/gigs", gigsRouter);
-//   app.route("/api/expenses", expensesRouter);
-//   app.route("/api/sync", syncRouter);
 
 export { app };
 
