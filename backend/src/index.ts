@@ -8,6 +8,7 @@ import { gigsRouter } from "./routes/gigs.ts";
 import { expensesRouter } from "./routes/expenses.ts";
 import { syncRouter } from "./routes/sync.ts";
 import { reportsRouter } from "./routes/reports.ts";
+import { makeAuthRouter } from "./routes/auth.ts";
 import type { AuthVars } from "./middleware/auth.ts";
 
 const app = new Hono<{ Bindings: Bindings; Variables: AuthVars }>();
@@ -42,9 +43,7 @@ app.route("/api/gigs", gigsRouter);
 app.route("/api/expenses", expensesRouter);
 app.route("/api/sync", syncRouter);
 app.route("/api/reports", reportsRouter);
-
-// Phase 2 mounts the Google auth router here (docs/plan.md §6):
-//   app.route("/api/auth", authRouter);
+app.route("/api/auth", makeAuthRouter());
 
 export { app };
 
