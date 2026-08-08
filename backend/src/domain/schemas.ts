@@ -31,6 +31,26 @@ export const GigInput = z.object({
 });
 export type GigInputT = z.infer<typeof GigInput>;
 
+export const ServiceInput = z.object({
+  gigId: entityId,
+  description: z.string().min(1).max(1000),
+  amountOfferedCents: z.number().int().nullish(),
+  amountPaidCents: z.number().int().nullish(),
+  paymentId: entityId.nullish(),
+  isCompleted: z.boolean().default(false),
+});
+export type ServiceInputT = z.infer<typeof ServiceInput>;
+
+// confirmationR2Key deliberately absent — set only by the upload
+// endpoint (server-controlled keys).
+export const PaymentInput = z.object({
+  gigId: entityId.nullish(),
+  amountCents: z.number().int(),
+  paidAt: z.number().int().nullish(),
+  notes: z.string().max(4000).nullish(),
+});
+export type PaymentInputT = z.infer<typeof PaymentInput>;
+
 export const ExpenseInput = z.object({
   gigId: entityId.nullish(),
   amountCents: z.number().int(),

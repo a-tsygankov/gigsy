@@ -65,6 +65,67 @@ export interface ExpenseInput {
   notes?: string | null;
 }
 
+// Additional services on a gig (client link derives through the gig).
+export interface Service {
+  id: string;
+  gigId: string;
+  description: string;
+  amountOfferedCents: number | null;
+  amountPaidCents: number | null;
+  paymentId: string | null;
+  isCompleted: boolean;
+  createdAt: number;
+  modifiedAt: number;
+}
+
+export interface ServiceInput {
+  gigId: string;
+  description: string;
+  amountOfferedCents?: number | null;
+  amountPaidCents?: number | null;
+  paymentId?: string | null;
+  isCompleted?: boolean;
+}
+
+// Money-received records; confirmationR2Key is server-owned (set by
+// the upload endpoint only).
+export interface Payment {
+  id: string;
+  gigId: string | null;
+  amountCents: number;
+  paidAt: number | null;
+  confirmationR2Key: string | null;
+  notes: string | null;
+  createdAt: number;
+  modifiedAt: number;
+}
+
+export interface PaymentInput {
+  gigId?: string | null;
+  amountCents: number;
+  paidAt?: number | null;
+  notes?: string | null;
+}
+
+export interface UnpaidJob {
+  gigId: string;
+  clientId: string | null;
+  clientName: string | null;
+  dateTime: number | null;
+  offeredCents: number;
+  paidCents: number;
+  servicesOfferedCents: number;
+  servicesPaidCents: number;
+  outstandingCents: number;
+}
+
+export interface DashboardSummary {
+  completedCount: number;
+  expectedCents: number;
+  unpaidCents: number;
+  unpaidJobs: UnpaidJob[];
+}
+
 export interface SessionUser {
   id: string;
   email: string;

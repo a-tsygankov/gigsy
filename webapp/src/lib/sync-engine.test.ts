@@ -29,6 +29,9 @@ function serverGig(overrides: Partial<Gig> = {}): Gig {
 }
 
 function stubApi(overrides: Partial<SyncApi> = {}): SyncApi {
+  const unexpected = vi.fn(async () => {
+    throw new Error("unexpected");
+  });
   return {
     sync: vi.fn(async (ops: SyncOp[]) => ({
       results: ops.map((o) => ({ id: o.id, status: "applied" as const })),
@@ -36,13 +39,13 @@ function stubApi(overrides: Partial<SyncApi> = {}): SyncApi {
     listGigs: vi.fn(async () => []),
     listClients: vi.fn(async () => []),
     listExpenses: vi.fn(async () => []),
+    listServices: vi.fn(async () => []),
+    listPayments: vi.fn(async () => []),
     getGig: vi.fn(async () => serverGig()),
-    getClient: vi.fn(async () => {
-      throw new Error("unexpected");
-    }),
-    getExpense: vi.fn(async () => {
-      throw new Error("unexpected");
-    }),
+    getClient: unexpected as never,
+    getExpense: unexpected as never,
+    getService: unexpected as never,
+    getPayment: unexpected as never,
     ...overrides,
   };
 }
@@ -160,6 +163,30 @@ describe("SyncEngine.pull", () => {
     await engine.pull();
 
     expect(await store.getGig(G1)).toBeNull();
+  });
+
+  it("pulls service rows from the server", async () => {
+    const SVC = "66666666-6666-4666-8666-666666666666";
+    const api = stubApi({
+      listServices: vi.fn(async () => [
+        {
+          id: SVC,
+          gigId: G1,
+          description: "server service",
+          amountOfferedCents: 100,
+          amountPaidCents: null,
+          paymentId: null,
+          isCompleted: false,
+          createdAt: 1,
+          modifiedAt: 2,
+        },
+      ]),
+    });
+    const { store, engine } = makeEngine(api);
+
+    await engine.pull();
+
+    expect((await store.getService(SVC))?.description).toBe("server service");
   });
 
   it("keeps locally-created rows awaiting their first sync", async () => {

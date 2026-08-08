@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
 import { GIG_STATUSES, type GigInput, type GigStatus } from "../lib/types.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
+import { formatMoney } from "../lib/format.ts";
 import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
 import { Header } from "../components/Header.tsx";
 import { Field } from "../components/Scaffold.tsx";
@@ -70,12 +71,23 @@ export function GigEdit() {
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
 
+  const services = useQuery({
+    queryKey: ["services", id],
+    queryFn: () => api.listServicesByGig(id),
+    enabled: !isNew,
+  });
+  const payments = useQuery({
+    queryKey: ["payments", id],
+    queryFn: () => api.listPaymentsByGig(id),
+    enabled: !isNew,
+  });
+
   const save = useMutation({
     mutationFn: (input: GigInput) =>
       api.putGig(isNew ? crypto.randomUUID() : id, input),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["gigs"] });
-      navigate("/");
+      navigate("/gigs");
     },
   });
 
@@ -83,7 +95,7 @@ export function GigEdit() {
     mutationFn: () => api.deleteGig(id),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["gigs"] });
-      navigate("/");
+      navigate("/gigs");
     },
   });
 
@@ -207,21 +219,99 @@ export function GigEdit() {
               >
                 {save.isPending ? "Saving…" : "Save gig"}
               </button>
-              <button type="button" className={btnGhost} onClick={() => navigate("/")}>
+              <button type="button" className={btnGhost} onClick={() => navigate("/gigs")}>
                 Cancel
               </button>
             </div>
+
             {!isNew && (
-              <button
-                type="button"
-                className={`${btnDanger} w-full`}
-                disabled={remove.isPending}
-                onClick={() => {
-                  if (window.confirm("Delete this gig?")) remove.mutate();
-                }}
-              >
-                Delete gig
-              </button>
+              <>
+                {/* ── Additional services (addable at any time) ── */}
+                <section className="pt-2" data-testid="gig-services">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Additional services
+                    </h2>
+                    <Link
+                      to={`/services/new?gigId=${id}`}
+                      className="text-xs font-medium text-emerald-700 hover:underline"
+                    >
+                      + Add service
+                    </Link>
+                  </div>
+                  {services.data?.length === 0 && (
+                    <p className="text-xs text-slate-400">None yet.</p>
+                  )}
+                  <div className="space-y-2">
+                    {services.data?.map((svc) => (
+                      <Link
+                        key={svc.id}
+                        to={`/services/${svc.id}`}
+                        className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-shadow hover:shadow"
+                      >
+                        <span className="min-w-0 truncate">
+                          <span className={svc.isCompleted ? "text-slate-900" : "text-slate-600"}>
+                            {svc.isCompleted ? "✓ " : "○ "}
+                            {svc.description}
+                          </span>
+                        </span>
+                        <span className="ml-2 shrink-0 text-xs font-semibold text-slate-700">
+                          {formatMoney(svc.amountPaidCents ?? 0)} /{" "}
+                          {formatMoney(svc.amountOfferedCents ?? 0)}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+
+                {/* ── Payments received for this gig ── */}
+                <section className="pt-2" data-testid="gig-payments">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Payments
+                    </h2>
+                    <Link
+                      to={`/payments/new?gigId=${id}`}
+                      className="text-xs font-medium text-emerald-700 hover:underline"
+                    >
+                      + Add payment
+                    </Link>
+                  </div>
+                  {payments.data?.length === 0 && (
+                    <p className="text-xs text-slate-400">None yet.</p>
+                  )}
+                  <div className="space-y-2">
+                    {payments.data?.map((payment) => (
+                      <Link
+                        key={payment.id}
+                        to={`/payments/${payment.id}`}
+                        className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-shadow hover:shadow"
+                      >
+                        <span className="text-slate-600">
+                          {payment.paidAt !== null
+                            ? new Date(payment.paidAt).toLocaleDateString()
+                            : "No date"}
+                          {payment.confirmationR2Key !== null && " · 📎 proof"}
+                        </span>
+                        <span className="shrink-0 font-semibold text-emerald-700">
+                          {formatMoney(payment.amountCents)}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+
+                <button
+                  type="button"
+                  className={`${btnDanger} w-full`}
+                  disabled={remove.isPending}
+                  onClick={() => {
+                    if (window.confirm("Delete this gig?")) remove.mutate();
+                  }}
+                >
+                  Delete gig
+                </button>
+              </>
             )}
           </>
         )}

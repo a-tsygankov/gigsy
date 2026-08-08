@@ -1,7 +1,8 @@
 import { NavLink } from "react-router-dom";
 
 const TABS = [
-  { to: "/", label: "Gigs", end: true },
+  { to: "/", label: "Home", end: true },
+  { to: "/gigs", label: "Gigs", end: false },
   { to: "/clients", label: "Clients", end: false },
   { to: "/expenses", label: "Expenses", end: false },
 ];

@@ -11,18 +11,29 @@ import type { ApiClient } from "./api.ts";
 import type {
   Client,
   ClientInput,
+  DashboardSummary,
   Expense,
   ExpenseInput,
   Gig,
   GigInput,
+  Payment,
+  PaymentInput,
   ReportSummary,
+  Service,
+  ServiceInput,
 } from "./types.ts";
 
 export class OfflineDataService {
   constructor(
     private readonly store: LocalStore,
     private readonly engine: Pick<SyncEngine, "notifyLocalChange">,
-    private readonly reportsApi: Pick<ApiClient, "getReportSummary">,
+    private readonly reportsApi: Pick<
+      ApiClient,
+      | "getReportSummary"
+      | "getDashboard"
+      | "uploadPaymentConfirmation"
+      | "getPaymentConfirmationBlob"
+    >,
   ) {}
 
   private nudge(): void {
@@ -85,8 +96,59 @@ export class OfflineDataService {
     this.nudge();
   }
 
-  // ── reports ──────────────────────────────────────────────────────
+  // ── services ─────────────────────────────────────────────────────
+  listServices(): Promise<Service[]> {
+    return this.store.listServices();
+  }
+  listServicesByGig(gigId: string): Promise<Service[]> {
+    return this.store.listServicesByGig(gigId);
+  }
+  async getService(id: string): Promise<Service> {
+    return this.require(await this.store.getService(id));
+  }
+  async putService(id: string, input: ServiceInput): Promise<Service> {
+    const record = await this.store.putService(id, input);
+    this.nudge();
+    return record;
+  }
+  async deleteService(id: string): Promise<void> {
+    await this.store.removeService(id);
+    this.nudge();
+  }
+
+  // ── payments ─────────────────────────────────────────────────────
+  listPayments(): Promise<Payment[]> {
+    return this.store.listPayments();
+  }
+  listPaymentsByGig(gigId: string): Promise<Payment[]> {
+    return this.store.listPaymentsByGig(gigId);
+  }
+  async getPayment(id: string): Promise<Payment> {
+    return this.require(await this.store.getPayment(id));
+  }
+  async putPayment(id: string, input: PaymentInput): Promise<Payment> {
+    const record = await this.store.putPayment(id, input);
+    this.nudge();
+    return record;
+  }
+  async deletePayment(id: string): Promise<void> {
+    await this.store.removePayment(id);
+    this.nudge();
+  }
+
+  /** Online-only (deferred photo queue generalizes this later). */
+  uploadPaymentConfirmation(id: string, file: Blob) {
+    return this.reportsApi.uploadPaymentConfirmation(id, file);
+  }
+  getPaymentConfirmationBlob(id: string): Promise<Blob | null> {
+    return this.reportsApi.getPaymentConfirmationBlob(id);
+  }
+
+  // ── reports (server-computed) ────────────────────────────────────
   getReportSummary(): Promise<ReportSummary> {
     return this.reportsApi.getReportSummary();
+  }
+  getDashboard(window: { futureFrom?: number; futureTo?: number } = {}): Promise<DashboardSummary> {
+    return this.reportsApi.getDashboard(window);
   }
 }

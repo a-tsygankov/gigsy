@@ -91,6 +91,57 @@ export const gigs = sqliteTable(
   }),
 );
 
+// Money-received records. confirmation_r2_key is server-controlled
+// (upload endpoint only) — proof photo / mail screenshot in R2.
+export const payments = sqliteTable(
+  "payments",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    gigId: text("gig_id").references(() => gigs.id),
+    amountCents: integer("amount_cents").notNull(),
+    paidAt: integer("paid_at"),
+    confirmationR2Key: text("confirmation_r2_key"),
+    notes: text("notes"),
+    createdAt: integer("created_at").notNull(),
+    modifiedAt: integer("modified_at").notNull(),
+  },
+  (t) => ({
+    userIdx: index("idx_payments_user").on(t.userId),
+    gigIdx: index("idx_payments_gig").on(t.gigId),
+  }),
+);
+
+// Additional services on a gig (docs plan: addable at any time with a
+// promised payment). Client link derives through the gig.
+export const gigServices = sqliteTable(
+  "gig_services",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    gigId: text("gig_id")
+      .notNull()
+      .references(() => gigs.id),
+    description: text("description").notNull(),
+    amountOfferedCents: integer("amount_offered_cents"),
+    amountPaidCents: integer("amount_paid_cents"),
+    paymentId: text("payment_id").references(() => payments.id),
+    isCompleted: integer("is_completed", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    createdAt: integer("created_at").notNull(),
+    modifiedAt: integer("modified_at").notNull(),
+  },
+  (t) => ({
+    userIdx: index("idx_gig_services_user").on(t.userId),
+    gigIdx: index("idx_gig_services_gig").on(t.gigId),
+  }),
+);
+
 export const expenses = sqliteTable(
   "expenses",
   {
