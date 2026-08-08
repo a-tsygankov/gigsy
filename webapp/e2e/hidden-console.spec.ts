@@ -1,9 +1,10 @@
 import { test, expect } from "@playwright/test";
 
-// The hidden debug console: 3 taps on the app logo. Displays tier
-// versions on open, app settings, client-side logs, worker-side logs.
-// Worker-dependent values degrade gracefully (the spec must pass
-// against a Pages preview with no worker deployed).
+// The hidden debug console: 3 taps on the app logo — on the login
+// screen's wordmark pre-auth (the header logo shares the same
+// trigger once signed in). Displays tier versions on open, app
+// settings, client-side logs, worker-side logs. Worker-dependent
+// values degrade gracefully (unreachable / 401 pre-login).
 
 async function openConsole(page: import("@playwright/test").Page) {
   const logo = page.getByRole("heading", { name: "Gigsy" });

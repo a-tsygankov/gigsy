@@ -123,6 +123,15 @@ describe("POST /api/auth/google", () => {
   });
 });
 
+describe("GET /api/auth/config", () => {
+  it("is public and returns the Google client id", async () => {
+    const app = appWith();
+    const res = await app.request("/api/auth/config", {}, testEnv());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ googleClientId: CLIENT_ID });
+  });
+});
+
 describe("POST /api/auth/refresh", () => {
   it("rotates: old refresh token dies, the new pair works", async () => {
     const app = appWith();
