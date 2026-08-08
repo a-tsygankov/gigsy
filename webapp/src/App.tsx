@@ -11,6 +11,9 @@ import { Expenses } from "./screens/Expenses.tsx";
 import { ExpenseEdit } from "./screens/ExpenseEdit.tsx";
 import { ServiceEdit } from "./screens/ServiceEdit.tsx";
 import { PaymentEdit } from "./screens/PaymentEdit.tsx";
+import { Capture } from "./screens/Capture.tsx";
+import { Drafts } from "./screens/Drafts.tsx";
+import { DraftReview } from "./screens/DraftReview.tsx";
 
 export function App() {
   return (
@@ -25,6 +28,9 @@ export function App() {
           <Route path="/gigs/:id" element={<GigEdit />} />
           <Route path="/services/:id" element={<ServiceEdit />} />
           <Route path="/payments/:id" element={<PaymentEdit />} />
+          <Route path="/capture" element={<Capture />} />
+          <Route path="/drafts" element={<Drafts />} />
+          <Route path="/drafts/:id" element={<DraftReview />} />
           <Route path="/clients" element={<Clients />} />
           <Route path="/clients/:id" element={<ClientEdit />} />
           <Route path="/expenses" element={<Expenses />} />

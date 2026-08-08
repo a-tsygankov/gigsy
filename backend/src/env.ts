@@ -12,6 +12,8 @@ export type Bindings = {
   GOOGLE_CLIENT_ID: string;
   AI_PROVIDER: string;
   AI_MODEL: string;
+  /** Max AI captures per user per UTC day (default 50). */
+  AI_DAILY_CAP?: string;
 
   // Secrets
   AUTH_SECRET: string;

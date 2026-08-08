@@ -142,6 +142,32 @@ export const gigServices = sqliteTable(
   }),
 );
 
+// AI-capture drafts (docs/plan.md §8) — the review gate between
+// photo/email capture and real records; never auto-committed.
+export const DRAFT_SOURCES = ["email", "photo"] as const;
+export type DraftSource = (typeof DRAFT_SOURCES)[number];
+export const DRAFT_STATUSES = ["pending", "confirmed", "discarded"] as const;
+export type DraftStatus = (typeof DRAFT_STATUSES)[number];
+
+export const drafts = sqliteTable(
+  "drafts",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    source: text("source").$type<DraftSource>().notNull(),
+    status: text("status").$type<DraftStatus>().notNull().default("pending"),
+    rawR2Key: text("raw_r2_key"),
+    extractedJson: text("extracted_json").notNull(),
+    createdAt: integer("created_at").notNull(),
+    modifiedAt: integer("modified_at").notNull(),
+  },
+  (t) => ({
+    userStatusIdx: index("idx_drafts_user_status").on(t.userId, t.status),
+  }),
+);
+
 export const expenses = sqliteTable(
   "expenses",
   {

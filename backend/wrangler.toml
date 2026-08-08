@@ -39,6 +39,8 @@ GOOGLE_CLIENT_ID = "340454994892-ga0f49ndb2oj6pnrmp5881it6cggjnsn.apps.googleuse
 # config, not code — swap provider/model without touching call sites.
 AI_PROVIDER = "gemini"
 AI_MODEL = "gemini-2.5-flash"
+# Cost control (docs/plan.md §8): AI captures per user per UTC day.
+AI_DAILY_CAP = "50"
 # Secrets — set via `wrangler secret put` (bootstrap with
 # scripts/setup-secrets.ps1 -Cloudflare). Full matrix: docs/plan.md §11.
 #   AUTH_SECRET             — HS256 JWT signing key

@@ -14,6 +14,7 @@ import type {
   Client,
   ClientInput,
   DashboardSummary,
+  Draft,
   Expense,
   ExpenseInput,
   Gig,
@@ -178,6 +179,55 @@ export class ApiClient {
   async getPaymentConfirmationBlob(id: string): Promise<Blob | null> {
     const token = await this.tokens.getAccessToken();
     const res = await this.fetchFn(`/api/payments/${id}/confirmation`, {
+      headers: token !== null ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return res.blob();
+  }
+
+  // ── capture + drafts (online-only, docs/plan.md §8) ──────────────
+  async capturePhoto(file: Blob): Promise<Draft> {
+    const token = await this.tokens.getAccessToken();
+    const res = await this.fetchFn("/api/capture/photo", {
+      method: "POST",
+      headers: {
+        ...(token !== null ? { Authorization: `Bearer ${token}` } : {}),
+        "content-type": file.type || "application/octet-stream",
+      },
+      body: file,
+    });
+    if (!res.ok) {
+      throw new ApiError(
+        res.status,
+        res.status === 429
+          ? "daily capture limit reached"
+          : "capture failed",
+      );
+    }
+    return (await res.json()) as Draft;
+  }
+
+  async listDrafts(status?: Draft["status"]): Promise<Draft[]> {
+    const qs = status !== undefined ? `?status=${status}` : "";
+    return (
+      await this.request<{ items: Draft[] }>("GET", `/api/drafts${qs}`)
+    ).items;
+  }
+
+  getDraft(id: string): Promise<Draft> {
+    return this.request("GET", `/api/drafts/${id}`);
+  }
+
+  setDraftStatus(
+    id: string,
+    status: "confirmed" | "discarded",
+  ): Promise<Draft> {
+    return this.request("PUT", `/api/drafts/${id}`, { status });
+  }
+
+  async getDraftRawBlob(id: string): Promise<Blob | null> {
+    const token = await this.tokens.getAccessToken();
+    const res = await this.fetchFn(`/api/drafts/${id}/raw`, {
       headers: token !== null ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) return null;

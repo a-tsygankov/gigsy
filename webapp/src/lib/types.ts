@@ -126,6 +126,30 @@ export interface DashboardSummary {
   unpaidJobs: UnpaidJob[];
 }
 
+// AI-capture drafts (review gate — server records, docs/plan.md §8).
+export interface DraftExtracted {
+  kind: "gig" | "expense" | "unknown";
+  clientName?: string | null;
+  matchedClientId?: string | null;
+  matchConfidence?: number | null;
+  location?: string | null;
+  dateTimeMs?: number | null;
+  amountOfferedCents?: number | null;
+  amountCents?: number | null;
+  category?: string | null;
+  notes?: string | null;
+}
+
+export interface Draft {
+  id: string;
+  source: "email" | "photo";
+  status: "pending" | "confirmed" | "discarded";
+  rawR2Key: string | null;
+  extracted: DraftExtracted;
+  createdAt: number;
+  modifiedAt: number;
+}
+
 export interface SessionUser {
   id: string;
   email: string;

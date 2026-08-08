@@ -14,6 +14,9 @@ export default defineWorkersConfig({
             // Tests assert the env echo — pin it regardless of what
             // wrangler.toml [vars] ships to production.
             ENVIRONMENT: "development",
+            // Worker-level capture tests run the deterministic stub;
+            // provider unit tests construct real providers directly.
+            AI_PROVIDER: "stub",
             AUTH_SECRET: "integration-test-secret",
             REFRESH_TOKEN_ENC_KEY: "dGVzdC1rZXktdGVzdC1rZXktdGVzdC1rZXktdGVzdCE=",
             GOOGLE_CLIENT_SECRET: "test-google-client-secret",
