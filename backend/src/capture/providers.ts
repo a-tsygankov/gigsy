@@ -9,6 +9,7 @@
  * to the real primary there.
  */
 import type { Bindings } from "../env.ts";
+import { log } from "../logger.ts";
 import {
   EXTRACTION_PROMPT,
   parseExtractionText,
@@ -121,14 +122,60 @@ export class StubProvider implements ExtractionProvider {
   }
 }
 
-export function providerFromEnv(env: Bindings): ExtractionProvider {
-  const provider = env.AI_PROVIDER;
-  if (provider === "anthropic" && env.ANTHROPIC_API_KEY) {
-    return new AnthropicProvider(env.AI_MODEL, env.ANTHROPIC_API_KEY);
+/**
+ * Ordered chain — the first provider to return an extraction wins
+ * (Phase 8 hardening plan). This is what keeps capture working when
+ * the primary model is rate-limited or its free tier is exhausted,
+ * the last open item in docs/plan.md §14.
+ *
+ * Falling through on `null` rather than only on transport errors is
+ * deliberate: the providers already collapse HTTP failures and
+ * unreadable replies into the same `null`, and for this workload that
+ * is useful — if one model can't read a crumpled receipt, asking the
+ * other is what a person would do. `AI_DAILY_CAP` bounds the cost at
+ * two calls per capture.
+ */
+export class FallbackProvider implements ExtractionProvider {
+  constructor(readonly providers: ExtractionProvider[]) {}
+
+  async extract(input: ExtractionInput): Promise<ExtractedDataT | null> {
+    for (const [index, provider] of this.providers.entries()) {
+      const result = await provider.extract(input);
+      if (result !== null) return result;
+      if (index < this.providers.length - 1) {
+        log.warn("extraction provider yielded nothing — trying the next", {
+          provider: provider.constructor.name,
+        });
+      }
+    }
+    return null;
   }
-  if (provider === "stub" && env.ENVIRONMENT !== "production") {
+}
+
+export function providerFromEnv(env: Bindings): ExtractionProvider {
+  // The stub is dev/e2e only and never has a partner.
+  if (env.AI_PROVIDER === "stub" && env.ENVIRONMENT !== "production") {
     return new StubProvider();
   }
-  // Default and every production fallback: the configured Gemini.
-  return new GeminiProvider(env.AI_MODEL, env.GEMINI_API_KEY);
+
+  const gemini = env.GEMINI_API_KEY
+    ? new GeminiProvider(env.AI_MODEL, env.GEMINI_API_KEY)
+    : null;
+  const anthropic = env.ANTHROPIC_API_KEY
+    ? new AnthropicProvider(env.AI_MODEL, env.ANTHROPIC_API_KEY)
+    : null;
+
+  // Primary first, then whatever else is configured. Anything other
+  // than "anthropic" — including "stub" in production — leads with
+  // Gemini, the documented default.
+  const ordered: (ExtractionProvider | null)[] =
+    env.AI_PROVIDER === "anthropic" ? [anthropic, gemini] : [gemini, anthropic];
+  const chain = ordered.filter((p): p is ExtractionProvider => p !== null);
+
+  if (chain.length === 0) {
+    // No key configured at all: keep the previous shape and let the
+    // call fail at the API, not here.
+    return new GeminiProvider(env.AI_MODEL, env.GEMINI_API_KEY);
+  }
+  return chain.length === 1 ? chain[0]! : new FallbackProvider(chain);
 }

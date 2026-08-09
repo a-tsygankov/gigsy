@@ -2,11 +2,16 @@
 import { describe, it, expect } from "vitest";
 import {
   AnthropicProvider,
+  FallbackProvider,
   GeminiProvider,
   StubProvider,
   providerFromEnv,
 } from "../src/capture/providers.ts";
 import type { Bindings } from "../src/env.ts";
+import type {
+  ExtractedDataT,
+  ExtractionProvider,
+} from "../src/capture/extraction.ts";
 
 const IMAGE_INPUT = {
   kind: "image" as const,
@@ -123,25 +128,125 @@ describe("StubProvider + providerFromEnv", () => {
     expect(result?.clientName).toBeTruthy();
   });
 
+  // One key configured: a lone provider, unwrapped — there is nothing
+  // to fall back to.
   it("selects by AI_PROVIDER and never allows stub in production", () => {
-    const base = {
+    const gemOnly = {
       AI_MODEL: "m",
       GEMINI_API_KEY: "k",
+    } as Partial<Bindings> as Bindings;
+    const anthOnly = {
+      AI_MODEL: "m",
       ANTHROPIC_API_KEY: "a",
     } as Partial<Bindings> as Bindings;
 
     expect(
-      providerFromEnv({ ...base, AI_PROVIDER: "gemini", ENVIRONMENT: "production" }),
+      providerFromEnv({ ...gemOnly, AI_PROVIDER: "gemini", ENVIRONMENT: "production" }),
     ).toBeInstanceOf(GeminiProvider);
     expect(
-      providerFromEnv({ ...base, AI_PROVIDER: "anthropic", ENVIRONMENT: "production" }),
+      providerFromEnv({ ...anthOnly, AI_PROVIDER: "anthropic", ENVIRONMENT: "production" }),
     ).toBeInstanceOf(AnthropicProvider);
     expect(
-      providerFromEnv({ ...base, AI_PROVIDER: "stub", ENVIRONMENT: "development" }),
+      providerFromEnv({ ...gemOnly, AI_PROVIDER: "stub", ENVIRONMENT: "development" }),
     ).toBeInstanceOf(StubProvider);
     // Production never runs the stub — falls back to the real primary.
     expect(
-      providerFromEnv({ ...base, AI_PROVIDER: "stub", ENVIRONMENT: "production" }),
+      providerFromEnv({ ...gemOnly, AI_PROVIDER: "stub", ENVIRONMENT: "production" }),
     ).toBeInstanceOf(GeminiProvider);
+  });
+
+  // Both keys configured: the secondary is what ANTHROPIC_API_KEY was
+  // reserved for in the secrets matrix (docs/plan.md §11).
+  it("chains the configured providers, primary first", () => {
+    const both = {
+      AI_MODEL: "m",
+      GEMINI_API_KEY: "k",
+      ANTHROPIC_API_KEY: "a",
+      ENVIRONMENT: "production",
+    } as Partial<Bindings> as Bindings;
+
+    const gemLed = providerFromEnv({ ...both, AI_PROVIDER: "gemini" });
+    expect(gemLed).toBeInstanceOf(FallbackProvider);
+    expect((gemLed as FallbackProvider).providers[0]).toBeInstanceOf(GeminiProvider);
+    expect((gemLed as FallbackProvider).providers[1]).toBeInstanceOf(AnthropicProvider);
+
+    const anthLed = providerFromEnv({ ...both, AI_PROVIDER: "anthropic" });
+    expect(anthLed).toBeInstanceOf(FallbackProvider);
+    expect((anthLed as FallbackProvider).providers[0]).toBeInstanceOf(AnthropicProvider);
+    expect((anthLed as FallbackProvider).providers[1]).toBeInstanceOf(GeminiProvider);
+  });
+
+  it("keeps the stub single — it never has a partner", () => {
+    const both = {
+      AI_MODEL: "m",
+      GEMINI_API_KEY: "k",
+      ANTHROPIC_API_KEY: "a",
+      AI_PROVIDER: "stub",
+      ENVIRONMENT: "development",
+    } as Partial<Bindings> as Bindings;
+    expect(providerFromEnv(both)).toBeInstanceOf(StubProvider);
+  });
+});
+
+describe("FallbackProvider", () => {
+  const canned: ExtractedDataT = {
+    kind: "gig",
+    clientName: "Acme",
+    location: null,
+    dateTimeMs: null,
+    amountOfferedCents: null,
+    amountCents: null,
+    category: null,
+    notes: null,
+  };
+
+  function spy(result: ExtractedDataT | null) {
+    const calls: number[] = [];
+    const provider: ExtractionProvider = {
+      extract: async () => {
+        calls.push(1);
+        return result;
+      },
+    };
+    return { provider, calls };
+  }
+
+  it("returns the primary's extraction without touching the fallback", async () => {
+    const primary = spy(canned);
+    const secondary = spy(canned);
+
+    const result = await new FallbackProvider([
+      primary.provider,
+      secondary.provider,
+    ]).extract(IMAGE_INPUT);
+
+    expect(result).toEqual(canned);
+    expect(primary.calls).toHaveLength(1);
+    expect(secondary.calls).toHaveLength(0);
+  });
+
+  // A provider collapses both transport failures and unreadable
+  // replies into null; trying the other model on either is exactly
+  // what a person would do with a crumpled receipt.
+  it("falls through to the next provider when the primary yields nothing", async () => {
+    const primary = spy(null);
+    const secondary = spy(canned);
+
+    const result = await new FallbackProvider([
+      primary.provider,
+      secondary.provider,
+    ]).extract(IMAGE_INPUT);
+
+    expect(result).toEqual(canned);
+    expect(secondary.calls).toHaveLength(1);
+  });
+
+  it("yields null once every provider has failed", async () => {
+    const result = await new FallbackProvider([
+      spy(null).provider,
+      spy(null).provider,
+    ]).extract(IMAGE_INPUT);
+
+    expect(result).toBeNull();
   });
 });

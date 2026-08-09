@@ -59,34 +59,34 @@ behaviour on extraction-provider errors / free-tier exhaustion).
 
 **Files:** `migrations/0005_calendar_cleanup.sql`, `src/db/schema.ts`, `src/repos/gigs.ts`, `src/repos/calendar-cleanup.ts`, tests
 
-- [ ] RED: deleting a gig that has a `calendar_event_id` enqueues exactly one
+- [x] RED: deleting a gig that has a `calendar_event_id` enqueues exactly one
       cleanup row for that user; deleting one without an event id enqueues
       nothing; the enqueue happens on the `/api/sync` delete path too; cleanup
       rows are user-scoped
-- [ ] GREEN; tests pass
+- [x] GREEN; tests pass
 
 ### Task 2: Drain the queue in the sync run
 
 **Files:** `src/calendar/sync-service.ts` (+ its result type), tests
 
-- [ ] RED (stub client + real D1): a queued cleanup deletes the event and clears
+- [x] RED (stub client + real D1): a queued cleanup deletes the event and clears
       the row; a 404/410 also clears it; a failed delete leaves the row for the
       next run; a cleanup failure does not hold back the gig watermark
-- [ ] GREEN; tests pass
+- [x] GREEN; tests pass
 
 ### Task 3: Provider fallback chain
 
 **Files:** `src/capture/providers.ts`, tests
 
-- [ ] RED: primary success never calls the fallback; primary null falls through
+- [x] RED: primary success never calls the fallback; primary null falls through
       to the next; all-null yields null; `providerFromEnv` builds the chain only
       when a second key exists; stub stays single and stays non-production
-- [ ] GREEN; tests pass
+- [x] GREEN; tests pass
 
 ### Task 4: Docs + verification
 
-- [ ] docs/plan.md §14: close the provider-fallback item; drop the orphaned-event
+- [x] docs/plan.md §14: close the provider-fallback item; drop the orphaned-event
       limitation note where it appears
-- [ ] Full sweep: backend + webapp `typecheck`, `test`, `build`, local e2e,
+- [x] Full sweep: backend + webapp `typecheck`, `test`, `build`, local e2e,
       `python -m unittest discover -s scripts`
-- [ ] Tree left uncommitted on dev-11 pending the user's command
+- [x] Tree left uncommitted on dev-11 pending the user's command

@@ -288,5 +288,10 @@ Phase 2 lands (TODO in `backend/src/routes/debug.ts`).
 - Fuzzy-match threshold for client names (avoid silent merges).
 - Email Routing domain for per-user forwarding addresses.
 - Where model choice lives long-term (global deployment config for now;
-  per-user setting deferred) and fallback behavior on provider errors /
-  free-tier exhaustion.
+  per-user setting deferred). ~~Fallback behavior on provider errors /
+  free-tier exhaustion.~~ **Decided in Phase 8:** `providerFromEnv`
+  builds an ordered `FallbackProvider` chain from whichever API keys are
+  configured — primary first, the other as backup — and the first
+  provider to return an extraction wins. That is what the optional
+  `ANTHROPIC_API_KEY` in §11 is for. Set it to arm the fallback; with
+  one key configured the behaviour is unchanged.

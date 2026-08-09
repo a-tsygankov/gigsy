@@ -6,7 +6,7 @@
 
 **Decisions (pinning the open items):**
 - **Only `confirmed` gigs with a date sync** — leads never do (handoff question → answered: no). `completed|paid` keep their events (history stays on the calendar).
-- **Demotion** (confirmed → lead) deletes the event and clears `calendar_event_id`. **Gig deletion does NOT clean up the event in v1** (the row is gone before cron looks) — documented limitation.
+- **Demotion** (confirmed → lead) deletes the event and clears `calendar_event_id`. ~~**Gig deletion does NOT clean up the event in v1** (the row is gone before cron looks) — documented limitation.~~ **Closed in Phase 8:** `GigsRepo.remove()` parks the event id in a `calendar_cleanup` queue (migration 0005) before deleting the row, and the sync run drains it. See `2026-08-09-phase8-hardening.md`.
 - **Change detection:** `users.last_calendar_sync_at` (migration 0004, ADD COLUMN); each run processes gigs with `modified_at > last_calendar_sync_at`. Demotions bump `modified_at`, so they're caught naturally.
 - **Events:** primary calendar; summary "clientName — location" (fallbacks), start = `date_time`, end = start + 4h (gigs carry no duration — pinned default), description = notes + "Managed by Gigsy".
 - **Auth:** decrypt `google_refresh_token_enc` → mint an access token per run (`refresh_token` grant, GOOGLE_CLIENT_ID/SECRET). A revoked token marks the user disconnected (clears the stored token) instead of failing forever.
