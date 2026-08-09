@@ -1,6 +1,6 @@
 {
   "name": "gigsy-backend",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,6 +17,7 @@
     "@hono/zod-validator": "^0.4.0",
     "drizzle-orm": "^0.36.0",
     "hono": "^4.6.0",
+    "postal-mime": "^2.7.6",
     "zod": "^3.23.0"
   },
   "devDependencies": {

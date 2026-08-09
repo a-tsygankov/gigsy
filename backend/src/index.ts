@@ -9,8 +9,14 @@ import { expensesRouter } from "./routes/expenses.ts";
 import { servicesRouter } from "./routes/services.ts";
 import { paymentsRouter } from "./routes/payments.ts";
 import { syncRouter } from "./routes/sync.ts";
+import PostalMime from "postal-mime";
 import { reportsRouter } from "./routes/reports.ts";
+import { draftsRouter } from "./routes/drafts.ts";
+import { makeCaptureRouter } from "./routes/capture.ts";
 import { makeAuthRouter } from "./routes/auth.ts";
+import { UsersRepo } from "./repos/users.ts";
+import { providerFromEnv } from "./capture/providers.ts";
+import { createDraftFromCapture } from "./capture/capture-service.ts";
 import type { AuthVars } from "./middleware/auth.ts";
 
 const app = new Hono<{ Bindings: Bindings; Variables: AuthVars }>();
@@ -47,6 +53,8 @@ app.route("/api/services", servicesRouter);
 app.route("/api/payments", paymentsRouter);
 app.route("/api/sync", syncRouter);
 app.route("/api/reports", reportsRouter);
+app.route("/api/drafts", draftsRouter);
+app.route("/api/capture", makeCaptureRouter());
 app.route("/api/auth", makeAuthRouter());
 
 export { app };
@@ -59,6 +67,43 @@ export default {
   // wrangler.toml is a config-only change.
   async scheduled(_event, _env, _ctx) {},
 
-  // Phase 5: Cloudflare Email Routing delivers per-user forwarding
-  // addresses to an `email()` handler added here.
+  // Email capture (docs/plan.md §8): Cloudflare Email Routing
+  // delivers each user's forwarding address u-<userId>@<domain> here.
+  // Activation is dashboard-side once a domain with Email Routing
+  // exists (still-open handoff item) — the handler itself is live.
+  async email(message, env, _ctx) {
+    const local = (message.to.split("@")[0] ?? "").toLowerCase();
+    if (!local.startsWith("u-")) {
+      message.setReject("Unknown recipient");
+      return;
+    }
+    const user = await UsersRepo.for(env.DB).get(local.slice(2));
+    if (user === null) {
+      message.setReject("Unknown recipient");
+      return;
+    }
+
+    const rawBytes = new Uint8Array(await new Response(message.raw).arrayBuffer());
+    const parsed = await PostalMime.parse(rawBytes);
+    const text = [parsed.subject ?? "", parsed.text ?? ""].join("\n\n").trim();
+
+    const result = await createDraftFromCapture(env, user.id, {
+      source: "email",
+      rawBytes,
+      rawContentType: "message/rfc822",
+      provider: providerFromEnv(env),
+      input: { kind: "text", text },
+      // Never silently drop a user's mail: a failed extraction still
+      // yields a reviewable draft pointing at the original.
+      fallbackExtracted: {
+        kind: "unknown",
+        notes: "Extraction failed — open the original email below.",
+      },
+    });
+    if (result === "extraction-failed") {
+      log.warn("email capture failed", { userId: user.id });
+    } else {
+      log.info("email captured", { userId: user.id, draftId: result.id });
+    }
+  },
 } satisfies ExportedHandler<Bindings>;

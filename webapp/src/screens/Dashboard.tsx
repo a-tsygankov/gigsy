@@ -55,6 +55,14 @@ export function Dashboard() {
   const [windowKey, setWindowKey] = useState<(typeof WINDOWS)[number]["key"]>("90");
   const days = WINDOWS.find((w) => w.key === windowKey)?.days ?? null;
 
+  // Pending capture drafts (online-only; chip hides on error).
+  const drafts = useQuery({
+    queryKey: ["drafts", "pending"],
+    queryFn: () => data.listDrafts("pending"),
+    retry: false,
+  });
+  const pendingDrafts = drafts.data?.length ?? 0;
+
   const summary = useQuery({
     queryKey: ["dashboard", windowKey],
     queryFn: () =>
@@ -74,6 +82,25 @@ export function Dashboard() {
     <>
       <Header title="Dashboard" />
       <main className="mx-auto max-w-lg space-y-4 p-4">
+        {/* fast capture — the product's front door */}
+        <div className="flex gap-3">
+          <Link to="/capture" className="flex-1 rounded-xl bg-emerald-600 px-4 py-3 text-center
+                     text-sm font-semibold text-white shadow-sm transition-colors
+                     hover:bg-emerald-700 focus:outline-none focus-visible:ring-2
+                     focus-visible:ring-emerald-500">
+            📸 Capture a gig or receipt
+          </Link>
+          {pendingDrafts > 0 && (
+            <Link
+              to="/drafts"
+              data-testid="drafts-chip"
+              className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm
+                         font-semibold text-sky-700 transition-colors hover:bg-sky-100"
+            >
+              {pendingDrafts} draft{pendingDrafts > 1 ? "s" : ""}
+            </Link>
+          )}
+        </div>
         <label className="block">
           <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
             Timeframe for expected money

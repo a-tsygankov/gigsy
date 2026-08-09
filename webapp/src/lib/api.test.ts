@@ -167,6 +167,35 @@ describe("ApiClient", () => {
     expect(seenType).toBe("image/png");
   });
 
+  it("capture + drafts endpoints hit the right URLs with bearer", async () => {
+    const seen: string[] = [];
+    let captureAuth = "";
+    const fetchFn = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(`${init?.method ?? "GET"} ${String(url)}`);
+      if (String(url).includes("capture")) {
+        captureAuth = new Headers(init?.headers).get("Authorization") ?? "";
+        return jsonResponse({ id: "d1", extracted: { kind: "gig" } });
+      }
+      return jsonResponse(
+        String(url).endsWith("/api/drafts?status=pending")
+          ? { items: [] }
+          : { id: "d1" },
+      );
+    }) as typeof fetch;
+    const api = new ApiClient(stubTokens(), fetchFn);
+
+    await api.capturePhoto(new Blob([new Uint8Array([1])], { type: "image/png" }));
+    await api.listDrafts("pending");
+    await api.setDraftStatus("d1", "confirmed");
+
+    expect(captureAuth).toBe("Bearer token-1");
+    expect(seen).toEqual([
+      "POST /api/capture/photo",
+      "GET /api/drafts?status=pending",
+      "PUT /api/drafts/d1",
+    ]);
+  });
+
   it("POSTs sync ops and returns per-op results", async () => {
     let seenBody = "";
     const fetchFn = (async (_url: RequestInfo | URL, init?: RequestInit) => {

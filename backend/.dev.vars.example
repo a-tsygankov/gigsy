@@ -7,3 +7,6 @@ AUTH_SECRET=local-dev-auth-secret-do-not-ship
 REFRESH_TOKEN_ENC_KEY=bG9jYWwtZGV2LWtleS1sb2NhbC1kZXYta2V5LTEyMzQ=
 GOOGLE_CLIENT_SECRET=local-dev-unused
 GEMINI_API_KEY=local-dev-unused
+# Local dev/e2e use the deterministic stub extractor (no AI cost).
+AI_PROVIDER=stub
+AI_DAILY_CAP=500

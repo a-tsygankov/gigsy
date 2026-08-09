@@ -12,6 +12,7 @@ import type {
   Client,
   ClientInput,
   DashboardSummary,
+  Draft,
   Expense,
   ExpenseInput,
   Gig,
@@ -33,6 +34,11 @@ export class OfflineDataService {
       | "getDashboard"
       | "uploadPaymentConfirmation"
       | "getPaymentConfirmationBlob"
+      | "capturePhoto"
+      | "listDrafts"
+      | "getDraft"
+      | "setDraftStatus"
+      | "getDraftRawBlob"
     >,
   ) {}
 
@@ -166,6 +172,23 @@ export class OfflineDataService {
   }
   getPaymentConfirmationBlob(id: string): Promise<Blob | null> {
     return this.reportsApi.getPaymentConfirmationBlob(id);
+  }
+
+  // ── capture + drafts (online-only server records) ────────────────
+  capturePhoto(file: Blob) {
+    return this.reportsApi.capturePhoto(file);
+  }
+  listDrafts(status?: Draft["status"]) {
+    return this.reportsApi.listDrafts(status);
+  }
+  getDraft(id: string) {
+    return this.reportsApi.getDraft(id);
+  }
+  setDraftStatus(id: string, status: "confirmed" | "discarded") {
+    return this.reportsApi.setDraftStatus(id, status);
+  }
+  getDraftRawBlob(id: string) {
+    return this.reportsApi.getDraftRawBlob(id);
   }
 
   // ── reports (server-computed) ────────────────────────────────────
