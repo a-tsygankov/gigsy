@@ -1,8 +1,11 @@
 import type { Config } from "tailwindcss";
 
-// Placeholder palette — real design tokens land with the Phase 3
-// design pass (docs/plan.md §14: UI flows/screens not yet designed).
-// Dark theme is opt-in via a `dark` class on documentElement.
+// The design tokens in src/styles/tokens/ are canonical
+// (docs/design-system.md). Tailwind's default palette and scale equal
+// those token values — the design system lifted them from Tailwind —
+// so no theme override is needed; src/lib/design-tokens.test.ts fails
+// if the two sources ever drift. Dark theme is opt-in via a `dark`
+// class on documentElement (no dark tokens exist yet by design).
 const config: Config = {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   darkMode: "class",

@@ -2,8 +2,7 @@ import { useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { useData, useSyncState } from "../lib/app-context.tsx";
-import { Header } from "../components/Header.tsx";
-import { btnPrimary } from "../components/ui.ts";
+import { AppHeader, Button } from "../components/index.ts";
 
 /** Photo capture entry (docs/plan.md §8): pick/shoot a flyer or
  * receipt → server extracts → review the draft. Needs a connection —
@@ -22,7 +21,7 @@ export function Capture() {
 
   return (
     <>
-      <Header title="Capture" />
+      <AppHeader title="Capture" />
       <main className="mx-auto max-w-lg space-y-4 p-4">
         <p className="text-sm leading-relaxed text-slate-600">
           Snap a flyer, booking sheet, or receipt — Gigsy reads it and
@@ -48,14 +47,13 @@ export function Capture() {
             if (file !== undefined) capture.mutate(file);
           }}
         />
-        <button
-          type="button"
-          className={`${btnPrimary} w-full`}
+        <Button
+          block
           disabled={offline || capture.isPending}
           onClick={() => fileInput.current?.click()}
         >
           {capture.isPending ? "Reading the photo…" : "📸 Take or choose a photo"}
-        </button>
+        </Button>
 
         {capture.isError && (
           <p className="text-sm text-red-600">

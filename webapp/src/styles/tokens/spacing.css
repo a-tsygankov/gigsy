@@ -1,0 +1,8 @@
+/* Tailwind 4px scale — the app only ever uses these steps. */
+:root{
+  --space-0-5:2px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;
+  --space-5:20px;--space-6:24px;--space-8:32px;--space-12:48px;
+  --screen-max:32rem;      /* max-w-lg — every screen's content column */
+  --tap-min:44px;          /* iOS minimum hit target */
+  --fab-size:56px;
+}

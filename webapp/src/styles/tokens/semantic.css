@@ -1,0 +1,35 @@
+/* Semantic aliases — components reference these, never raw palette steps. */
+:root{
+  --bg-app:var(--slate-50);
+  --surface-card:var(--white);
+  --surface-sunken:var(--slate-100);
+  --surface-scrim:rgb(248 250 252 / 0.9);   /* header, backdrop-blur */
+  --surface-bar:rgb(255 255 255 / 0.95);    /* tab bar */
+
+  --text-strong:var(--slate-900);
+  --text-body:var(--slate-700);
+  --text-muted:var(--slate-500);
+  --text-faint:var(--slate-400);
+  --text-inverse:var(--white);
+
+  --border-default:var(--slate-200);
+  --border-strong:var(--slate-300);
+  --border-dashed:var(--slate-300);
+
+  --accent:var(--emerald-600);
+  --accent-hover:var(--emerald-700);
+  --accent-ring:var(--emerald-500);
+  --accent-soft-bg:var(--emerald-50);
+  --accent-soft-border:var(--emerald-200);
+  --accent-soft-text:var(--emerald-700);
+
+  --status-lead-bg:var(--slate-100);--status-lead-text:var(--slate-600);
+  --status-confirmed-bg:var(--sky-100);--status-confirmed-text:var(--sky-700);
+  --status-completed-bg:var(--amber-100);--status-completed-text:var(--amber-700);
+  --status-paid-bg:var(--emerald-100);--status-paid-text:var(--emerald-700);
+
+  --info-bg:var(--sky-50);--info-border:var(--sky-200);--info-text:var(--sky-700);
+  --warn-bg:var(--amber-50);--warn-text:var(--amber-800);--warn-value:var(--amber-700);
+  --danger-text:var(--red-600);--danger-border:var(--red-200);--danger-bg:var(--red-50);
+  --good-text:var(--emerald-700);
+}

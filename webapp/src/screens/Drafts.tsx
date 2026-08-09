@@ -1,9 +1,11 @@
-import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
-import { Header } from "../components/Header.tsx";
-import { EmptyState, ListSkeleton } from "../components/Scaffold.tsx";
-import { card } from "../components/ui.ts";
+import {
+  AppHeader,
+  CardLink,
+  EmptyState,
+  ListSkeleton,
+} from "../components/index.ts";
 
 export function Drafts() {
   const data = useData();
@@ -14,7 +16,7 @@ export function Drafts() {
 
   return (
     <>
-      <Header title="Drafts" />
+      <AppHeader title="Drafts" />
       <main className="mx-auto max-w-lg space-y-3 p-4">
         {drafts.isPending && <ListSkeleton />}
         {drafts.isError && (
@@ -31,7 +33,7 @@ export function Drafts() {
           />
         )}
         {drafts.data?.map((draft) => (
-          <Link key={draft.id} to={`/drafts/${draft.id}`} className={card}>
+          <CardLink key={draft.id} to={`/drafts/${draft.id}`}>
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-slate-900">
@@ -49,7 +51,7 @@ export function Drafts() {
                 {draft.extracted.kind}
               </span>
             </div>
-          </Link>
+          </CardLink>
         ))}
       </main>
     </>

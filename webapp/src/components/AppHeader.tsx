@@ -1,37 +1,17 @@
+/**
+ * Sticky screen header (design system, components/navigation/AppHeader):
+ * wordmark, screen title, sync chip, sign out. The scrim is one of the
+ * two translucent surfaces in the app. The wordmark doubles as the
+ * hidden-console trigger (three quick taps).
+ */
 import { useAuthState, useServices, useSyncState } from "../lib/app-context.tsx";
 import { useConsoleTap } from "./ConsoleProvider.tsx";
+import { SyncBadge } from "./SyncBadge.tsx";
 
-/** Offline/pending indicator — quiet when everything is synced. */
-function SyncBadge() {
-  const sync = useSyncState();
-  if (sync === null) return null;
-  if (!sync.online) {
-    return (
-      <span
-        data-testid="sync-offline"
-        className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600"
-      >
-        offline
-      </span>
-    );
-  }
-  if (sync.pendingCount > 0) {
-    return (
-      <span
-        data-testid="sync-pending"
-        title={`${sync.pendingCount} change(s) waiting to sync`}
-        className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700"
-      >
-        {sync.pendingCount}↑
-      </span>
-    );
-  }
-  return null;
-}
-
-export function Header({ title }: { title: string }) {
+export function AppHeader({ title }: { title: string }) {
   const { auth } = useServices();
   const { user } = useAuthState();
+  const sync = useSyncState();
   const tap = useConsoleTap();
 
   return (
@@ -41,7 +21,7 @@ export function Header({ title }: { title: string }) {
     >
       <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-3">
         <div className="flex items-baseline gap-3">
-          {/* The wordmark doubles as the hidden-console trigger. */}
+          {/* The wordmark is plain type — there is no logotype file. */}
           <span
             onClick={tap}
             className="select-none text-lg font-bold tracking-tight text-slate-900"
@@ -49,7 +29,9 @@ export function Header({ title }: { title: string }) {
             Gigsy
           </span>
           <h1 className="text-sm font-medium text-slate-500">{title}</h1>
-          <SyncBadge />
+          {sync !== null && (
+            <SyncBadge online={sync.online} pendingCount={sync.pendingCount} />
+          )}
         </div>
         <button
           type="button"

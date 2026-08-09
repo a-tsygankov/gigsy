@@ -4,9 +4,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData, useSyncState } from "../lib/app-context.tsx";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { msToLocalInput, localInputToMs } from "../lib/datetime.ts";
-import { Header } from "../components/Header.tsx";
-import { Field } from "../components/Scaffold.tsx";
-import { btnDanger, btnGhost, btnPrimary, inputCls } from "../components/ui.ts";
+import {
+  AppHeader,
+  Button,
+  Field,
+  Input,
+  Select,
+  Textarea,
+} from "../components/index.ts";
 
 /** The review gate (docs/plan.md §8): extracted fields are editable,
  * nothing exists until Confirm. Confirm creates records through the
@@ -139,7 +144,7 @@ export function DraftReview() {
 
   return (
     <>
-      <Header title="Review draft" />
+      <AppHeader title="Review draft" />
       <main className="mx-auto max-w-lg space-y-4 p-4">
         {draft.isPending && <p className="text-sm text-slate-500">Loading…</p>}
         {draft.isError && (
@@ -188,21 +193,19 @@ export function DraftReview() {
               ))}
 
             <Field label="This is a…">
-              <select
-                className={inputCls}
+              <Select
                 value={kind}
                 onChange={(e) => setKind(e.target.value as "gig" | "expense")}
               >
                 <option value="gig">Gig / job offer</option>
                 <option value="expense">Expense / receipt</option>
-              </select>
+              </Select>
             </Field>
 
             {kind === "gig" ? (
               <>
                 <Field label="Client">
-                  <input
-                    className={inputCls}
+                  <Input
                     placeholder="Agency or company"
                     value={clientName}
                     onChange={(e) => setClientName(e.target.value)}
@@ -210,24 +213,21 @@ export function DraftReview() {
                   />
                 </Field>
                 <Field label="Location">
-                  <input
-                    className={inputCls}
+                  <Input
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
                   />
                 </Field>
                 <Field label="Date & time">
-                  <input
+                  <Input
                     type="datetime-local"
-                    className={inputCls}
                     value={dateTime}
                     onChange={(e) => setDateTime(e.target.value)}
                   />
                 </Field>
                 <Field label="Offered ($)">
-                  <input
+                  <Input
                     inputMode="decimal"
-                    className={inputCls}
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                   />
@@ -236,16 +236,14 @@ export function DraftReview() {
             ) : (
               <>
                 <Field label="Amount ($)">
-                  <input
+                  <Input
                     inputMode="decimal"
-                    className={inputCls}
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                   />
                 </Field>
                 <Field label="Category">
-                  <input
-                    className={inputCls}
+                  <Input
                     placeholder="parking, supplies…"
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
@@ -255,8 +253,8 @@ export function DraftReview() {
             )}
 
             <Field label="Notes">
-              <textarea
-                className={`${inputCls} min-h-20`}
+              <Textarea
+                className="min-h-20"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
               />
@@ -270,9 +268,8 @@ export function DraftReview() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                className={`${btnPrimary} flex-1`}
+              <Button
+                className="flex-1"
                 disabled={confirm.isPending || offline}
                 onClick={() => {
                   setError(null);
@@ -280,25 +277,21 @@ export function DraftReview() {
                 }}
               >
                 {confirm.isPending ? "Creating…" : `Confirm ${kind}`}
-              </button>
-              <button
-                type="button"
-                className={btnGhost}
-                onClick={() => navigate("/drafts")}
-              >
+              </Button>
+              <Button variant="ghost" onClick={() => navigate("/drafts")}>
                 Later
-              </button>
+              </Button>
             </div>
-            <button
-              type="button"
-              className={`${btnDanger} w-full`}
+            <Button
+              variant="danger"
+              block
               disabled={discard.isPending || offline}
               onClick={() => {
                 if (window.confirm("Discard this draft?")) discard.mutate();
               }}
             >
               Discard draft
-            </button>
+            </Button>
           </>
         )}
       </main>

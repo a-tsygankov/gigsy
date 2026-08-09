@@ -5,9 +5,13 @@ import { useData } from "../lib/app-context.tsx";
 import type { ServiceInput } from "../lib/types.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { formatMoney } from "../lib/format.ts";
-import { Header } from "../components/Header.tsx";
-import { Field } from "../components/Scaffold.tsx";
-import { btnDanger, btnGhost, btnPrimary, inputCls } from "../components/ui.ts";
+import {
+  AppHeader,
+  Button,
+  Field,
+  Input,
+  Select,
+} from "../components/index.ts";
 
 /** Add/edit an additional service on a gig — description, promised
  * payment, paid amount with an optional payment-entry link, and a
@@ -115,15 +119,14 @@ export function ServiceEdit() {
 
   return (
     <>
-      <Header title={isNew ? "New service" : "Edit service"} />
+      <AppHeader title={isNew ? "New service" : "Edit service"} />
       <main className="mx-auto max-w-lg space-y-4 p-4">
         {!isNew && service.isPending ? (
           <p className="text-sm text-slate-500">Loading…</p>
         ) : (
           <>
             <Field label="Description" error={error}>
-              <input
-                className={inputCls}
+              <Input
                 placeholder="Extra hour, banner install, teardown…"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -132,18 +135,16 @@ export function ServiceEdit() {
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Offered ($)">
-                <input
+                <Input
                   inputMode="decimal"
-                  className={inputCls}
                   placeholder="50.00"
                   value={offered}
                   onChange={(e) => setOffered(e.target.value)}
                 />
               </Field>
               <Field label="Paid ($)">
-                <input
+                <Input
                   inputMode="decimal"
-                  className={inputCls}
                   placeholder="0.00"
                   value={paid}
                   onChange={(e) => setPaid(e.target.value)}
@@ -152,11 +153,7 @@ export function ServiceEdit() {
             </div>
 
             <Field label="Payment entry">
-              <select
-                className={inputCls}
-                value={paymentId}
-                onChange={(e) => setPaymentId(e.target.value)}
-              >
+              <Select value={paymentId} onChange={(e) => setPaymentId(e.target.value)}>
                 <option value="">Not linked</option>
                 {payments.data?.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -166,7 +163,7 @@ export function ServiceEdit() {
                       : ""}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
 
             <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -184,29 +181,24 @@ export function ServiceEdit() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                className={`${btnPrimary} flex-1`}
-                disabled={save.isPending}
-                onClick={submit}
-              >
+              <Button className="flex-1" disabled={save.isPending} onClick={submit}>
                 {save.isPending ? "Saving…" : "Save service"}
-              </button>
-              <button type="button" className={btnGhost} onClick={() => navigate(backTo)}>
+              </Button>
+              <Button variant="ghost" onClick={() => navigate(backTo)}>
                 Cancel
-              </button>
+              </Button>
             </div>
             {!isNew && (
-              <button
-                type="button"
-                className={`${btnDanger} w-full`}
+              <Button
+                variant="danger"
+                block
                 disabled={remove.isPending}
                 onClick={() => {
                   if (window.confirm("Delete this service?")) remove.mutate();
                 }}
               >
                 Delete service
-              </button>
+              </Button>
             )}
           </>
         )}

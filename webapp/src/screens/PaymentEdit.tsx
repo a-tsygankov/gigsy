@@ -5,9 +5,15 @@ import { useData, useSyncState } from "../lib/app-context.tsx";
 import type { PaymentInput } from "../lib/types.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
-import { Header } from "../components/Header.tsx";
-import { Field } from "../components/Scaffold.tsx";
-import { btnDanger, btnGhost, btnPrimary, inputCls } from "../components/ui.ts";
+import {
+  AppHeader,
+  Button,
+  Field,
+  Input,
+  SectionHeading,
+  Select,
+  Textarea,
+} from "../components/index.ts";
 
 /** Payment entry: amount, related gig, when it was received, and the
  * photo/mail that proves it (feature spec 2026-08-08). Confirmation
@@ -111,16 +117,15 @@ export function PaymentEdit() {
 
   return (
     <>
-      <Header title={isNew ? "New payment" : "Payment"} />
+      <AppHeader title={isNew ? "New payment" : "Payment"} />
       <main className="mx-auto max-w-lg space-y-4 p-4">
         {!isNew && payment.isPending ? (
           <p className="text-sm text-slate-500">Loading…</p>
         ) : (
           <>
             <Field label="Amount ($)" error={error}>
-              <input
+              <Input
                 inputMode="decimal"
-                className={inputCls}
                 placeholder="150.00"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
@@ -128,11 +133,7 @@ export function PaymentEdit() {
             </Field>
 
             <Field label="Related gig">
-              <select
-                className={inputCls}
-                value={gigId}
-                onChange={(e) => setGigId(e.target.value)}
-              >
+              <Select value={gigId} onChange={(e) => setGigId(e.target.value)}>
                 <option value="">Not linked</option>
                 {gigs.data?.map((g) => (
                   <option key={g.id} value={g.id}>
@@ -142,21 +143,20 @@ export function PaymentEdit() {
                         : "")}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
 
             <Field label="Received on">
-              <input
+              <Input
                 type="datetime-local"
-                className={inputCls}
                 value={paidAt}
                 onChange={(e) => setPaidAt(e.target.value)}
               />
             </Field>
 
             <Field label="Notes">
-              <textarea
-                className={`${inputCls} min-h-20`}
+              <Textarea
+                className="min-h-20"
                 placeholder="Zelle, cash, check #…"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
@@ -165,9 +165,7 @@ export function PaymentEdit() {
 
             {/* ── proof of payment ── */}
             <section data-testid="payment-confirmation">
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Confirmation (photo or mail)
-              </h2>
+              <SectionHeading>Confirmation (photo or mail)</SectionHeading>
               {isNew ? (
                 <p className="text-xs text-slate-400">
                   Save the payment first, then attach the proof.
@@ -214,17 +212,12 @@ export function PaymentEdit() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                className={`${btnPrimary} flex-1`}
-                disabled={save.isPending}
-                onClick={submit}
-              >
+              <Button className="flex-1" disabled={save.isPending} onClick={submit}>
                 {save.isPending ? "Saving…" : "Save payment"}
-              </button>
-              <button type="button" className={btnGhost} onClick={() => navigate(backTo)}>
+              </Button>
+              <Button variant="ghost" onClick={() => navigate(backTo)}>
                 {isNew ? "Cancel" : "Back"}
-              </button>
+              </Button>
             </div>
             {!isNew && (
               <>
@@ -236,16 +229,16 @@ export function PaymentEdit() {
                     Open related gig →
                   </Link>
                 )}
-                <button
-                  type="button"
-                  className={`${btnDanger} w-full`}
+                <Button
+                  variant="danger"
+                  block
                   disabled={remove.isPending}
                   onClick={() => {
                     if (window.confirm("Delete this payment?")) remove.mutate();
                   }}
                 >
                   Delete payment
-                </button>
+                </Button>
               </>
             )}
           </>
