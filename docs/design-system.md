@@ -14,6 +14,17 @@
 > - `webapp/public/icons/logo.svg` — the app mark (generator output, 512px).
 >
 > The design project's own readme follows, verbatim.
+>
+> **Documented extensions since adoption** (the readme below predates them):
+> - **A fifth tab, "Reports"** (Phase 7). The readme records four tabs; the
+>   stated principle is "text instead of icons in navigation", which a fifth
+>   word extends rather than breaks. Five tabs give 75px each at 375px, well
+>   over the 44px tap minimum.
+> - **`EmptyState` gained a `compact` variant** — the one-line dashed note used
+>   inside a populated screen where there is nothing to act on ("Nothing
+>   outstanding — every completed job is paid"). It replaces the same recipe
+>   that had been inlined in three screens; the full state still always
+>   carries a CTA.
 
 ---
 # Gigsy Design System

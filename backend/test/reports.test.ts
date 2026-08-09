@@ -14,6 +14,7 @@ const G3 = "33333333-3333-4333-8333-333333333333";
 const G4 = "34444444-4444-4444-8444-444444444444";
 const E1 = "41111111-1111-4111-8111-111111111111";
 const E2 = "42222222-2222-4222-8222-222222222222";
+const S1 = "51111111-1111-4111-8111-111111111111";
 
 const SEP = Date.UTC(2026, 8, 10, 12); // 2026-09
 const OCT = Date.UTC(2026, 9, 5, 12); // 2026-10
@@ -64,6 +65,14 @@ beforeAll(async () => {
     amountPaidCents: 8000,
   });
   await api(U1, "PUT", `/api/expenses/${E1}`, { gigId: G1, amountCents: 2000 });
+  // …plus an additional service on that gig: 3000 offered / 1000 paid.
+  // Service money is income and follows its gig's month and client.
+  await api(U1, "PUT", `/api/services/${S1}`, {
+    gigId: G1,
+    description: "Overtime hour",
+    amountOfferedCents: 3000,
+    amountPaidCents: 1000,
+  });
 
   // Oct: Acme 20000/20000, Bravo 5000/unpaid (+1000 expense), no-client 1000/1000.
   await api(U1, "PUT", `/api/gigs/${G2}`, {
@@ -96,24 +105,25 @@ describe("GET /api/reports/summary", () => {
 
   it("computes totals: offered, paid, variance, expenses, net", async () => {
     const s = await summary(U1);
+    // Gig money (36000/29000) plus the service on G1 (3000/1000).
     expect(s.totals).toEqual({
-      offeredCents: 36000,
-      paidCents: 29000,
-      varianceCents: 7000,
+      offeredCents: 39000,
+      paidCents: 30000,
+      varianceCents: 9000,
       expensesCents: 3000,
-      netCents: 26000,
+      netCents: 27000,
     });
   });
 
-  it("groups by month (expenses follow their gig's month), ascending", async () => {
+  it("groups by month (expenses and services follow their gig's month), ascending", async () => {
     const s = await summary(U1);
     expect(s.byMonth).toEqual([
       {
         month: "2026-09",
-        offeredCents: 10000,
-        paidCents: 8000,
+        offeredCents: 13000,
+        paidCents: 9000,
         expensesCents: 2000,
-        netCents: 6000,
+        netCents: 7000,
       },
       {
         month: "2026-10",
@@ -133,8 +143,8 @@ describe("GET /api/reports/summary", () => {
     expect(acme).toEqual({
       clientId: ACME,
       clientName: "Acme",
-      offeredCents: 30000,
-      paidCents: 28000,
+      offeredCents: 33000, // 30000 gigs + 3000 service
+      paidCents: 29000, // 28000 gigs + 1000 service
     });
     expect(bravo).toEqual({
       clientId: BRAVO,
@@ -157,15 +167,22 @@ describe("GET /api/reports/summary", () => {
     expect(s.byMonth.map((m) => m.month)).toEqual(["2026-10"]);
   });
 
-  it("applies the clientId filter (expenses via that client's gigs)", async () => {
+  it("applies the clientId filter (expenses and services via that client's gigs)", async () => {
     const s = await summary(U1, `?clientId=${ACME}`);
     expect(s.totals).toEqual({
-      offeredCents: 30000,
-      paidCents: 28000,
-      varianceCents: 2000,
+      offeredCents: 33000,
+      paidCents: 29000,
+      varianceCents: 4000,
       expensesCents: 2000,
-      netCents: 26000,
+      netCents: 27000,
     });
+  });
+
+  it("excludes a service whose gig falls outside the date filter", async () => {
+    // The only service sits on the September gig.
+    const s = await summary(U1, `?from=${Date.UTC(2026, 9, 1)}`);
+    expect(s.totals.offeredCents).toBe(26000);
+    expect(s.totals.paidCents).toBe(21000);
   });
 
   it("is user-isolated", async () => {

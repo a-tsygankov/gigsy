@@ -8,6 +8,7 @@ import { GigEdit } from "./screens/GigEdit.tsx";
 import { Clients } from "./screens/Clients.tsx";
 import { ClientEdit } from "./screens/ClientEdit.tsx";
 import { Expenses } from "./screens/Expenses.tsx";
+import { Reports } from "./screens/Reports.tsx";
 import { ExpenseEdit } from "./screens/ExpenseEdit.tsx";
 import { ServiceEdit } from "./screens/ServiceEdit.tsx";
 import { PaymentEdit } from "./screens/PaymentEdit.tsx";
@@ -35,6 +36,7 @@ export function App() {
           <Route path="/clients/:id" element={<ClientEdit />} />
           <Route path="/expenses" element={<Expenses />} />
           <Route path="/expenses/:id" element={<ExpenseEdit />} />
+          <Route path="/reports" element={<Reports />} />
         </Route>
       </Routes>
     </ConsoleProvider>

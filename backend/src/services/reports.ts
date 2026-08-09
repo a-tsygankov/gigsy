@@ -5,12 +5,16 @@
  * Semantics:
  * - varianceCents = offered − paid (what's still owed/lost).
  * - netCents = paid − expenses.
+ * - Additional services are income too, so their offered/paid amounts
+ *   are added to their gig's month and client (a service always hangs
+ *   off exactly one gig). Omitting them would under-report income on
+ *   the very export a tax return is built from.
  * - Months come from gigs.date_time; an expense follows its linked
  *   gig's month (that's the month the spend belongs to economically),
  *   falling back to its own created_at when unlinked. Rows with no
  *   date land in an "unscheduled" bucket.
- * - clientId filter scopes gigs to that client and expenses to that
- *   client's gigs (unlinked expenses excluded there by definition).
+ * - clientId filter scopes gigs to that client and expenses/services to
+ *   that client's gigs (unlinked expenses excluded there by definition).
  */
 export interface ReportFilters {
   from?: number;
@@ -85,6 +89,24 @@ export async function reportSummary(
       .all<{ month: string; offered: number; paid: number }>()
   ).results;
 
+  // ── services by month (always their gig's month) ───────────────
+  // `s.user_id` is bound first, then the gig clauses reuse gigParams
+  // (whose first element is the same userId, for `g.user_id`).
+  const serviceRows = (
+    await d1
+      .prepare(
+        `SELECT ${MONTH_EXPR("g.date_time")} AS month,
+                SUM(COALESCE(s.amount_offered_cents, 0)) AS offered,
+                SUM(COALESCE(s.amount_paid_cents, 0)) AS paid
+         FROM gig_services s
+         JOIN gigs g ON g.id = s.gig_id
+         WHERE s.user_id = ? AND ${gigWhere.join(" AND ")}
+         GROUP BY month`,
+      )
+      .bind(userId, ...gigParams)
+      .all<{ month: string; offered: number; paid: number }>()
+  ).results;
+
   // ── expenses by month (linked gig's month, else own created_at) ─
   const effectiveTs = "COALESCE(g.date_time, e.created_at)";
   const expWhere: string[] = ["e.user_id = ?"];
@@ -126,7 +148,7 @@ export async function reportSummary(
     }
     return row;
   };
-  for (const r of gigRows) {
+  for (const r of [...gigRows, ...serviceRows]) {
     const row = monthOf(r.month);
     row.offeredCents += r.offered;
     row.paidCents += r.paid;
@@ -160,12 +182,47 @@ export async function reportSummary(
       }>()
   ).results;
 
-  const byClient: ClientRow[] = clientRows.map((r) => ({
-    clientId: r.clientId,
-    clientName: r.clientName,
-    offeredCents: r.offered,
-    paidCents: r.paid,
-  }));
+  const serviceClientRows = (
+    await d1
+      .prepare(
+        `SELECT g.client_id AS clientId, c.name AS clientName,
+                SUM(COALESCE(s.amount_offered_cents, 0)) AS offered,
+                SUM(COALESCE(s.amount_paid_cents, 0)) AS paid
+         FROM gig_services s
+         JOIN gigs g ON g.id = s.gig_id
+         LEFT JOIN clients c ON c.id = g.client_id
+         WHERE s.user_id = ? AND ${gigWhere.join(" AND ")}
+         GROUP BY g.client_id, c.name`,
+      )
+      .bind(userId, ...gigParams)
+      .all<{
+        clientId: string | null;
+        clientName: string | null;
+        offered: number;
+        paid: number;
+      }>()
+  ).results;
+
+  // Merge gig and service money per client, preserving the query's
+  // ordering (named clients alphabetically, "no client" last).
+  const clients = new Map<string, ClientRow>();
+  for (const r of [...clientRows, ...serviceClientRows]) {
+    const key = r.clientId ?? "";
+    const row = clients.get(key) ?? {
+      clientId: r.clientId,
+      clientName: r.clientName,
+      offeredCents: 0,
+      paidCents: 0,
+    };
+    row.offeredCents += r.offered;
+    row.paidCents += r.paid;
+    clients.set(key, row);
+  }
+  const byClient: ClientRow[] = [...clients.values()].sort((a, b) =>
+    a.clientName === null || b.clientName === null
+      ? Number(a.clientName === null) - Number(b.clientName === null)
+      : a.clientName.localeCompare(b.clientName),
+  );
 
   // ── totals ─────────────────────────────────────────────────────
   const offeredCents = byMonth.reduce((sum, r) => sum + r.offeredCents, 0);
