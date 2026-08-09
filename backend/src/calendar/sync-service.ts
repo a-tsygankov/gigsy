@@ -5,8 +5,12 @@
  * - `completed|paid` keep their events untouched (history);
  * - demotion to lead — or a removed date — deletes the event;
  * - the per-user watermark (`last_calendar_sync_at`) only advances
- *   on a fully clean run, so failures retry next time.
+ *   on a fully clean run, so failures retry next time;
+ * - events whose gig was deleted are drained from the cleanup queue
+ *   first (Phase 8) — the gig row that held the id is already gone,
+ *   so the watermark can't find them.
  */
+import { CalendarCleanupRepo } from "../repos/calendar-cleanup.ts";
 import { ClientsRepo } from "../repos/clients.ts";
 import { GigsRepo, type GigRecord } from "../repos/gigs.ts";
 import { UsersRepo } from "../repos/users.ts";
@@ -25,6 +29,10 @@ export interface CalendarSyncResult {
   updated: number;
   deleted: number;
   failed: number;
+  /** Orphaned events removed from the deleted-gig queue. Counted
+   * apart from `failed` so a stuck cleanup never stalls the gig
+   * watermark — the queued row is its own retry. */
+  cleaned: number;
 }
 
 function buildEvent(
@@ -53,12 +61,29 @@ export async function syncUserGigs(
   client: CalendarClientLike,
   now: number,
 ): Promise<CalendarSyncResult> {
-  const result: CalendarSyncResult = { created: 0, updated: 0, deleted: 0, failed: 0 };
+  const result: CalendarSyncResult = {
+    created: 0,
+    updated: 0,
+    deleted: 0,
+    failed: 0,
+    cleaned: 0,
+  };
   const usersRepo = UsersRepo.for(d1);
   const gigsRepo = GigsRepo.for(d1);
 
   const user = await usersRepo.get(userId);
   if (user === null) return result;
+
+  // Deleted gigs first: their event ids only exist in the queue now.
+  const cleanupRepo = CalendarCleanupRepo.for(d1);
+  for (const row of await cleanupRepo.listPending(userId)) {
+    // A 404/410 counts as deleted in CalendarClient, so an event the
+    // user removed by hand drains cleanly too.
+    if (await client.deleteEvent(row.calendarEventId)) {
+      await cleanupRepo.remove(userId, row.id);
+      result.cleaned++;
+    }
+  }
 
   const changed = await gigsRepo.listModifiedSince(
     userId,

@@ -191,3 +191,24 @@ export const expenses = sqliteTable(
     gigIdx: index("idx_expenses_gig").on(t.gigId),
   }),
 );
+
+/**
+ * Calendar events whose gig has been deleted (Phase 8 hardening).
+ * The row that held the event id is gone by the time the cron runs, so
+ * GigsRepo.remove() parks the id here and the next sync run deletes the
+ * event. A failed delete stays queued and retries.
+ */
+export const calendarCleanup = sqliteTable(
+  "calendar_cleanup",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    calendarEventId: text("calendar_event_id").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => ({
+    userIdx: index("idx_calendar_cleanup_user").on(t.userId),
+  }),
+);

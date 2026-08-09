@@ -1,7 +1,7 @@
 /** User-scoped data access for `gigs`. Same contract as ClientsRepo. */
 import { and, desc, eq, gt } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
-import { gigs, type GigStatus } from "../db/schema.ts";
+import { calendarCleanup, gigs, type GigStatus } from "../db/schema.ts";
 import type { UpsertResult, WriteStamps } from "./clients.ts";
 
 export type GigRecord = typeof gigs.$inferSelect;
@@ -72,12 +72,31 @@ export class GigsRepo {
     return { record: inserted[0]!, created: true };
   }
 
+  /**
+   * Deleting the row destroys the only pointer to the gig's Google
+   * Calendar event, so a synced gig parks its event id in the cleanup
+   * queue on the way out — otherwise the event is orphaned on the
+   * user's calendar forever (Phase 8 hardening plan). This lives here
+   * rather than in the route because offline deletes arrive through
+   * /api/sync, and both paths call remove().
+   */
   async remove(userId: string, id: string): Promise<boolean> {
     const deleted = await this.db
       .delete(gigs)
       .where(and(eq(gigs.id, id), eq(gigs.userId, userId)))
-      .returning({ id: gigs.id });
-    return deleted.length > 0;
+      .returning({ id: gigs.id, calendarEventId: gigs.calendarEventId });
+
+    const row = deleted[0];
+    if (row === undefined) return false;
+    if (row.calendarEventId !== null) {
+      await this.db.insert(calendarCleanup).values({
+        id: crypto.randomUUID(),
+        userId,
+        calendarEventId: row.calendarEventId,
+        createdAt: Date.now(),
+      });
+    }
+    return true;
   }
 
   /** Calendar sync input: everything touched since the watermark. */
