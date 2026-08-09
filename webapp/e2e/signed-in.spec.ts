@@ -29,6 +29,8 @@ test.beforeEach(async ({ page, request, baseURL }) => {
 test("dev sign-in lands on the dashboard with navigation", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   await expect(page.getByTestId("tile-unpaid")).toBeVisible();
+  // Calendar card renders in its disconnected state.
+  await expect(page.getByTestId("calendar-section")).toContainText("Connect");
   await page.getByRole("link", { name: "Gigs" }).click();
   await expect(page.getByRole("heading", { name: "Gigs" })).toBeVisible();
   await page.getByRole("link", { name: "Clients" }).click();

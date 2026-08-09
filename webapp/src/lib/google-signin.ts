@@ -13,9 +13,22 @@ interface GisIdApi {
   renderButton(el: HTMLElement, options: Record<string, unknown>): void;
 }
 
+interface GisCodeClient {
+  requestCode(): void;
+}
+
+interface GisOauth2Api {
+  initCodeClient(config: {
+    client_id: string;
+    scope: string;
+    ux_mode: "popup";
+    callback: (response: { code?: string; error?: string }) => void;
+  }): GisCodeClient;
+}
+
 declare global {
   interface Window {
-    google?: { accounts?: { id?: GisIdApi } };
+    google?: { accounts?: { id?: GisIdApi; oauth2?: GisOauth2Api } };
   }
 }
 
@@ -32,6 +45,27 @@ function loadGisScript(): Promise<void> {
     document.head.appendChild(script);
   });
   return scriptPromise;
+}
+
+/** Calendar-scope consent popup (docs/plan.md §9). Resolves with the
+ * one-time auth code the backend exchanges for a refresh token. */
+export async function requestCalendarCode(clientId: string): Promise<string> {
+  await loadGisScript();
+  const oauth2 = window.google?.accounts?.oauth2;
+  if (!oauth2) throw new Error("Google OAuth unavailable");
+  return new Promise<string>((resolve, reject) => {
+    oauth2
+      .initCodeClient({
+        client_id: clientId,
+        scope: "https://www.googleapis.com/auth/calendar.events",
+        ux_mode: "popup",
+        callback: (response) => {
+          if (response.code !== undefined) resolve(response.code);
+          else reject(new Error(response.error ?? "consent cancelled"));
+        },
+      })
+      .requestCode();
+  });
 }
 
 export async function renderGoogleButton(

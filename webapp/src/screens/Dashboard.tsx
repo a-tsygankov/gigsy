@@ -1,10 +1,88 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { useData } from "../lib/app-context.tsx";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useData, useServices, useSyncState } from "../lib/app-context.tsx";
+import { requestCalendarCode } from "../lib/google-signin.ts";
 import { formatMoney } from "../lib/format.ts";
 import { Header } from "../components/Header.tsx";
 import { card } from "../components/ui.ts";
+
+/** Google Calendar connection card (docs/plan.md §9). */
+function CalendarSection() {
+  const data = useData();
+  const { authApi } = useServices();
+  const sync = useSyncState();
+  const queryClient = useQueryClient();
+  const offline = sync !== null && !sync.online;
+  const [error, setError] = useState<string | null>(null);
+
+  const status = useQuery({
+    queryKey: ["calendar-status"],
+    queryFn: () => data.getCalendarStatus(),
+    retry: false,
+  });
+
+  const connect = useMutation({
+    mutationFn: async () => {
+      const config = await authApi.getConfig();
+      if (config.googleClientId === "") throw new Error("Google sign-in not configured.");
+      const code = await requestCalendarCode(config.googleClientId);
+      await data.connectCalendar(code);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["calendar-status"] }),
+    onError: (e) => setError(e instanceof Error ? e.message : "Connect failed."),
+  });
+
+  const syncNow = useMutation({
+    mutationFn: () => data.calendarSyncNow(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["calendar-status"] }),
+    onError: () => setError("Sync failed — try reconnecting."),
+  });
+
+  if (status.isError || status.data === undefined) return null;
+
+  return (
+    <section
+      data-testid="calendar-section"
+      className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-slate-900">Google Calendar</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {status.data.connected
+              ? `Connected ✓ — confirmed gigs sync every 15 min${
+                  status.data.lastSyncAt !== null
+                    ? ` · last ${new Date(status.data.lastSyncAt).toLocaleTimeString()}`
+                    : ""
+                }`
+              : "Put confirmed gigs on your calendar automatically."}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={offline || connect.isPending || syncNow.isPending}
+          onClick={() => {
+            setError(null);
+            status.data?.connected ? syncNow.mutate() : connect.mutate();
+          }}
+          className="shrink-0 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2
+                     text-xs font-semibold text-emerald-700 transition-colors
+                     hover:bg-emerald-100 disabled:opacity-50"
+        >
+          {status.data.connected
+            ? syncNow.isPending
+              ? "Syncing…"
+              : "Sync now"
+            : connect.isPending
+              ? "Connecting…"
+              : "Connect"}
+        </button>
+      </div>
+      {error !== null && <p className="mt-2 text-xs text-red-600">{error}</p>}
+    </section>
+  );
+}
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -192,6 +270,8 @@ export function Dashboard() {
             </section>
           </>
         )}
+
+        <CalendarSection />
       </main>
     </>
   );

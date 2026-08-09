@@ -23,12 +23,14 @@ export type ClientInputT = z.infer<typeof ClientInput>;
 
 export const GIG_SOURCES = ["manual", "email", "photo"] as const;
 
+// calendarEventId deliberately absent — server-owned calendar-sync
+// bookkeeping (like payments.confirmationR2Key); a client-supplied
+// value would wipe/forge the Google event link.
 export const GigInput = z.object({
   clientId: entityId.nullish(),
   status: z.enum(GIG_STATUSES).default("lead"),
   location: z.string().max(500).nullish(),
   dateTime: z.number().int().nullish(),
-  calendarEventId: z.string().max(200).nullish(),
   amountOfferedCents: positiveCents.nullish(),
   amountPaidCents: positiveCents.nullish(),
   notes: z.string().max(4000).nullish(),

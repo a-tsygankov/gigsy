@@ -234,6 +234,22 @@ export class ApiClient {
     return res.blob();
   }
 
+  // ── calendar (docs/plan.md §9) ──────────────────────────────────
+  getCalendarStatus(): Promise<{ connected: boolean; lastSyncAt: number | null }> {
+    return this.request("GET", "/api/calendar/status");
+  }
+  connectCalendar(authCode: string): Promise<{ connected: boolean }> {
+    return this.request("POST", "/api/calendar/connect", { authCode });
+  }
+  calendarSyncNow(): Promise<{
+    created: number;
+    updated: number;
+    deleted: number;
+    failed: number;
+  }> {
+    return this.request("POST", "/api/calendar/sync-now");
+  }
+
   // ── reports ──────────────────────────────────────────────────────
   getReportSummary(): Promise<ReportSummary> {
     return this.request("GET", "/api/reports/summary");

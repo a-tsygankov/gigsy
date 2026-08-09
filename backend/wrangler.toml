@@ -18,13 +18,11 @@ migrations_dir = "migrations"
 binding = "RECEIPTS"
 bucket_name = "gigsy-receipts"
 
-# Calendar sync fan-out (Phase 6) — iterate users with pending
-# calendar-relevant changes every 15 min. The scheduled() stub in
-# src/index.ts is already exported, so enabling this is config-only.
-# Commented out until Phase 6 so we don't burn cron invocations on a
-# no-op.
-# [triggers]
-# crons = ["*/15 * * * *"]
+# Calendar sync fan-out (docs/plan.md §9): every 15 min the
+# scheduled() handler reconciles confirmed gigs onto connected users'
+# Google Calendars.
+[triggers]
+crons = ["*/15 * * * *"]
 
 [vars]
 # What `wrangler deploy` ships. Local dev overrides this via

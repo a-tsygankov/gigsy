@@ -196,6 +196,29 @@ describe("ApiClient", () => {
     ]);
   });
 
+  it("calendar endpoints hit the right URLs with bearer", async () => {
+    const seen: string[] = [];
+    const fetchFn = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(`${init?.method ?? "GET"} ${String(url)}`);
+      return jsonResponse(
+        String(url).includes("status")
+          ? { connected: false, lastSyncAt: null }
+          : { connected: true },
+      );
+    }) as typeof fetch;
+    const api = new ApiClient(stubTokens(), fetchFn);
+
+    await api.getCalendarStatus();
+    await api.connectCalendar("auth-code");
+    await api.calendarSyncNow();
+
+    expect(seen).toEqual([
+      "GET /api/calendar/status",
+      "POST /api/calendar/connect",
+      "POST /api/calendar/sync-now",
+    ]);
+  });
+
   it("POSTs sync ops and returns per-op results", async () => {
     let seenBody = "";
     const fetchFn = (async (_url: RequestInfo | URL, init?: RequestInit) => {

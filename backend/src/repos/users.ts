@@ -4,7 +4,7 @@
  * stored encrypted (src/auth/crypto.ts) — this repo never sees the
  * plaintext.
  */
-import { eq } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import { users } from "../db/schema.ts";
 
@@ -45,12 +45,28 @@ export class UsersRepo {
 
   async setGoogleRefreshTokenEnc(
     userId: string,
-    encrypted: string,
+    encrypted: string | null,
     now: number,
   ): Promise<void> {
     await this.db
       .update(users)
       .set({ googleRefreshTokenEnc: encrypted, modifiedAt: now })
+      .where(eq(users.id, userId));
+  }
+
+  /** Users with calendar consent — the cron's work list. */
+  async listConnected(): Promise<UserRecord[]> {
+    return this.db
+      .select()
+      .from(users)
+      .where(isNotNull(users.googleRefreshTokenEnc));
+  }
+
+  /** Sync bookkeeping — deliberately no modified_at bump. */
+  async setLastCalendarSyncAt(userId: string, ts: number): Promise<void> {
+    await this.db
+      .update(users)
+      .set({ lastCalendarSyncAt: ts })
       .where(eq(users.id, userId));
   }
 }

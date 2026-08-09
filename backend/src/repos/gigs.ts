@@ -1,17 +1,18 @@
 /** User-scoped data access for `gigs`. Same contract as ClientsRepo. */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import { gigs, type GigStatus } from "../db/schema.ts";
 import type { UpsertResult, WriteStamps } from "./clients.ts";
 
 export type GigRecord = typeof gigs.$inferSelect;
 
+// calendarEventId is NOT part of GigData — it's server-owned sync
+// bookkeeping (setCalendarEventId below); upserts must never touch it.
 export interface GigData {
   clientId: string | null;
   status: GigStatus;
   location: string | null;
   dateTime: number | null;
-  calendarEventId: string | null;
   amountOfferedCents: number | null;
   amountPaidCents: number | null;
   notes: string | null;
@@ -77,5 +78,27 @@ export class GigsRepo {
       .where(and(eq(gigs.id, id), eq(gigs.userId, userId)))
       .returning({ id: gigs.id });
     return deleted.length > 0;
+  }
+
+  /** Calendar sync input: everything touched since the watermark. */
+  async listModifiedSince(userId: string, sinceMs: number): Promise<GigRecord[]> {
+    return this.db
+      .select()
+      .from(gigs)
+      .where(and(eq(gigs.userId, userId), gt(gigs.modifiedAt, sinceMs)));
+  }
+
+  /** Calendar bookkeeping — deliberately no modified_at bump, so the
+   * sync run doesn't re-trigger itself (and offline clients aren't
+   * churned by server-side-only state). */
+  async setCalendarEventId(
+    userId: string,
+    id: string,
+    eventId: string | null,
+  ): Promise<void> {
+    await this.db
+      .update(gigs)
+      .set({ calendarEventId: eventId })
+      .where(and(eq(gigs.id, id), eq(gigs.userId, userId)));
   }
 }

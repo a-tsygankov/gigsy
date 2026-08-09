@@ -148,7 +148,6 @@ export async function applySyncOps(
                 status: parsed.data.status,
                 location: parsed.data.location ?? null,
                 dateTime: parsed.data.dateTime ?? null,
-                calendarEventId: parsed.data.calendarEventId ?? null,
                 amountOfferedCents: parsed.data.amountOfferedCents ?? null,
                 amountPaidCents: parsed.data.amountPaidCents ?? null,
                 notes: parsed.data.notes ?? null,
