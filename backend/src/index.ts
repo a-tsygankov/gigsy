@@ -13,6 +13,8 @@ import PostalMime from "postal-mime";
 import { reportsRouter } from "./routes/reports.ts";
 import { draftsRouter } from "./routes/drafts.ts";
 import { makeCaptureRouter } from "./routes/capture.ts";
+import { makeCalendarRouter } from "./routes/calendar.ts";
+import { runCalendarCron } from "./calendar/cron.ts";
 import { makeAuthRouter } from "./routes/auth.ts";
 import { UsersRepo } from "./repos/users.ts";
 import { providerFromEnv } from "./capture/providers.ts";
@@ -55,6 +57,7 @@ app.route("/api/sync", syncRouter);
 app.route("/api/reports", reportsRouter);
 app.route("/api/drafts", draftsRouter);
 app.route("/api/capture", makeCaptureRouter());
+app.route("/api/calendar", makeCalendarRouter());
 app.route("/api/auth", makeAuthRouter());
 
 export { app };
@@ -62,10 +65,11 @@ export { app };
 export default {
   fetch: app.fetch,
 
-  // Calendar sync fan-out lands in Phase 6. Exporting the stub now
-  // keeps the entry-point shape stable so enabling [triggers] in
-  // wrangler.toml is a config-only change.
-  async scheduled(_event, _env, _ctx) {},
+  // Calendar sync fan-out (docs/plan.md §9) — [triggers] in
+  // wrangler.toml fires this every 15 minutes.
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(runCalendarCron(env));
+  },
 
   // Email capture (docs/plan.md §8): Cloudflare Email Routing
   // delivers each user's forwarding address u-<userId>@<domain> here.

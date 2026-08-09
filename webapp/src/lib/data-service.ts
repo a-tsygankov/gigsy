@@ -39,6 +39,9 @@ export class OfflineDataService {
       | "getDraft"
       | "setDraftStatus"
       | "getDraftRawBlob"
+      | "getCalendarStatus"
+      | "connectCalendar"
+      | "calendarSyncNow"
     >,
   ) {}
 
@@ -189,6 +192,17 @@ export class OfflineDataService {
   }
   getDraftRawBlob(id: string) {
     return this.reportsApi.getDraftRawBlob(id);
+  }
+
+  // ── calendar (online-only) ───────────────────────────────────────
+  getCalendarStatus() {
+    return this.reportsApi.getCalendarStatus();
+  }
+  connectCalendar(authCode: string) {
+    return this.reportsApi.connectCalendar(authCode);
+  }
+  calendarSyncNow() {
+    return this.reportsApi.calendarSyncNow();
   }
 
   // ── reports (server-computed) ────────────────────────────────────

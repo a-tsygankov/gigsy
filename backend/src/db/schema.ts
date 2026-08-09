@@ -18,6 +18,9 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   // AES-GCM ciphertext, key = REFRESH_TOKEN_ENC_KEY secret (Phase 2).
   googleRefreshTokenEnc: text("google_refresh_token_enc"),
+  // Calendar-sync watermark (docs/plan.md §9): gigs modified after
+  // this get processed by the next run.
+  lastCalendarSyncAt: integer("last_calendar_sync_at"),
   createdAt: integer("created_at").notNull(),
   modifiedAt: integer("modified_at").notNull(),
 });
