@@ -5,6 +5,7 @@ import { applyMigrations, seedUser } from "./helpers/db.ts";
 import { api } from "./helpers/api.ts";
 import { syncUserGigs } from "../src/calendar/sync-service.ts";
 import { UsersRepo } from "../src/repos/users.ts";
+import { CalendarCleanupRepo } from "../src/repos/calendar-cleanup.ts";
 import type { CalendarEventInput } from "../src/calendar/google-calendar.ts";
 
 const U1 = "user-1";
@@ -182,5 +183,73 @@ describe("syncUserGigs", () => {
     await syncUserGigs(env.DB, U1, stubClient(), now);
     const user = await UsersRepo.for(env.DB).get(U1);
     expect(user?.lastCalendarSyncAt).toBe(now);
+  });
+});
+
+// ── deleted-gig cleanup queue (Phase 8 hardening) ─────────────────
+// A deleted gig's event id survives in calendar_cleanup; the sync run
+// is what actually removes it from Google.
+describe("syncUserGigs — cleanup queue", () => {
+  const ORPHAN = "77777777-dddd-4ddd-8ddd-777777777777";
+
+  beforeEach(async () => {
+    for (const row of await CalendarCleanupRepo.for(env.DB).listPending(U1)) {
+      await CalendarCleanupRepo.for(env.DB).remove(U1, row.id);
+    }
+  });
+
+  it("deletes a queued event and clears the row", async () => {
+    const cleanup = CalendarCleanupRepo.for(env.DB);
+    await cleanup.enqueue(U1, "evt-orphaned", Date.now());
+
+    const client = stubClient();
+    const result = await syncUserGigs(env.DB, U1, client, Date.now());
+
+    expect(client.calls).toContainEqual({ op: "delete", eventId: "evt-orphaned" });
+    expect(result.cleaned).toBe(1);
+    expect(await cleanup.listPending(U1)).toHaveLength(0);
+  });
+
+  it("leaves the row queued when the delete fails, so it retries", async () => {
+    const cleanup = CalendarCleanupRepo.for(env.DB);
+    await cleanup.enqueue(U1, "evt-unreachable", Date.now());
+
+    const client = { ...stubClient(), deleteEvent: async () => false };
+    const result = await syncUserGigs(env.DB, U1, client, Date.now());
+
+    expect(result.cleaned).toBe(0);
+    expect(await cleanup.listPending(U1)).toHaveLength(1);
+  });
+
+  // The cleanup queue is its own retry mechanism; stalling the gig
+  // watermark behind one unreachable event would block gig syncing.
+  it("does not hold back the gig watermark when a cleanup fails", async () => {
+    await CalendarCleanupRepo.for(env.DB).enqueue(U1, "evt-stuck", Date.now());
+    const now = Date.now();
+
+    const client = { ...stubClient(), deleteEvent: async () => false };
+    await syncUserGigs(env.DB, U1, client, now);
+
+    const user = await UsersRepo.for(env.DB).get(U1);
+    expect(user?.lastCalendarSyncAt).toBe(now);
+  });
+
+  it("clears the queue end-to-end when a synced gig is deleted", async () => {
+    await api(U1, "PUT", `/api/gigs/${ORPHAN}`, {
+      status: "confirmed",
+      dateTime: WHEN,
+    });
+    // First run gives it an event.
+    const client = stubClient();
+    await syncUserGigs(env.DB, U1, client, Date.now());
+
+    await api(U1, "DELETE", `/api/gigs/${ORPHAN}`);
+
+    const second = stubClient();
+    const result = await syncUserGigs(env.DB, U1, second, Date.now());
+
+    expect(result.cleaned).toBe(1);
+    expect(second.calls.some((c) => c.op === "delete")).toBe(true);
+    expect(await CalendarCleanupRepo.for(env.DB).listPending(U1)).toHaveLength(0);
   });
 });

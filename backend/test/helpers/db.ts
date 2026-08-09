@@ -4,6 +4,7 @@ import refreshTokensSql from "../../migrations/0001_refresh_tokens.sql?raw";
 import servicesPaymentsSql from "../../migrations/0002_services_payments.sql?raw";
 import draftsSql from "../../migrations/0003_drafts.sql?raw";
 import calendarSyncSql from "../../migrations/0004_calendar_sync.sql?raw";
+import calendarCleanupSql from "../../migrations/0005_calendar_cleanup.sql?raw";
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
@@ -13,6 +14,7 @@ const MIGRATIONS = [
   servicesPaymentsSql,
   draftsSql,
   calendarSyncSql,
+  calendarCleanupSql,
 ];
 
 /**
