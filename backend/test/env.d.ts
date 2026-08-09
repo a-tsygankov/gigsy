@@ -15,6 +15,7 @@ declare module "cloudflare:test" {
     GOOGLE_CLIENT_ID: string;
     GOOGLE_CLIENT_SECRET: string;
     REFRESH_TOKEN_ENC_KEY: string;
+    GEMINI_API_KEY: string;
     AI_PROVIDER: string;
     AI_MODEL: string;
   }
