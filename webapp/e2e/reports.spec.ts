@@ -36,29 +36,41 @@ test("the reports tab shows server-computed totals", async ({ page }) => {
   await expect(page.getByTestId("report-clients")).toBeVisible();
 });
 
+// These matchers are deliberately specific. The screen loads on "This
+// year", which already sends a from= bound, so a predicate as loose as
+// `url().includes("from=")` can match that initial request instead of
+// the one under test — it passes or fails on server warm-up timing.
 test("changing the period refetches the summary", async ({ page }) => {
   await page.getByRole("link", { name: "Reports" }).click();
   await expect(page.getByTestId("tile-net")).toBeVisible();
 
   const summaryCall = page.waitForResponse(
-    (res) => res.url().includes("/api/reports/summary") && res.status() === 200,
+    (res) =>
+      res.url().includes("/api/reports/summary") &&
+      !res.url().includes("from=") &&
+      res.status() === 200,
   );
   await page.getByTestId("report-range").selectOption("all");
-  const res = await summaryCall;
   // "All time" drops the bounds entirely.
-  expect(res.url()).not.toContain("from=");
+  expect((await summaryCall).ok()).toBe(true);
 });
 
 test("a custom range sends explicit bounds", async ({ page }) => {
+  // Local midnight, matching the screen's own rule. Deliberately not a
+  // January 1st: that would compute to the same epoch as the default
+  // "This year" bound, hit TanStack's 30s cache under an identical
+  // query key, and never reach the network.
+  const expectedFrom = new Date(2025, 2, 15).getTime();
+
   await page.getByRole("link", { name: "Reports" }).click();
   await page.getByTestId("report-range").selectOption("custom");
 
   const summaryCall = page.waitForResponse(
-    (res) => res.url().includes("from=") && res.status() === 200,
+    (res) => res.url().includes(`from=${expectedFrom}`) && res.status() === 200,
   );
-  await page.getByTestId("report-from").fill("2026-01-01");
+  await page.getByTestId("report-from").fill("2025-03-15");
   const res = await summaryCall;
-  expect(res.url()).toContain("from=");
+  expect(new URL(res.url()).searchParams.get("from")).toBe(String(expectedFrom));
 });
 
 test("exporting income downloads a CSV built from local data", async ({ page }) => {
