@@ -21,6 +21,7 @@ import type {
   GigInput,
   Payment,
   PaymentInput,
+  ReportFilters,
   ReportSummary,
   Service,
   ServiceInput,
@@ -251,8 +252,13 @@ export class ApiClient {
   }
 
   // ── reports ──────────────────────────────────────────────────────
-  getReportSummary(): Promise<ReportSummary> {
-    return this.request("GET", "/api/reports/summary");
+  getReportSummary(filters: ReportFilters = {}): Promise<ReportSummary> {
+    const params = new URLSearchParams();
+    if (filters.from !== undefined) params.set("from", String(filters.from));
+    if (filters.to !== undefined) params.set("to", String(filters.to));
+    if (filters.clientId !== undefined) params.set("clientId", filters.clientId);
+    const qs = params.toString();
+    return this.request("GET", `/api/reports/summary${qs ? `?${qs}` : ""}`);
   }
 
   getDashboard(window: { futureFrom?: number; futureTo?: number } = {}): Promise<DashboardSummary> {

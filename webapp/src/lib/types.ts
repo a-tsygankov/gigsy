@@ -155,6 +155,14 @@ export interface SessionUser {
   email: string;
 }
 
+/** Report scoping (docs/plan.md §10). Mirrors the endpoint's query
+ * params: an absent field means "unfiltered". */
+export interface ReportFilters {
+  from?: number;
+  to?: number;
+  clientId?: string;
+}
+
 export interface ReportSummary {
   totals: {
     offeredCents: number;

@@ -10,6 +10,7 @@ import {
   ButtonLink,
   Card,
   CardLink,
+  EmptyState,
   Field,
   SectionHeading,
   Select,
@@ -199,9 +200,10 @@ export function Dashboard() {
             <section>
               <SectionHeading>Waiting to be paid</SectionHeading>
               {summary.data.unpaidJobs.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-slate-300 bg-white/50 p-4 text-center text-sm text-slate-500">
-                  Nothing outstanding — every completed job is paid.
-                </p>
+                <EmptyState
+                  compact
+                  title="Nothing outstanding — every completed job is paid."
+                />
               ) : (
                 <div className="space-y-3" data-testid="unpaid-jobs">
                   {summary.data.unpaidJobs.map((job) => (

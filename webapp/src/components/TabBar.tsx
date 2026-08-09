@@ -1,10 +1,13 @@
 import { NavLink } from "react-router-dom";
 
+// Text-only tabs, no icons (docs/design-system.md). Five fit at 375px
+// with room to spare over the 44px tap minimum.
 const TABS = [
   { to: "/", label: "Home", end: true },
   { to: "/gigs", label: "Gigs", end: false },
   { to: "/clients", label: "Clients", end: false },
   { to: "/expenses", label: "Expenses", end: false },
+  { to: "/reports", label: "Reports", end: false },
 ];
 
 export function TabBar() {

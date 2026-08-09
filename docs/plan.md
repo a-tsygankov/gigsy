@@ -275,7 +275,15 @@ Phase 2 lands (TODO in `backend/src/routes/debug.ts`).
 ## 14. Open items (carried from handoff)
 
 - Exact UI flows/screens — needs design pass before Phase 3.
-- Notification strategy (reminders for unconfirmed leads / unpaid gigs).
+- ~~Notification strategy (reminders for unconfirmed leads / unpaid gigs).~~
+  **Decided in Phase 7: no push in v1.** Two shipped mechanisms already cover
+  it — confirmed gigs sync to Google Calendar (Phase 6), which fires the
+  platform's own reminders, and the dashboard's "waiting to be paid"
+  drill-down is the standing unpaid queue. Web Push is deferred, not
+  rejected: iOS requires the PWA installed to the home screen plus a
+  permission prompt, and it adds VAPID keys and subscription lifecycle —
+  real cost for one user whose gigs are already on their calendar.
+  Revisit if leads go stale in practice.
 - Whether `lead` gigs sync to calendar (default no).
 - Fuzzy-match threshold for client names (avoid silent merges).
 - Email Routing domain for per-user forwarding addresses.

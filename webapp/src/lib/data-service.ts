@@ -19,6 +19,7 @@ import type {
   GigInput,
   Payment,
   PaymentInput,
+  ReportFilters,
   ReportSummary,
   Service,
   ServiceInput,
@@ -206,8 +207,8 @@ export class OfflineDataService {
   }
 
   // ── reports (server-computed) ────────────────────────────────────
-  getReportSummary(): Promise<ReportSummary> {
-    return this.reportsApi.getReportSummary();
+  getReportSummary(filters: ReportFilters = {}): Promise<ReportSummary> {
+    return this.reportsApi.getReportSummary(filters);
   }
   getDashboard(window: { futureFrom?: number; futureTo?: number } = {}): Promise<DashboardSummary> {
     return this.reportsApi.getDashboard(window);
