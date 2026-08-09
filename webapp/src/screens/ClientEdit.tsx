@@ -1,20 +1,27 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
 import type { Gig, ClientInput } from "../lib/types.ts";
 import { formatMoney } from "../lib/format.ts";
-import { Header } from "../components/Header.tsx";
-import { StatusPill } from "../components/StatusPill.tsx";
-import { Field } from "../components/Scaffold.tsx";
-import { btnDanger, btnGhost, btnPrimary, inputCls } from "../components/ui.ts";
+import {
+  AppHeader,
+  Button,
+  CardLink,
+  Field,
+  Input,
+  SectionHeading,
+  StatusPill,
+  Textarea,
+} from "../components/index.ts";
 
 /** One row in the client's job history. */
 function JobRow({ gig }: { gig: Gig }) {
   return (
-    <Link
+    <CardLink
       to={`/gigs/${gig.id}`}
-      className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-shadow hover:shadow"
+      dense
+      className="flex items-center justify-between"
     >
       <span className="min-w-0 truncate text-slate-700">
         {gig.dateTime !== null
@@ -30,7 +37,7 @@ function JobRow({ gig }: { gig: Gig }) {
         )}
         <StatusPill status={gig.status} />
       </span>
-    </Link>
+    </CardLink>
   );
 }
 
@@ -111,34 +118,28 @@ export function ClientEdit() {
 
   return (
     <>
-      <Header title={isNew ? "New client" : "Edit client"} />
+      <AppHeader title={isNew ? "New client" : "Edit client"} />
       <main className="mx-auto max-w-lg space-y-4 p-4">
         {!isNew && client.isPending ? (
           <p className="text-sm text-slate-500">Loading…</p>
         ) : (
           <>
             <Field label="Name" error={nameError}>
-              <input
-                className={inputCls}
+              <Input
                 placeholder="Acme Staffing"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
             </Field>
             <Field label="Contact">
-              <input
-                className={inputCls}
+              <Input
                 placeholder="booker@acme.com · (555) 010-2233"
                 value={contact}
                 onChange={(e) => setContact(e.target.value)}
               />
             </Field>
             <Field label="Notes">
-              <textarea
-                className={`${inputCls} min-h-24`}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
+              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
             </Field>
 
             {save.isError && (
@@ -146,29 +147,18 @@ export function ClientEdit() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                className={`${btnPrimary} flex-1`}
-                disabled={save.isPending}
-                onClick={submit}
-              >
+              <Button className="flex-1" disabled={save.isPending} onClick={submit}>
                 {save.isPending ? "Saving…" : "Save client"}
-              </button>
-              <button
-                type="button"
-                className={btnGhost}
-                onClick={() => navigate("/clients")}
-              >
+              </Button>
+              <Button variant="ghost" onClick={() => navigate("/clients")}>
                 Cancel
-              </button>
+              </Button>
             </div>
             {!isNew && (
               <>
                 {/* ── all jobs for this client, grouped by state ── */}
                 <section className="space-y-3 pt-2" data-testid="client-jobs">
-                  <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Jobs
-                  </h2>
+                  <SectionHeading>Jobs</SectionHeading>
                   {clientGigs.length === 0 && (
                     <p className="text-xs text-slate-400">No jobs yet for this client.</p>
                   )}
@@ -188,9 +178,9 @@ export function ClientEdit() {
                   />
                 </section>
 
-                <button
-                  type="button"
-                  className={`${btnDanger} w-full`}
+                <Button
+                  variant="danger"
+                  block
                   disabled={remove.isPending}
                   onClick={() => {
                     if (window.confirm("Delete this client? Gigs keep their history."))
@@ -198,7 +188,7 @@ export function ClientEdit() {
                   }}
                 >
                   Delete client
-                </button>
+                </Button>
               </>
             )}
           </>

@@ -1,9 +1,12 @@
-import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
-import { Header } from "../components/Header.tsx";
-import { EmptyState, Fab, ListSkeleton } from "../components/Scaffold.tsx";
-import { card } from "../components/ui.ts";
+import {
+  AppHeader,
+  CardLink,
+  EmptyState,
+  Fab,
+  ListSkeleton,
+} from "../components/index.ts";
 
 export function Clients() {
   const api = useData();
@@ -14,7 +17,7 @@ export function Clients() {
 
   return (
     <>
-      <Header title="Clients" />
+      <AppHeader title="Clients" />
       <main className="mx-auto max-w-lg space-y-3 p-4">
         {clients.isPending && <ListSkeleton />}
         {clients.isError && (
@@ -29,14 +32,14 @@ export function Clients() {
           />
         )}
         {clients.data?.map((client) => (
-          <Link key={client.id} to={`/clients/${client.id}`} className={card}>
+          <CardLink key={client.id} to={`/clients/${client.id}`}>
             <p className="text-sm font-semibold text-slate-900">{client.name}</p>
             {client.contactInfo !== null && (
               <p className="mt-0.5 truncate text-xs text-slate-500">
                 {client.contactInfo}
               </p>
             )}
-          </Link>
+          </CardLink>
         ))}
       </main>
       <Fab to="/clients/new" label="Add client" />

@@ -1,14 +1,21 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
 import { GIG_STATUSES, type GigInput, type GigStatus } from "../lib/types.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { formatMoney } from "../lib/format.ts";
 import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
-import { Header } from "../components/Header.tsx";
-import { Field } from "../components/Scaffold.tsx";
-import { btnDanger, btnGhost, btnPrimary, inputCls } from "../components/ui.ts";
+import {
+  AppHeader,
+  Button,
+  CardLink,
+  Field,
+  Input,
+  SectionHeading,
+  Select,
+  Textarea,
+} from "../components/index.ts";
 
 interface FormState {
   clientId: string; // "" = none
@@ -128,15 +135,14 @@ export function GigEdit() {
 
   return (
     <>
-      <Header title={isNew ? "New gig" : "Edit gig"} />
+      <AppHeader title={isNew ? "New gig" : "Edit gig"} />
       <main className="mx-auto max-w-lg space-y-4 p-4">
         {!isNew && gig.isPending ? (
           <p className="text-sm text-slate-500">Loading…</p>
         ) : (
           <>
             <Field label="Client">
-              <select
-                className={inputCls}
+              <Select
                 value={form.clientId}
                 onChange={(e) => set("clientId", e.target.value)}
               >
@@ -146,12 +152,11 @@ export function GigEdit() {
                     {c.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
 
             <Field label="Status">
-              <select
-                className={inputCls}
+              <Select
                 value={form.status}
                 onChange={(e) => set("status", e.target.value as GigStatus)}
               >
@@ -160,21 +165,19 @@ export function GigEdit() {
                     {s}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
 
             <Field label="Date & time">
-              <input
+              <Input
                 type="datetime-local"
-                className={inputCls}
                 value={form.dateTime}
                 onChange={(e) => set("dateTime", e.target.value)}
               />
             </Field>
 
             <Field label="Location">
-              <input
-                className={inputCls}
+              <Input
                 placeholder="Costco on 5th, booth 12…"
                 value={form.location}
                 onChange={(e) => set("location", e.target.value)}
@@ -183,18 +186,16 @@ export function GigEdit() {
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Offered ($)" error={moneyError}>
-                <input
+                <Input
                   inputMode="decimal"
-                  className={inputCls}
                   placeholder="150.00"
                   value={form.offered}
                   onChange={(e) => set("offered", e.target.value)}
                 />
               </Field>
               <Field label="Paid ($)">
-                <input
+                <Input
                   inputMode="decimal"
-                  className={inputCls}
                   placeholder="0.00"
                   value={form.paid}
                   onChange={(e) => set("paid", e.target.value)}
@@ -203,8 +204,7 @@ export function GigEdit() {
             </div>
 
             <Field label="Notes">
-              <textarea
-                className={`${inputCls} min-h-24`}
+              <Textarea
                 value={form.notes}
                 onChange={(e) => set("notes", e.target.value)}
               />
@@ -215,43 +215,34 @@ export function GigEdit() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                className={`${btnPrimary} flex-1`}
-                disabled={save.isPending}
-                onClick={submit}
-              >
+              <Button className="flex-1" disabled={save.isPending} onClick={submit}>
                 {save.isPending ? "Saving…" : "Save gig"}
-              </button>
-              <button type="button" className={btnGhost} onClick={() => navigate("/gigs")}>
+              </Button>
+              <Button variant="ghost" onClick={() => navigate("/gigs")}>
                 Cancel
-              </button>
+              </Button>
             </div>
 
             {!isNew && (
               <>
                 {/* ── Additional services (addable at any time) ── */}
                 <section className="pt-2" data-testid="gig-services">
-                  <div className="mb-2 flex items-center justify-between">
-                    <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Additional services
-                    </h2>
-                    <Link
-                      to={`/services/new?gigId=${id}`}
-                      className="inline-block py-2 text-xs font-medium text-emerald-700 hover:underline"
-                    >
-                      + Add service
-                    </Link>
-                  </div>
+                  <SectionHeading
+                    actionLabel="+ Add service"
+                    actionTo={`/services/new?gigId=${id}`}
+                  >
+                    Additional services
+                  </SectionHeading>
                   {services.data?.length === 0 && (
                     <p className="text-xs text-slate-400">None yet.</p>
                   )}
                   <div className="space-y-2">
                     {services.data?.map((svc) => (
-                      <Link
+                      <CardLink
                         key={svc.id}
                         to={`/services/${svc.id}`}
-                        className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-shadow hover:shadow"
+                        dense
+                        className="flex items-center justify-between"
                       >
                         <span className="min-w-0 truncate">
                           <span className={svc.isCompleted ? "text-slate-900" : "text-slate-600"}>
@@ -263,33 +254,29 @@ export function GigEdit() {
                           {formatMoney(svc.amountPaidCents ?? 0)} /{" "}
                           {formatMoney(svc.amountOfferedCents ?? 0)}
                         </span>
-                      </Link>
+                      </CardLink>
                     ))}
                   </div>
                 </section>
 
                 {/* ── Payments received for this gig ── */}
                 <section className="pt-2" data-testid="gig-payments">
-                  <div className="mb-2 flex items-center justify-between">
-                    <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Payments
-                    </h2>
-                    <Link
-                      to={`/payments/new?gigId=${id}`}
-                      className="inline-block py-2 text-xs font-medium text-emerald-700 hover:underline"
-                    >
-                      + Add payment
-                    </Link>
-                  </div>
+                  <SectionHeading
+                    actionLabel="+ Add payment"
+                    actionTo={`/payments/new?gigId=${id}`}
+                  >
+                    Payments
+                  </SectionHeading>
                   {payments.data?.length === 0 && (
                     <p className="text-xs text-slate-400">None yet.</p>
                   )}
                   <div className="space-y-2">
                     {payments.data?.map((payment) => (
-                      <Link
+                      <CardLink
                         key={payment.id}
                         to={`/payments/${payment.id}`}
-                        className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-shadow hover:shadow"
+                        dense
+                        className="flex items-center justify-between"
                       >
                         <span className="text-slate-600">
                           {payment.paidAt !== null
@@ -300,21 +287,21 @@ export function GigEdit() {
                         <span className="shrink-0 font-semibold text-emerald-700">
                           {formatMoney(payment.amountCents)}
                         </span>
-                      </Link>
+                      </CardLink>
                     ))}
                   </div>
                 </section>
 
-                <button
-                  type="button"
-                  className={`${btnDanger} w-full`}
+                <Button
+                  variant="danger"
+                  block
                   disabled={remove.isPending}
                   onClick={() => {
                     if (window.confirm("Delete this gig?")) remove.mutate();
                   }}
                 >
                   Delete gig
-                </button>
+                </Button>
               </>
             )}
           </>

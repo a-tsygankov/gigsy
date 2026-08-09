@@ -1,3 +1,16 @@
+/* Design tokens (docs/design-system.md) — copied verbatim from the
+ * Gigsy Design System project; the canonical values for every color,
+ * type step, space, radius, shadow, and duration in the app. Tailwind's
+ * default scale equals these values (the DS lifted them from Tailwind);
+ * src/lib/design-tokens.test.ts enforces that they never drift apart. */
+@import "./styles/tokens/colors.css";
+@import "./styles/tokens/typography.css";
+@import "./styles/tokens/spacing.css";
+@import "./styles/tokens/radius.css";
+@import "./styles/tokens/elevation.css";
+@import "./styles/tokens/motion.css";
+@import "./styles/tokens/semantic.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

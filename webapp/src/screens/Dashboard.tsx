@@ -4,8 +4,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData, useServices, useSyncState } from "../lib/app-context.tsx";
 import { requestCalendarCode } from "../lib/google-signin.ts";
 import { formatMoney } from "../lib/format.ts";
-import { Header } from "../components/Header.tsx";
-import { card } from "../components/ui.ts";
+import {
+  AppHeader,
+  Button,
+  ButtonLink,
+  Card,
+  CardLink,
+  Field,
+  SectionHeading,
+  Select,
+  Tile,
+} from "../components/index.ts";
 
 /** Google Calendar connection card (docs/plan.md §9). */
 function CalendarSection() {
@@ -42,10 +51,7 @@ function CalendarSection() {
   if (status.isError || status.data === undefined) return null;
 
   return (
-    <section
-      data-testid="calendar-section"
-      className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-    >
+    <Card as="section" data-testid="calendar-section">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-slate-900">Google Calendar</p>
@@ -59,16 +65,14 @@ function CalendarSection() {
               : "Put confirmed gigs on your calendar automatically."}
           </p>
         </div>
-        <button
-          type="button"
+        <Button
+          variant="soft"
+          className="shrink-0"
           disabled={offline || connect.isPending || syncNow.isPending}
           onClick={() => {
             setError(null);
             status.data?.connected ? syncNow.mutate() : connect.mutate();
           }}
-          className="shrink-0 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2
-                     text-xs font-semibold text-emerald-700 transition-colors
-                     hover:bg-emerald-100 disabled:opacity-50"
         >
           {status.data.connected
             ? syncNow.isPending
@@ -77,10 +81,10 @@ function CalendarSection() {
             : connect.isPending
               ? "Connecting…"
               : "Connect"}
-        </button>
+        </Button>
       </div>
       {error !== null && <p className="mt-2 text-xs text-red-600">{error}</p>}
-    </section>
+    </Card>
   );
 }
 
@@ -92,38 +96,6 @@ const WINDOWS = [
   { key: "365", label: "Next year", days: 365 },
   { key: "all", label: "All open", days: null },
 ] as const;
-
-function Tile({
-  label,
-  value,
-  tone,
-  testId,
-}: {
-  label: string;
-  value: string;
-  tone: "neutral" | "good" | "warn";
-  testId: string;
-}) {
-  const toneCls =
-    tone === "good"
-      ? "text-emerald-700"
-      : tone === "warn"
-        ? "text-amber-700"
-        : "text-slate-900";
-  return (
-    <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="truncate text-xs font-medium uppercase tracking-wide text-slate-500">
-        {label}
-      </p>
-      <p
-        data-testid={testId}
-        className={`mt-1 text-2xl font-bold tabular-nums tracking-tight ${toneCls}`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
 
 /** Home screen: money at a glance + drill-down into unpaid work
  * (feature spec 2026-08-08). Server-computed like reports — offline it
@@ -158,16 +130,13 @@ export function Dashboard() {
 
   return (
     <>
-      <Header title="Dashboard" />
+      <AppHeader title="Dashboard" />
       <main className="mx-auto max-w-lg space-y-4 p-4">
         {/* fast capture — the product's front door */}
         <div className="flex gap-3">
-          <Link to="/capture" className="flex-1 rounded-xl bg-emerald-600 px-4 py-3 text-center
-                     text-sm font-semibold text-white shadow-sm transition-colors
-                     hover:bg-emerald-700 focus:outline-none focus-visible:ring-2
-                     focus-visible:ring-emerald-500">
+          <ButtonLink to="/capture" size="lg" className="flex-1">
             📸 Capture a gig or receipt
-          </Link>
+          </ButtonLink>
           {pendingDrafts > 0 && (
             <Link
               to="/drafts"
@@ -179,14 +148,9 @@ export function Dashboard() {
             </Link>
           )}
         </div>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
-            Timeframe for expected money
-          </span>
-          <select
+        <Field label="Timeframe for expected money">
+          <Select
             data-testid="dashboard-window"
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-base
-                       focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
             value={windowKey}
             onChange={(e) => setWindowKey(e.target.value as typeof windowKey)}
           >
@@ -195,8 +159,8 @@ export function Dashboard() {
                 {w.label}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </Field>
 
         {summary.isError && (
           <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
@@ -233,9 +197,7 @@ export function Dashboard() {
             </div>
 
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Waiting to be paid
-              </h2>
+              <SectionHeading>Waiting to be paid</SectionHeading>
               {summary.data.unpaidJobs.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-slate-300 bg-white/50 p-4 text-center text-sm text-slate-500">
                   Nothing outstanding — every completed job is paid.
@@ -243,7 +205,7 @@ export function Dashboard() {
               ) : (
                 <div className="space-y-3" data-testid="unpaid-jobs">
                   {summary.data.unpaidJobs.map((job) => (
-                    <Link key={job.gigId} to={`/gigs/${job.gigId}`} className={card}>
+                    <CardLink key={job.gigId} to={`/gigs/${job.gigId}`}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-slate-900">
@@ -263,7 +225,7 @@ export function Dashboard() {
                           {formatMoney(job.outstandingCents)}
                         </span>
                       </div>
-                    </Link>
+                    </CardLink>
                   ))}
                 </div>
               )}

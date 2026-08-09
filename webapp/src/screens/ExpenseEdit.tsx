@@ -4,9 +4,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
 import type { ExpenseInput } from "../lib/types.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
-import { Header } from "../components/Header.tsx";
-import { Field } from "../components/Scaffold.tsx";
-import { btnDanger, btnGhost, btnPrimary, inputCls } from "../components/ui.ts";
+import {
+  AppHeader,
+  Button,
+  Field,
+  Input,
+  Select,
+  Textarea,
+} from "../components/index.ts";
 
 export function ExpenseEdit() {
   const { id = "new" } = useParams();
@@ -81,49 +86,39 @@ export function ExpenseEdit() {
 
   return (
     <>
-      <Header title={isNew ? "New expense" : "Edit expense"} />
+      <AppHeader title={isNew ? "New expense" : "Edit expense"} />
       <main className="mx-auto max-w-lg space-y-4 p-4">
         {!isNew && expense.isPending ? (
           <p className="text-sm text-slate-500">Loading…</p>
         ) : (
           <>
             <Field label="Amount ($)" error={amountError}>
-              <input
+              <Input
                 inputMode="decimal"
-                className={inputCls}
                 placeholder="23.50"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
               />
             </Field>
             <Field label="Category">
-              <input
-                className={inputCls}
+              <Input
                 placeholder="parking, supplies, mileage…"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
               />
             </Field>
             <Field label="Linked gig">
-              <select
-                className={inputCls}
-                value={gigId}
-                onChange={(e) => setGigId(e.target.value)}
-              >
+              <Select value={gigId} onChange={(e) => setGigId(e.target.value)}>
                 <option value="">Not linked</option>
                 {gigs.data?.map((g) => (
                   <option key={g.id} value={g.id}>
                     {gigLabel(g)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <Field label="Notes">
-              <textarea
-                className={`${inputCls} min-h-24`}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
+              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
             </Field>
 
             {save.isError && (
@@ -131,33 +126,24 @@ export function ExpenseEdit() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                className={`${btnPrimary} flex-1`}
-                disabled={save.isPending}
-                onClick={submit}
-              >
+              <Button className="flex-1" disabled={save.isPending} onClick={submit}>
                 {save.isPending ? "Saving…" : "Save expense"}
-              </button>
-              <button
-                type="button"
-                className={btnGhost}
-                onClick={() => navigate("/expenses")}
-              >
+              </Button>
+              <Button variant="ghost" onClick={() => navigate("/expenses")}>
                 Cancel
-              </button>
+              </Button>
             </div>
             {!isNew && (
-              <button
-                type="button"
-                className={`${btnDanger} w-full`}
+              <Button
+                variant="danger"
+                block
                 disabled={remove.isPending}
                 onClick={() => {
                   if (window.confirm("Delete this expense?")) remove.mutate();
                 }}
               >
                 Delete expense
-              </button>
+              </Button>
             )}
           </>
         )}

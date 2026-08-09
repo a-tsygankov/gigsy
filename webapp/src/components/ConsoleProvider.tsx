@@ -1,6 +1,6 @@
 /**
  * One tap-detector + one HiddenConsole for the whole app — the
- * wordmark in the Login screen and the Header share the same 3-tap
+ * wordmark in the Login screen and the AppHeader share the same 3-tap
  * trigger via useConsoleTap().
  */
 import {

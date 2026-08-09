@@ -1,10 +1,13 @@
-import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
 import { formatMoney } from "../lib/format.ts";
-import { Header } from "../components/Header.tsx";
-import { EmptyState, Fab, ListSkeleton } from "../components/Scaffold.tsx";
-import { card } from "../components/ui.ts";
+import {
+  AppHeader,
+  CardLink,
+  EmptyState,
+  Fab,
+  ListSkeleton,
+} from "../components/index.ts";
 
 export function Expenses() {
   const api = useData();
@@ -15,7 +18,7 @@ export function Expenses() {
 
   return (
     <>
-      <Header title="Expenses" />
+      <AppHeader title="Expenses" />
       <main className="mx-auto max-w-lg space-y-3 p-4">
         {expenses.isPending && <ListSkeleton />}
         {expenses.isError && (
@@ -30,7 +33,7 @@ export function Expenses() {
           />
         )}
         {expenses.data?.map((expense) => (
-          <Link key={expense.id} to={`/expenses/${expense.id}`} className={card}>
+          <CardLink key={expense.id} to={`/expenses/${expense.id}`}>
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-slate-900">
@@ -44,7 +47,7 @@ export function Expenses() {
                 {formatMoney(expense.amountCents)}
               </span>
             </div>
-          </Link>
+          </CardLink>
         ))}
       </main>
       <Fab to="/expenses/new" label="Add expense" />

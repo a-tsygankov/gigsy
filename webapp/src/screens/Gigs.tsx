@@ -1,11 +1,14 @@
-import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
 import { formatMoney } from "../lib/format.ts";
-import { Header } from "../components/Header.tsx";
-import { StatusPill } from "../components/StatusPill.tsx";
-import { EmptyState, Fab, ListSkeleton } from "../components/Scaffold.tsx";
-import { card } from "../components/ui.ts";
+import {
+  AppHeader,
+  CardLink,
+  EmptyState,
+  Fab,
+  ListSkeleton,
+  StatusPill,
+} from "../components/index.ts";
 
 function dateLine(ms: number | null): string {
   if (ms === null) return "No date yet";
@@ -29,7 +32,7 @@ export function Gigs() {
 
   return (
     <>
-      <Header title="Gigs" />
+      <AppHeader title="Gigs" />
       <main className="mx-auto max-w-lg space-y-3 p-4">
         {gigs.isPending && <ListSkeleton />}
         {gigs.isError && (
@@ -47,7 +50,7 @@ export function Gigs() {
           const money =
             gig.amountPaidCents ?? gig.amountOfferedCents;
           return (
-            <Link key={gig.id} to={`/gigs/${gig.id}`} className={card}>
+            <CardLink key={gig.id} to={`/gigs/${gig.id}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-slate-900">
@@ -69,7 +72,7 @@ export function Gigs() {
                   )}
                 </div>
               </div>
-            </Link>
+            </CardLink>
           );
         })}
       </main>

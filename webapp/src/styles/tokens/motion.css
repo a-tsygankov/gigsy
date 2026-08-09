@@ -1,0 +1,9 @@
+/* Nothing animates longer than 200ms; no bounces, no springs. */
+:root{
+  --duration-fast:150ms; /* @kind other */
+  --duration:200ms; /* @kind other */
+  --ease:cubic-bezier(0.4,0,0.2,1); /* @kind other */
+  --transition-colors:color var(--duration-fast) var(--ease),background-color var(--duration-fast) var(--ease),border-color var(--duration-fast) var(--ease);
+  --transition-shadow:box-shadow var(--duration-fast) var(--ease);
+  --transition-all:all var(--duration-fast) var(--ease);
+}

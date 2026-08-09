@@ -1,0 +1,18 @@
+/* System font stack only — a webfont would cost PWA start-up time
+   (docs/superpowers/plans/2026-08-08-phase3-webapp-core.md). */
+:root{
+  --font-sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif,"Apple Color Emoji","Segoe UI Emoji";
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+
+  --text-2xs:10px;--text-2xs-lh:14px;
+  --text-xs:12px;--text-xs-lh:16px;
+  --text-sm:14px;--text-sm-lh:20px;
+  --text-base:16px;--text-base-lh:24px;
+  --text-lg:18px;--text-lg-lh:28px;
+  --text-2xl:24px;--text-2xl-lh:32px;
+  --text-3xl:30px;--text-3xl-lh:36px;
+
+  --weight-normal:400;--weight-medium:500;--weight-semibold:600;--weight-bold:700;
+  --tracking-tight:-0.025em;--tracking-wide:0.025em;
+  --leading-relaxed:1.625;
+}
