@@ -41,6 +41,7 @@ export function Expenses() {
                 </p>
                 <p className="mt-0.5 text-xs text-slate-500">
                   {new Date(expense.createdAt).toLocaleDateString()}
+                  {expense.reimbursable && " · billable to client"}
                 </p>
               </div>
               <span className="shrink-0 text-sm font-semibold text-slate-800">

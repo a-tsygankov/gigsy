@@ -64,7 +64,15 @@ export const INCOME_HEADERS = [
   "notes",
 ];
 
-export const EXPENSE_HEADERS = ["date", "category", "amount", "client", "gig", "notes"];
+export const EXPENSE_HEADERS = [
+  "date",
+  "category",
+  "amount",
+  "reimbursable",
+  "client",
+  "gig",
+  "notes",
+];
 
 export const SUMMARY_HEADERS = ["month", "offered", "paid", "expenses", "net"];
 
@@ -163,6 +171,7 @@ export function expenseRows(
         isoDate(effective),
         expense.category ?? "Uncategorized",
         money(expense.amountCents),
+        expense.reimbursable ? "yes" : "no",
         gig?.clientId != null ? (clientName.get(gig.clientId) ?? "") : "",
         gig !== undefined ? (gig.location ?? "Untitled gig") : "Not linked",
         expense.notes ?? "",

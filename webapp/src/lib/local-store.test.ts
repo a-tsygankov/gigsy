@@ -91,6 +91,7 @@ describe("LocalStore CRUD + outbox", () => {
       status: "paid",
       location: null,
       dateTime: null,
+      durationMinutes: null,
       calendarEventId: null,
       amountOfferedCents: 5000,
       amountPaidCents: 5000,

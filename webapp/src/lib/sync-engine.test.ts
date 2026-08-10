@@ -17,6 +17,7 @@ function serverGig(overrides: Partial<Gig> = {}): Gig {
     status: "paid",
     location: "server copy",
     dateTime: null,
+    durationMinutes: null,
     calendarEventId: null,
     amountOfferedCents: null,
     amountPaidCents: null,

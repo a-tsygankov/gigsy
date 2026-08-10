@@ -31,6 +31,9 @@ export const GigInput = z.object({
   status: z.enum(GIG_STATUSES).default("lead"),
   location: z.string().max(500).nullish(),
   dateTime: z.number().int().nullish(),
+  // A length in minutes. Positive when present — a zero-length gig is
+  // a data-entry mistake, and "unknown" is null. Capped at 24h.
+  durationMinutes: z.number().int().positive().max(24 * 60).nullish(),
   amountOfferedCents: positiveCents.nullish(),
   amountPaidCents: positiveCents.nullish(),
   notes: z.string().max(4000).nullish(),
@@ -64,5 +67,8 @@ export const ExpenseInput = z.object({
   category: z.string().max(100).nullish(),
   receiptR2Key: z.string().max(500).nullish(),
   notes: z.string().max(4000).nullish(),
+  // "The client should cover this." Defaults false so existing
+  // payloads keep their meaning.
+  reimbursable: z.boolean().default(false),
 });
 export type ExpenseInputT = z.infer<typeof ExpenseInput>;

@@ -31,6 +31,7 @@ export function ExpenseEdit() {
   const [category, setCategory] = useState("");
   const [gigId, setGigId] = useState("");
   const [notes, setNotes] = useState("");
+  const [reimbursable, setReimbursable] = useState(false);
   const [amountError, setAmountError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,6 +40,7 @@ export function ExpenseEdit() {
     setCategory(expense.data.category ?? "");
     setGigId(expense.data.gigId ?? "");
     setNotes(expense.data.notes ?? "");
+    setReimbursable(expense.data.reimbursable);
   }, [expense.data]);
 
   const save = useMutation({
@@ -81,6 +83,7 @@ export function ExpenseEdit() {
       gigId: gigId === "" ? null : gigId,
       category: category.trim() === "" ? null : category.trim(),
       notes: notes.trim() === "" ? null : notes.trim(),
+      reimbursable,
     });
   }
 
@@ -120,6 +123,20 @@ export function ExpenseEdit() {
             <Field label="Notes">
               <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
             </Field>
+
+            {/* An expectation of reimbursement, not money received —
+                reports still subtract it from net and show the
+                recoverable total separately. */}
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                data-testid="expense-reimbursable"
+                className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                checked={reimbursable}
+                onChange={(e) => setReimbursable(e.target.checked)}
+              />
+              The client should cover this
+            </label>
 
             {save.isError && (
               <p className="text-sm text-red-600">Save failed — try again.</p>

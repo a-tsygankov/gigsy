@@ -25,6 +25,7 @@ interface Summary {
     paidCents: number;
     varianceCents: number;
     expensesCents: number;
+    reimbursableCents: number;
     netCents: number;
   };
   byMonth: {
@@ -111,6 +112,7 @@ describe("GET /api/reports/summary", () => {
       paidCents: 30000,
       varianceCents: 9000,
       expensesCents: 3000,
+      reimbursableCents: 0,
       netCents: 27000,
     });
   });
@@ -174,6 +176,7 @@ describe("GET /api/reports/summary", () => {
       paidCents: 29000,
       varianceCents: 4000,
       expensesCents: 2000,
+      reimbursableCents: 0,
       netCents: 27000,
     });
   });
@@ -195,5 +198,28 @@ describe("GET /api/reports/summary", () => {
   it("400s on a malformed from param", async () => {
     const res = await api(U1, "GET", "/api/reports/summary?from=yesterday");
     expect(res.status).toBe(400);
+  });
+});
+
+// Phase 9: an expense the client should cover is still subtracted from
+// net — the flag records an expectation, not money received — but the
+// recoverable amount is reported alongside it.
+describe("reimbursable expenses in the summary", () => {
+  const E3 = "43333333-3333-4333-8333-333333333333";
+
+  it("reports the recoverable total without changing net", async () => {
+    const before = await summary(U1);
+
+    await api(U1, "PUT", `/api/expenses/${E3}`, {
+      gigId: G1,
+      amountCents: 1500,
+      reimbursable: true,
+    });
+
+    const after = await summary(U1);
+    expect(after.totals.reimbursableCents).toBe(1500);
+    expect(after.totals.expensesCents).toBe(before.totals.expensesCents + 1500);
+    // Net drops by the full amount: the money has not arrived.
+    expect(after.totals.netCents).toBe(before.totals.netCents - 1500);
   });
 });

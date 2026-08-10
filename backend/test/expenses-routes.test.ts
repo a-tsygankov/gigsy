@@ -68,3 +68,26 @@ describe("/api/expenses", () => {
     expect((await api(U1, "DELETE", `/api/expenses/${E1}`)).status).toBe(204);
   });
 });
+
+// Phase 9: "the client should cover this". An expectation, not a
+// receipt — reports still subtract it from net.
+describe("reimbursable expenses", () => {
+  const REI = "92222222-2222-4222-8222-222222222222";
+
+  it("defaults to false and round-trips when set", async () => {
+    await api(U1, "PUT", `/api/expenses/${REI}`, { amountCents: 1200 });
+    const bare = (await (await api(U1, "GET", `/api/expenses/${REI}`)).json()) as {
+      reimbursable: boolean;
+    };
+    expect(bare.reimbursable).toBe(false);
+
+    await api(U1, "PUT", `/api/expenses/${REI}`, {
+      amountCents: 1200,
+      reimbursable: true,
+    });
+    const flagged = (await (await api(U1, "GET", `/api/expenses/${REI}`)).json()) as {
+      reimbursable: boolean;
+    };
+    expect(flagged.reimbursable).toBe(true);
+  });
+});

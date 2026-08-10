@@ -12,6 +12,7 @@ export interface ExpenseData {
   category: string | null;
   receiptR2Key: string | null;
   notes: string | null;
+  reimbursable: boolean;
 }
 
 export class ExpensesRepo {
