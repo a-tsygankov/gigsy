@@ -111,6 +111,9 @@
   --c-red-500: 248 113 113;
   --c-red-600: 252 165 165;
 
-  --c-on-accent: 255 255 255;
+  /* Dark mode brightens the accent fill, and white on a bright emerald
+     measures 2.54:1 — below the 4.5 a button needs. The convention that
+     fixes it is the one every dark UI uses: bright fill, dark label. */
+  --c-on-accent: 6 46 33;
   --c-accent-hover: 52 211 153;
 }
