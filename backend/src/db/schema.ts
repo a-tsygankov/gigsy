@@ -21,6 +21,10 @@ export const users = sqliteTable("users", {
   // Calendar-sync watermark (docs/plan.md §9): gigs modified after
   // this get processed by the next run.
   lastCalendarSyncAt: integer("last_calendar_sync_at"),
+  // Nudge throttling lives on the user, not the device: the cap is one
+  // notification per person per day, whatever they're holding.
+  lastPushAt: integer("last_push_at"),
+  lastPushKey: text("last_push_key"),
   createdAt: integer("created_at").notNull(),
   modifiedAt: integer("modified_at").notNull(),
 });
@@ -219,5 +223,24 @@ export const calendarCleanup = sqliteTable(
   },
   (t) => ({
     userIdx: index("idx_calendar_cleanup_user").on(t.userId),
+  }),
+);
+
+/** A browser/device subscription (Phase 10). Keyed by the push
+ * service's own endpoint, so re-subscribing replaces rather than
+ * duplicates. */
+export const pushSubscriptions = sqliteTable(
+  "push_subscriptions",
+  {
+    endpoint: text("endpoint").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => ({
+    userIdx: index("idx_push_subscriptions_user").on(t.userId),
   }),
 );
