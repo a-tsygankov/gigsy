@@ -74,6 +74,10 @@ $WorkerSecrets = [ordered]@{
     GEMINI_API_KEY        = '<gemini-api-key>'                          # primary extraction provider
     # Optional — fallback/alt extraction provider:
     ANTHROPIC_API_KEY     = '<optional-anthropic-api-key>'
+    # Push notifications. GENERATE_VAPID mints a P-256 pair and prints
+    # the PUBLIC half for wrangler.toml [vars] — unlike the symmetric
+    # keys above, this one has a counterpart the browser must know.
+    VAPID_PRIVATE_KEY     = 'GENERATE_VAPID'
 }
 # ══ END FILL ME IN ══════════════════════════════════════════════════
 
@@ -86,6 +90,30 @@ if (-not ($GitHub -or $Cloudflare -or $Provision)) {
 
 function Test-Placeholder([string]$Value) {
     return $Value -match '^<.*>$' -or [string]::IsNullOrWhiteSpace($Value)
+}
+
+function New-VapidKeyPair {
+    # Web Push (RFC 8292) wants raw P-256 material, base64url: the
+    # public key as the 65-byte uncompressed point 0x04||X||Y, and the
+    # private key as the bare 32-byte scalar D.
+    $ecdsa = [System.Security.Cryptography.ECDsa]::Create(
+        [System.Security.Cryptography.ECCurve]::CreateFromFriendlyName('nistP256'))
+    try {
+        $p = $ecdsa.ExportParameters($true)
+        $publicBytes = [byte[]]::new(65)
+        $publicBytes[0] = 4
+        [Array]::Copy($p.Q.X, 0, $publicBytes, 1, 32)
+        [Array]::Copy($p.Q.Y, 0, $publicBytes, 33, 32)
+        return @{
+            PublicKey  = (ConvertTo-Base64Url $publicBytes)
+            PrivateKey = (ConvertTo-Base64Url $p.D)
+        }
+    }
+    finally { $ecdsa.Dispose() }
+}
+
+function ConvertTo-Base64Url([byte[]]$Bytes) {
+    return [Convert]::ToBase64String($Bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 }
 
 function New-RandomKey {
@@ -101,6 +129,16 @@ function Resolve-SecretValue([string]$Name, [string]$Value) {
     if ($Value -ceq 'GENERATE') {
         Write-Host "  $Name — generating random 32-byte key" -ForegroundColor DarkGray
         return New-RandomKey
+    }
+    if ($Value -ceq 'GENERATE_VAPID') {
+        $pair = New-VapidKeyPair
+        Write-Host "  $Name — generated a P-256 pair" -ForegroundColor DarkGray
+        Write-Host ''
+        Write-Host '  ACTION REQUIRED — put the PUBLIC half in backend/wrangler.toml [vars]:' -ForegroundColor Yellow
+        Write-Host "  VAPID_PUBLIC_KEY = `"$($pair.PublicKey)`"" -ForegroundColor Yellow
+        Write-Host '  Push stays switched off until both halves are in place.' -ForegroundColor Yellow
+        Write-Host ''
+        return $pair.PrivateKey
     }
     if (Test-Placeholder $Value) {
         $script:skipped += $Name

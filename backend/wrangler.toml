@@ -39,6 +39,16 @@ AI_PROVIDER = "gemini"
 AI_MODEL = "gemini-2.5-flash"
 # Cost control (docs/plan.md §8): AI captures per user per UTC day.
 AI_DAILY_CAP = "50"
+
+# Web Push (Phase 10). The PUBLIC half of the VAPID pair — public by
+# definition, since the browser needs it to subscribe. Mint the pair
+# with scripts/setup-secrets.ps1 (GENERATE_VAPID); it stores the
+# private half as a worker secret and prints this one. Push stays off
+# while this is empty, and the UI says so rather than failing at the
+# permission prompt.
+VAPID_PUBLIC_KEY = ""
+# Contact a push service can use to reach the sender (RFC 8292).
+PUSH_SUBJECT = "mailto:noreply@gigsy.app"
 # Secrets — set via `wrangler secret put` (bootstrap with
 # scripts/setup-secrets.ps1 -Cloudflare). Full matrix: docs/plan.md §11.
 #   AUTH_SECRET             — HS256 JWT signing key

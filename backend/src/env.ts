@@ -14,6 +14,9 @@ export type Bindings = {
   AI_MODEL: string;
   /** Max AI captures per user per UTC day (default 50). */
   AI_DAILY_CAP?: string;
+  /** VAPID public key (base64url P-256 point). Public by definition —
+   * the browser needs it to subscribe. Empty disables push. */
+  VAPID_PUBLIC_KEY?: string;
   /** Reverse-geocoder selection: unset = OpenStreetMap Nominatim,
    * "stub" = canned (non-production), "off" = disabled, so no position
    * ever leaves the worker and the client falls back to coordinates. */
@@ -25,4 +28,10 @@ export type Bindings = {
   GOOGLE_CLIENT_SECRET: string;
   GEMINI_API_KEY: string;
   ANTHROPIC_API_KEY?: string;
+  /** VAPID private key (base64url P-256 scalar). Rotating it
+   * invalidates every subscription — they are pruned on first
+   * rejection rather than left to fail silently. */
+  VAPID_PRIVATE_KEY?: string;
+  /** Contact address a push service can use to reach us (RFC 8292). */
+  PUSH_SUBJECT?: string;
 };
