@@ -8,6 +8,7 @@
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3/calendars";
+const FREEBUSY_URL = "https://www.googleapis.com/calendar/v3/freeBusy";
 
 /** Events URL for a calendar id. "primary" is the user's main one; a
  *  dedicated Gigsy calendar supplies its own id (Phase 11). The id is
@@ -119,6 +120,113 @@ export async function createCalendar(
     if (!res.ok) return null;
     const body = (await res.json()) as { id?: string };
     return typeof body.id === "string" ? body.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * When the user is busy, as ranges — the only read Gigsy ever makes
+ * back out of Google (Phase 12).
+ *
+ * Phase 6 made the integration one-way deliberately, and this reverses
+ * the direction for reads only: nothing here ever modifies an event.
+ * `freebusy` is the API the plan allows because it returns times and
+ * never titles, so personal event content is not held even for the
+ * length of a request. The mapping below keeps that true even if
+ * Google someday volunteers more: only `start` and `end` are read.
+ *
+ * The outcomes are deliberately three, not two:
+ * - `{ busy }`  — an answer, possibly an empty one
+ * - `"insufficient-scope"` — the grant never covered calendar.readonly,
+ *   which the UI can fix by asking; distinct from a transient failure
+ * - `null` — we do not know
+ *
+ * "We do not know" must never collapse into "free". Offering a slot
+ * the user cannot work is the one outcome worse than no page at all,
+ * so every uncertain path below returns null.
+ */
+export interface FreeBusyRange {
+  start: number;
+  end: number;
+}
+
+export type FreeBusyResult =
+  | { busy: FreeBusyRange[] }
+  | "insufficient-scope"
+  | null;
+
+interface FreeBusyBody {
+  calendars?: Record<
+    string,
+    { busy?: { start?: string; end?: string }[]; errors?: unknown[] }
+  >;
+}
+
+export async function queryFreeBusy(options: {
+  accessToken: string;
+  timeMinMs: number;
+  timeMaxMs: number;
+  calendarIds: string[];
+  fetchFn?: typeof fetch;
+}): Promise<FreeBusyResult> {
+  const fetchFn = options.fetchFn ?? fetch.bind(globalThis);
+  // calendarTargetId is frequently "primary" as well; asking twice is
+  // harmless to Google and noise to read back.
+  const wanted = [...new Set(options.calendarIds)];
+  if (wanted.length === 0) return { busy: [] };
+
+  try {
+    const res = await fetchFn(FREEBUSY_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${options.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        timeMin: new Date(options.timeMinMs).toISOString(),
+        timeMax: new Date(options.timeMaxMs).toISOString(),
+        items: wanted.map((id) => ({ id })),
+      }),
+    });
+
+    // A grant limited to calendar.events answers exactly like this, and
+    // it is a problem the user can fix — unlike Google being down.
+    if (res.status === 401 || res.status === 403) return "insufficient-scope";
+    if (!res.ok) return null;
+
+    const body = (await res.json()) as FreeBusyBody;
+    const calendars = body.calendars;
+    if (typeof calendars !== "object" || calendars === null) return null;
+
+    const busy: FreeBusyRange[] = [];
+    let answered = 0;
+
+    for (const id of wanted) {
+      const calendar = calendars[id];
+      if (calendar === undefined) continue;
+      // Google reports a per-calendar failure INSIDE a 200. Counting
+      // that as "nothing on it" is how a client offers a whole week it
+      // never actually checked.
+      if (Array.isArray(calendar.errors) && calendar.errors.length > 0) continue;
+
+      answered++;
+      for (const range of calendar.busy ?? []) {
+        const start = Date.parse(range.start ?? "");
+        const end = Date.parse(range.end ?? "");
+        // An unparseable bound would become NaN and quietly poison
+        // every comparison downstream.
+        if (Number.isNaN(start) || Number.isNaN(end)) continue;
+        busy.push({ start, end });
+      }
+    }
+
+    // Nothing we asked about actually answered — that is ignorance, not
+    // availability. Partial knowledge still counts: one stale secondary
+    // calendar should not discard a working primary.
+    if (answered === 0) return null;
+
+    return { busy };
   } catch {
     return null;
   }

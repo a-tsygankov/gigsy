@@ -16,6 +16,7 @@ import {
   CalendarClient,
   createCalendar,
   mintAccessToken,
+  queryFreeBusy,
   type MintOptions,
 } from "../calendar/google-calendar.ts";
 import { GigsRepo } from "../repos/gigs.ts";
@@ -31,6 +32,8 @@ export interface CalendarDeps {
   /** Bound to a calendar id, because Phase 11 lets that be a choice. */
   makeClient: (accessToken: string, calendarId: string) => CalendarClientLike;
   createCalendar: typeof createCalendar;
+  /** Phase 12: used only to probe whether the grant covers reading. */
+  queryFreeBusy: typeof queryFreeBusy;
 }
 
 export const defaultCalendarDeps: CalendarDeps = {
@@ -39,7 +42,12 @@ export const defaultCalendarDeps: CalendarDeps = {
   makeClient: (accessToken, calendarId) =>
     new CalendarClient(accessToken, undefined, calendarId),
   createCalendar,
+  queryFreeBusy,
 };
+
+/** Long enough for Google to answer meaningfully, short enough that
+ *  this is plainly a permission check and not a sync. */
+const FREEBUSY_PROBE_MS = 60 * 60 * 1000;
 
 const Connect = z.object({ authCode: z.string().min(1) });
 
@@ -60,6 +68,72 @@ export function makeCalendarRouter(deps: CalendarDeps = defaultCalendarDeps) {
         connected: refreshToken !== null,
         lastSyncAt: user?.lastCalendarSyncAt ?? null,
       });
+    })
+    /**
+     * Can we actually read this user's busy time? (Phase 12, Task 3)
+     *
+     * The availability page is only truthful if it knows about the
+     * dentist and the school run, which needs `calendar.readonly` on
+     * top of the `calendar.events` that connecting asks for. Every
+     * grant made before Phase 12 is therefore too narrow, and a user
+     * would have no way to discover that except by sharing a link built
+     * on a wrong assumption.
+     *
+     * So: a probe, and every answer is a 200 with a reason. "Your grant
+     * is too narrow" is something the UI acts on by asking for consent
+     * again; "Google is down" is something it must NOT respond to that
+     * way, or the user gets an unexplained popup they will decline.
+     * Keeping those apart is the entire point of this endpoint.
+     *
+     * The hour of freebusy it reads is used to decide readable/not and
+     * discarded — it is never returned, logged, or stored.
+     */
+    .get("/freebusy-check", async (c) => {
+      const userId = c.get("userId");
+      const usersRepo = UsersRepo.for(c.env.DB);
+      const user = await usersRepo.get(userId);
+      if (user?.googleRefreshTokenEnc == null) {
+        return c.json({ readable: false, reason: "not-connected" } as const);
+      }
+
+      const refreshToken = await resolveRefreshToken(
+        usersRepo,
+        user,
+        c.env.REFRESH_TOKEN_ENC_KEY,
+      );
+      if (refreshToken === null) {
+        return c.json({ readable: false, reason: "not-connected" } as const);
+      }
+
+      const minted = await deps.mintAccessToken({
+        refreshToken,
+        clientId: c.env.GOOGLE_CLIENT_ID,
+        clientSecret: c.env.GOOGLE_CLIENT_SECRET,
+      });
+      if (minted === "revoked") {
+        // Unlike the public availability path, this request has the
+        // user behind it, so healing here is safe and useful.
+        await usersRepo.setGoogleRefreshTokenEnc(userId, null, Date.now());
+        return c.json({ readable: false, reason: "not-connected" } as const);
+      }
+      if (minted === null) {
+        return c.json({ readable: false, reason: "unavailable" } as const);
+      }
+
+      const now = Date.now();
+      const probe = await deps.queryFreeBusy({
+        accessToken: minted.accessToken,
+        timeMinMs: now,
+        timeMaxMs: now + FREEBUSY_PROBE_MS,
+        calendarIds: ["primary"],
+      });
+      if (probe === "insufficient-scope") {
+        return c.json({ readable: false, reason: "insufficient-scope" } as const);
+      }
+      if (probe === null) {
+        return c.json({ readable: false, reason: "unavailable" } as const);
+      }
+      return c.json({ readable: true } as const);
     })
     /** Explicit disconnect — the way back when a connection is wedged
      * or the user wants to re-grant against a different account. */

@@ -50,6 +50,9 @@ describe("parseSettings", () => {
       ],
       availabilityHorizonWeeks: 4,
       availabilityMinSlotMinutes: 60,
+      // Off until the user knowingly grants the wider scope. Reading
+      // someone's calendar is not a default.
+      availabilityUseCalendar: false,
     });
   });
 

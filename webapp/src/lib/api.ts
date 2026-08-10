@@ -304,6 +304,25 @@ export class ApiClient {
     return this.request("POST", "/api/calendar/dedicated");
   }
 
+  /**
+   * Whether the stored grant can read when the user is busy (Phase 12).
+   *
+   * Always resolves — a narrow grant is an answer, not an error. Act on
+   * the reason: `insufficient-scope` is fixed by asking for consent
+   * again with CALENDAR_READONLY_SCOPE, `unavailable` means Google is
+   * having a moment and re-prompting would only produce a popup the
+   * user did not expect and will decline.
+   */
+  checkCalendarFreeBusy(): Promise<
+    | { readable: true }
+    | {
+        readable: false;
+        reason: "not-connected" | "insufficient-scope" | "unavailable";
+      }
+  > {
+    return this.request("GET", "/api/calendar/freebusy-check");
+  }
+
   // ── settings (Phase 11) ──────────────────────────────────────────
   getSettings(): Promise<Settings> {
     return this.request("GET", "/api/settings");

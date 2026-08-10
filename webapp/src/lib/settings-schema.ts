@@ -22,6 +22,21 @@ export interface Settings {
   nudgeUnpaidEnabled: boolean;
   nudgeStaleLeadDays: number;
   nudgeUnpaidDays: number;
+
+  // Availability (Phase 12). The only settings that shape what an
+  // unauthenticated stranger sees, so the Settings screen has to be
+  // explicit about what each one exposes.
+  availabilityDisplayName: string | null;
+  /** IANA zone the working week is expressed in. */
+  availabilityTimeZone: string;
+  /** Sunday first, matching Date#getDay. null is a day off — not zero
+   *  hours, which reads as a bug where "closed" reads as a decision. */
+  availabilityWorkingWeek: ({ startMinute: number; endMinute: number } | null)[];
+  availabilityHorizonWeeks: number;
+  availabilityMinSlotMinutes: number;
+  /** Read the user's Google Calendar too. Off unless they granted the
+   *  wider scope knowingly; the page says which basis it used. */
+  availabilityUseCalendar: boolean;
 }
 
 export type SettingsPatch = Partial<Settings>;

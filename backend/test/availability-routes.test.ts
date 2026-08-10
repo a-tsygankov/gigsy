@@ -133,7 +133,14 @@ describe("GET /api/a/:token — what a stranger can learn", () => {
     // An exact key set, not a subset: this is what makes the amount,
     // the client id and every future column unreachable by
     // construction rather than by remembering to omit them.
+    //
+    // `basedOn` was added in Task 3 and had to pass through here to get
+    // in — which is the point of the assertion. It carries whether the
+    // user's calendar was read, never anything that was on it, and the
+    // plan requires the page to say which it is: silently offering
+    // slots the user cannot work is worse than saying "gigs only".
     expect(Object.keys(body).sort()).toEqual([
+      "basedOn",
       "displayName",
       "generatedAt",
       "horizonEndsAt",

@@ -151,10 +151,42 @@ What this commits us to, stated plainly so it is not rediscovered later:
   defence is that the token is 128 random bits and revocable.
 - **`webapp/public/robots.txt`** disallows `/a/` and `/api/`.
 
-### Task 3: Google freebusy (decided — see above)
-- [ ] `freebusy.query` against the connected calendar, ranges only
-- [ ] Re-consent flow for the wider scope, presented as a choice
-- [ ] Contract test against the fake; live test extended
+### Task 3: Google freebusy — DONE (uncommitted)
+- [x] `freebusy.query` against `primary` plus the calendar gigs are
+      written to, ranges only. Three outcomes, not two: an answer, a
+      grant too narrow, or "we do not know" — and the third never
+      collapses into "free".
+- [x] Re-consent as a choice. `availabilityUseCalendar` is its own
+      setting, default off; `CALENDAR_READONLY_SCOPE` is requested
+      separately and never bundled into connect. The backend probe
+      `GET /api/calendar/freebusy-check` tells the settings screen
+      whether the stored grant can actually read, so a user is not left
+      to discover it by sharing a link built on an assumption.
+- [x] Contract tests against the fake (16), reader tests (11), service
+      degrade tests (11). Live test extended, and
+      `scripts/mint-e2e-token.ps1` now asks for the wider scope — a
+      token minted before Phase 12 fails there with a message saying
+      exactly that.
+
+**What this cost, recorded so it is not rediscovered:**
+- **The response gained `basedOn`.** The leak test's exact-key-set
+  assertion refused it until it was added deliberately — which is the
+  assertion working. It says whether the calendar was read, never what
+  was on it, and the plan requires the page to be honest about which.
+- **The public path never writes.** Everywhere else an unreadable or
+  revoked token is self-healed by clearing it. Doing that here would
+  mean a stranger's page load silently disconnecting someone's
+  calendar, so `freebusy-reader.ts` decrypts directly and gives up
+  quietly. The authenticated probe still heals, because the user is
+  there to see it.
+- **A page load can cost a token mint and a freebusy call.** The rate
+  limiter is what keeps that bounded; there is no cache, because
+  holding someone's busy ranges between requests is exactly what the
+  plan says not to do.
+- **The gap is visible, and that is inherent.** Free time either side
+  of a booking reveals that a booking exists. What stays hidden is
+  why — a gig, a dentist and a nap are byte-identical in the output,
+  and there is a test that asserts it.
 
 ### Task 4: The public page
 - [ ] Static, fast, themed, readable on a phone — an agency opens this

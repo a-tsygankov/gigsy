@@ -47,9 +47,32 @@ function loadGisScript(): Promise<void> {
   return scriptPromise;
 }
 
+/** Writing gigs onto a calendar — what connecting asks for. */
+export const CALENDAR_EVENTS_SCOPE =
+  "https://www.googleapis.com/auth/calendar.events";
+
+/**
+ * Reading when the user is busy (Phase 12).
+ *
+ * Asked for separately, and never bundled into the connect flow. Phase
+ * 6 made the integration one-way on purpose; reading back is a real
+ * change in what Gigsy can see, and the plan is explicit that it must
+ * be presented as a choice — "let Gigsy see when you are busy, so your
+ * availability page is right". A user who declines still gets the
+ * page, built on Gigsy bookings alone, and the page says so.
+ */
+export const CALENDAR_READONLY_SCOPE =
+  "https://www.googleapis.com/auth/calendar.readonly";
+
 /** Calendar-scope consent popup (docs/plan.md §9). Resolves with the
- * one-time auth code the backend exchanges for a refresh token. */
-export async function requestCalendarCode(clientId: string): Promise<string> {
+ * one-time auth code the backend exchanges for a refresh token.
+ *
+ * Google grants the union of what has been consented to, so asking for
+ * the readonly scope later keeps the events scope already held. */
+export async function requestCalendarCode(
+  clientId: string,
+  scopes: readonly string[] = [CALENDAR_EVENTS_SCOPE],
+): Promise<string> {
   await loadGisScript();
   const oauth2 = window.google?.accounts?.oauth2;
   if (!oauth2) throw new Error("Google OAuth unavailable");
@@ -57,7 +80,7 @@ export async function requestCalendarCode(clientId: string): Promise<string> {
     oauth2
       .initCodeClient({
         client_id: clientId,
-        scope: "https://www.googleapis.com/auth/calendar.events",
+        scope: scopes.join(" "),
         ux_mode: "popup",
         callback: (response) => {
           if (response.code !== undefined) resolve(response.code);

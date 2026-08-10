@@ -19,6 +19,7 @@ import { availableSlots, type Range } from "../domain/availability.ts";
 import { gigOccupies } from "../domain/gig-time.ts";
 import { localClock } from "../domain/timezone.ts";
 import type { GigStatus } from "../db/schema.ts";
+import type { FreeBusyResult } from "../calendar/google-calendar.ts";
 import { GigsRepo } from "../repos/gigs.ts";
 import { UsersRepo } from "../repos/users.ts";
 
@@ -51,6 +52,35 @@ export interface PublicAvailability {
   generatedAt: number;
   horizonEndsAt: number;
   slots: Range[];
+  /**
+   * What the free time was actually computed from.
+   *
+   * `"gigs"` means the user's own calendar was not read — switched
+   * off, scope declined, or Google unreachable — and the page must say
+   * so rather than imply completeness. Silently offering slots the
+   * user cannot work is the one outcome worse than no page at all, and
+   * this field is what lets the page be honest about which it is.
+   *
+   * It reveals that a calendar is or is not connected, and nothing
+   * about what is on it.
+   */
+  basedOn: "gigs" | "gigs-and-calendar";
+}
+
+/**
+ * Reads when the user is busy according to Google, for a window.
+ *
+ * Injected rather than called directly so the degrade paths — which
+ * are most of the risk here — are testable without a network.
+ */
+export type CalendarBusyReader = (
+  userId: string,
+  timeMinMs: number,
+  timeMaxMs: number,
+) => Promise<FreeBusyResult>;
+
+export interface AvailabilityDeps {
+  readCalendarBusy?: CalendarBusyReader;
 }
 
 /**
@@ -64,6 +94,7 @@ export async function buildPublicAvailability(
   d1: D1Database,
   userId: string,
   now: number,
+  deps: AvailabilityDeps = {},
 ): Promise<PublicAvailability> {
   const settings = await UsersRepo.for(d1).getSettings(userId);
 
@@ -72,16 +103,39 @@ export async function buildPublicAvailability(
 
   // Times only — the query never selects a name, place or amount, so
   // there is nothing sensitive in this function to leak by accident.
-  const busy = await GigsRepo.for(d1).listBusyBetween(
+  const gigs = await GigsRepo.for(d1).listBusyBetween(
     userId,
     now,
     horizonEndsAt,
     BUSY_STATUSES,
   );
+  const busy = gigs.map(gigOccupies).filter((r): r is Range => r !== null);
+
+  /**
+   * The calendar, if the user asked for it and it answered.
+   *
+   * Three ways to end up on gigs alone, and all of them are honest
+   * rather than silent: the setting is off, the scope was declined, or
+   * Google could not be reached. None of them may be reported as
+   * "gigs-and-calendar", because the difference between "your calendar
+   * is clear" and "we could not look" is the whole feature.
+   *
+   * The ranges are used here and dropped. Nothing personal reaches D1,
+   * and no busy range ever reaches the page — only the free time
+   * computed from it.
+   */
+  let basedOn: PublicAvailability["basedOn"] = "gigs";
+  if (settings.availabilityUseCalendar && deps.readCalendarBusy !== undefined) {
+    const fromCalendar = await deps.readCalendarBusy(userId, now, horizonEndsAt);
+    if (fromCalendar !== null && fromCalendar !== "insufficient-scope") {
+      busy.push(...fromCalendar.busy);
+      basedOn = "gigs-and-calendar";
+    }
+  }
 
   const clock = localClock(settings.availabilityTimeZone);
   const slots = availableSlots(
-    busy.map(gigOccupies).filter((r): r is Range => r !== null),
+    busy,
     {
       now,
       horizonMs,
@@ -98,5 +152,6 @@ export async function buildPublicAvailability(
     generatedAt: now,
     horizonEndsAt,
     slots,
+    basedOn,
   };
 }
