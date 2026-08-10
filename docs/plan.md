@@ -302,6 +302,37 @@ Phase 2 lands (TODO in `backend/src/routes/debug.ts`).
   person. Stored as a `settings_json` blob on `users` so new settings
   need code, not a migration. See `2026-08-10-phase11-settings.md`.
 
+### Phase 11 — Settings (2026-08-10)
+
+One screen owning the knobs that were previously hardcoded, hidden, or
+scattered. Storage is a single `settings_json` column on `users`
+(migration 0009), not a column per setting: settings keep arriving, and a
+blob with a zod schema and defaults makes adding one a code change rather
+than a migration. Every read goes through `parseSettings()`, which fills
+defaults, so a row written before a setting existed stays valid and NULL
+means "all defaults". A blob that cannot be parsed degrades to defaults
+per field rather than failing the request — losing a preference is not
+worth refusing to load someone's gigs over.
+
+The calendar sync and push nudges read the user's settings rather than
+constants, which is the whole point: title prefix, reminder minutes (with
+"use my calendar's own"), target calendar id, and both nudge thresholds.
+
+Two repair operations live here rather than the dashboard, because they
+are what you reach for when something looks wrong:
+`POST /api/calendar/resync` clears the watermark so the next run
+reconsiders every gig, and `POST /api/calendar/dedicated` creates a
+"Gigsy" calendar, deleting old events from the calendar they actually
+live on before switching.
+
+**Theme is the one setting that does not sync.** It belongs to the device
+and its surroundings — dark on a phone at a night shift, light on a
+laptop in daylight — so it lives in `localStorage`. The palette is stored
+as `R G B` channel triplets and consumed by Tailwind as
+`rgb(var(--c-x) / <alpha-value>)`, so one `data-theme` attribute
+re-themes every screen and the `/90` scrims keep their alpha. No `dark:`
+utility exists in the codebase, by design.
+
 ## 14. Open items (carried from handoff)
 
 - Exact UI flows/screens — needs design pass before Phase 3.

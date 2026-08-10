@@ -1,6 +1,12 @@
 /**
  * Adherence tests for the design-token layer (docs/design-system.md).
  *
+ * Phase 11 restated the palette as "R G B" channel triplets so Tailwind
+ * can consume it as `rgb(var(--c-x) / <alpha-value>)` and one attribute
+ * can re-theme the app. The guarantee is unchanged — the LIGHT values
+ * still equal Tailwind's own — only the notation moved, so these tests
+ * convert before comparing rather than relaxing.
+ *
  * The token CSS files are copied verbatim from the Gigsy Design System
  * project and are the canonical values; the app's Tailwind utilities
  * resolve to Tailwind's default palette/scale, which the design system
@@ -14,8 +20,13 @@ import colors from "tailwindcss/colors";
 
 const tokensDir = fileURLToPath(new URL("../styles/tokens/", import.meta.url));
 
-function cssVars(file: string): Record<string, string> {
-  const css = readFileSync(tokensDir + file, "utf8");
+/** Variables from a token file. `stopAt` truncates before a later
+ *  block — colors.css now carries a dark override whose values would
+ *  otherwise overwrite the light ones this test is about. */
+function cssVars(file: string, stopAt?: string): Record<string, string> {
+  const whole = readFileSync(tokensDir + file, "utf8");
+  const cut = stopAt === undefined ? -1 : whole.indexOf(stopAt);
+  const css = cut === -1 ? whole : whole.slice(0, cut);
   const vars: Record<string, string> = {};
   for (const [, name, value] of css.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
     if (name !== undefined && value !== undefined) {
@@ -26,24 +37,44 @@ function cssVars(file: string): Record<string, string> {
 }
 
 describe("design tokens", () => {
-  const palette = cssVars("colors.css");
+  const palette = cssVars("colors.css", '[data-theme="dark"]');
+
+  /** "#f8fafc" -> "248 250 252", so hex and triplets compare directly. */
+  function hexToTriplet(hex: string): string {
+    const h = hex.replace("#", "");
+    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)).join(" ");
+  }
 
   it("palette steps equal Tailwind's default palette", () => {
     for (const [name, value] of Object.entries(palette)) {
-      if (name === "--white") {
-        expect(value).toBe("#ffffff");
+      // The two tokens that exist because one palette step cannot serve
+      // two jobs across themes; they have no Tailwind counterpart.
+      if (name === "--c-on-accent" || name === "--c-accent-hover") continue;
+      if (name === "--c-white") {
+        expect(value).toBe("255 255 255");
         continue;
       }
-      const m = /^--([a-z]+)-(\d+)$/.exec(name);
+      const m = /^--c-([a-z]+)-(\d+)$/.exec(name);
       expect(m, `unexpected token name ${name}`).not.toBeNull();
       const hue = m![1]!;
       const step = m![2]!;
       const tailwind = (colors as unknown as Record<string, Record<string, string>>)[
         hue
       ]?.[step];
-      expect(value.toLowerCase(), `${name} vs tailwind ${hue}-${step}`).toBe(
-        tailwind?.toLowerCase(),
+      expect(tailwind, `no tailwind colour for ${hue}-${step}`).toBeDefined();
+      expect(value, `${name} vs tailwind ${hue}-${step}`).toBe(
+        hexToTriplet(tailwind!),
       );
+    }
+  });
+
+  it("defines a dark value for every palette token", () => {
+    // Every utility resolves through these, so one missing token is one
+    // element rendering light-on-light in dark mode.
+    const css = readFileSync(tokensDir + "colors.css", "utf8");
+    const darkBlock = css.slice(css.indexOf('[data-theme="dark"]'));
+    for (const name of Object.keys(palette)) {
+      expect(darkBlock.includes(`${name}:`), `${name} has no dark value`).toBe(true);
     }
   });
 
@@ -57,6 +88,7 @@ describe("design tokens", () => {
       }
     }
   });
+
 
   it("core aliases the components consume are present", () => {
     const semantic = cssVars("semantic.css");

@@ -25,7 +25,7 @@ const BASE =
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary:
-    "bg-emerald-600 font-semibold text-white shadow-sm hover:bg-emerald-700 hover:shadow " +
+    "bg-emerald-600 font-semibold text-on-accent shadow-sm hover:bg-accent-hover hover:shadow " +
     "focus-visible:ring-emerald-500 focus-visible:ring-offset-2",
   ghost:
     "border border-slate-300 bg-white font-medium text-slate-700 hover:bg-slate-100 " +

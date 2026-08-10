@@ -16,9 +16,9 @@ describe("buttonClasses", () => {
     const cls = buttonClasses({});
     expect(cls).toContain("bg-emerald-600");
     expect(cls).toContain("font-semibold");
-    expect(cls).toContain("text-white");
+    expect(cls).toContain("text-on-accent");
     expect(cls).toContain("shadow-sm");
-    expect(cls).toContain("hover:bg-emerald-700");
+    expect(cls).toContain("hover:bg-accent-hover");
     expect(cls).toContain("hover:shadow");
     expect(cls).toContain("focus-visible:ring-emerald-500");
     expect(cls).toContain("focus-visible:ring-offset-2");
