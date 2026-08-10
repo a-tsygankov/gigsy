@@ -173,3 +173,90 @@ describe("LocalStore CRUD + outbox", () => {
     expect(await b.store.getGig(G1)).toBeNull();
   });
 });
+
+/**
+ * The outbox payload is what the server actually receives. It is built
+ * by hand, field by field, and a field left out of it is a field the
+ * user loses — silently, because the local record still has it and the
+ * screen still shows it until the next pull overwrites it.
+ *
+ * That is not hypothetical. `durationMinutes` and `reimbursable` were
+ * both added in Phase 9 (946673b), both added to the record, and
+ * neither added to the payload. Every gig saved since then reached the
+ * server with no duration, which the calendar sync then rendered as its
+ * four-hour fallback.
+ *
+ * TypeScript could not help: both fields are optional on their input
+ * types, so an object literal that omits them is perfectly valid.
+ */
+describe("the outbox payload carries everything the server accepts", () => {
+  it("sends the gig's duration", async () => {
+    const { store } = makeStore();
+    await store.putGig(G1, { status: "confirmed", durationMinutes: 90 });
+
+    const op = (await store.pendingOps()).find((o) => o.entity === "gig");
+
+    expect((op?.payload as { durationMinutes?: number }).durationMinutes).toBe(90);
+  });
+
+  it("sends a duration of null when there isn't one", async () => {
+    // Distinct from omitting the key: null is "the user said no
+    // duration", absent is "we forgot to tell you".
+    const { store } = makeStore();
+    await store.putGig(G1, { status: "confirmed" });
+
+    const op = (await store.pendingOps()).find((o) => o.entity === "gig");
+
+    expect(op?.payload).toHaveProperty("durationMinutes");
+    expect((op?.payload as { durationMinutes: number | null }).durationMinutes).toBeNull();
+  });
+
+  it("sends every gig field the server will accept", async () => {
+    // An exact key set, so the NEXT field added to a gig cannot be
+    // added to the record and forgotten here.
+    const { store } = makeStore();
+    await store.putGig(G1, { status: "confirmed", durationMinutes: 90 });
+
+    const op = (await store.pendingOps()).find((o) => o.entity === "gig");
+
+    expect(Object.keys(op?.payload as object).sort()).toEqual([
+      "amountOfferedCents",
+      "amountPaidCents",
+      "clientId",
+      "dateTime",
+      "durationMinutes",
+      "location",
+      "notes",
+      "source",
+      "status",
+    ]);
+  });
+
+  it("sends the expense's reimbursable flag", async () => {
+    // Same bug, same commit: the server defaults this to false, so a
+    // dropped `true` reads as the user having said "I'll absorb this".
+    const { store } = makeStore();
+    const E1 = "66666666-6666-4666-8666-666666666666";
+    await store.putExpense(E1, { amountCents: 2500, reimbursable: true });
+
+    const op = (await store.pendingOps()).find((o) => o.entity === "expense");
+
+    expect((op?.payload as { reimbursable?: boolean }).reimbursable).toBe(true);
+  });
+
+  it("sends every expense field the server will accept", async () => {
+    const { store } = makeStore();
+    const E1 = "66666666-6666-4666-8666-666666666666";
+    await store.putExpense(E1, { amountCents: 2500, reimbursable: true });
+
+    const op = (await store.pendingOps()).find((o) => o.entity === "expense");
+
+    expect(Object.keys(op?.payload as object).sort()).toEqual([
+      "amountCents",
+      "category",
+      "gigId",
+      "notes",
+      "reimbursable",
+    ]);
+  });
+});

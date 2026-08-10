@@ -21,6 +21,26 @@ import type {
 
 export type ServerRecord = Gig | Client | Expense | Service | Payment;
 
+/**
+ * An outbox payload must name EVERY field the server accepts.
+ *
+ * The input types make most fields optional, which is right for
+ * callers — a screen may legitimately send a partial gig. It is wrong
+ * here: this object IS the wire format, and a field left out of it is
+ * a field the user silently loses. The local record keeps the value
+ * and the screen keeps showing it, right up until the next pull
+ * overwrites it with the server's null.
+ *
+ * That happened. `durationMinutes` and `reimbursable` were both added
+ * in Phase 9, both added to the record below, and neither added to the
+ * payload — so every gig saved for months reached the server with no
+ * duration, and the calendar sync rendered them all as its four-hour
+ * fallback. Nothing failed; the data just never arrived.
+ *
+ * `Required` is what makes the next one a compile error instead.
+ */
+type OutboxPayload<T> = Required<T>;
+
 function opKeyOf(entity: SyncEntityName, id: string): string {
   return `${entity}:${id}`;
 }
@@ -59,11 +79,12 @@ export class LocalStore {
       createdAt: existing?.createdAt ?? now,
       modifiedAt: now,
     };
-    const payload: GigInput = {
+    const payload: OutboxPayload<GigInput> = {
       clientId: record.clientId,
       status: record.status,
       location: record.location,
       dateTime: record.dateTime,
+      durationMinutes: record.durationMinutes,
       amountOfferedCents: record.amountOfferedCents,
       amountPaidCents: record.amountPaidCents,
       notes: record.notes,
@@ -98,7 +119,7 @@ export class LocalStore {
       createdAt: existing?.createdAt ?? now,
       modifiedAt: now,
     };
-    const payload: ClientInput = {
+    const payload: OutboxPayload<ClientInput> = {
       name: record.name,
       contactInfo: record.contactInfo,
       notes: record.notes,
@@ -135,11 +156,12 @@ export class LocalStore {
       createdAt: existing?.createdAt ?? now,
       modifiedAt: now,
     };
-    const payload: ExpenseInput = {
+    const payload: OutboxPayload<ExpenseInput> = {
       gigId: record.gigId,
       amountCents: record.amountCents,
       category: record.category,
       notes: record.notes,
+      reimbursable: record.reimbursable,
     };
     await this.write("expense", id, record, payload, now);
     return record;
@@ -178,7 +200,7 @@ export class LocalStore {
       createdAt: existing?.createdAt ?? now,
       modifiedAt: now,
     };
-    const payload: ServiceInput = {
+    const payload: OutboxPayload<ServiceInput> = {
       gigId: record.gigId,
       description: record.description,
       amountOfferedCents: record.amountOfferedCents,
@@ -223,7 +245,7 @@ export class LocalStore {
       createdAt: existing?.createdAt ?? now,
       modifiedAt: now,
     };
-    const payload: PaymentInput = {
+    const payload: OutboxPayload<PaymentInput> = {
       gigId: record.gigId,
       amountCents: record.amountCents,
       paidAt: record.paidAt,
