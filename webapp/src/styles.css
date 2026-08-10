@@ -14,3 +14,14 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  /* The pre-paint script resolves the theme before this loads, but the
+     document itself had no background of its own — so between first
+     paint and React mounting, the browser default (white) showed
+     through. On the installed PWA that is the launch experience.
+     Painting the root from the token closes the gap. */
+  html {
+    background-color: rgb(var(--c-slate-50));
+  }
+}
