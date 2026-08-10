@@ -48,16 +48,34 @@ export async function mintAccessToken(
 export interface CalendarEventInput {
   summary: string;
   description: string;
+  /** The venue, sent as Google's own location field so the entry
+   * offers a map and directions — not just words in the title. */
+  location: string | null;
   startMs: number;
   endMs: number;
 }
+
+/** Gigs are paid work with travel attached, so an event always carries
+ * a reminder rather than inheriting the calendar's default — which may
+ * well be "none". The Phase 7 decision to skip push notifications
+ * assumed the calendar would remind you; this is what makes that true. */
+const REMINDER_MINUTES_BEFORE = 60;
 
 function eventBody(event: CalendarEventInput) {
   return {
     summary: event.summary,
     description: event.description,
+    // Omitted rather than sent empty: a blank location field renders
+    // as a stray empty row in Google's UI.
+    ...(event.location !== null && event.location !== ""
+      ? { location: event.location }
+      : {}),
     start: { dateTime: new Date(event.startMs).toISOString() },
     end: { dateTime: new Date(event.endMs).toISOString() },
+    reminders: {
+      useDefault: false,
+      overrides: [{ method: "popup", minutes: REMINDER_MINUTES_BEFORE }],
+    },
   };
 }
 

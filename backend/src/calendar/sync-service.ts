@@ -53,6 +53,7 @@ function buildEvent(
   return {
     summary,
     description,
+    location: gig.location,
     startMs: gig.dateTime!,
     endMs:
       gig.dateTime! +

@@ -8,7 +8,15 @@
 - **Only `confirmed` gigs with a date sync** — leads never do (handoff question → answered: no). `completed|paid` keep their events (history stays on the calendar).
 - **Demotion** (confirmed → lead) deletes the event and clears `calendar_event_id`. ~~**Gig deletion does NOT clean up the event in v1** (the row is gone before cron looks) — documented limitation.~~ **Closed in Phase 8:** `GigsRepo.remove()` parks the event id in a `calendar_cleanup` queue (migration 0005) before deleting the row, and the sync run drains it. See `2026-08-09-phase8-hardening.md`.
 - **Change detection:** `users.last_calendar_sync_at` (migration 0004, ADD COLUMN); each run processes gigs with `modified_at > last_calendar_sync_at`. Demotions bump `modified_at`, so they're caught naturally.
-- **Events:** primary calendar; summary "clientName — location" (fallbacks), start = `date_time`, end = start + 4h (gigs carry no duration — pinned default), description = notes + "Managed by Gigsy".
+- **Events:** primary calendar; summary "clientName — location" (each part
+  falls back if absent); start = `date_time`; description = notes + "Managed by
+  Gigsy". ~~end = start + 4h (gigs carry no duration — pinned default)~~
+  **Phase 9:** end = start + `duration_minutes`, falling back to 4h only when
+  the gig has no duration. **Also Phase 9:** the venue is sent in Google's own
+  `location` field so the entry offers a map and directions, and each event
+  carries an explicit 60-minute popup reminder rather than inheriting the
+  calendar's default — which may be "none", and the Phase 7 decision to skip
+  push notifications assumed the calendar would remind you.
 - **Auth:** decrypt `google_refresh_token_enc` → mint an access token per run (`refresh_token` grant, GOOGLE_CLIENT_ID/SECRET). A revoked token marks the user disconnected (clears the stored token) instead of failing forever.
 - **Cron enabled** (`*/15 * * * *`, the long-commented block) + `POST /api/calendar/sync-now` for instant feedback after connecting.
 - **Connect flow:** GIS OAuth **code client** popup (scope `calendar.events`) → authed `POST /api/auth/google-calendar {authCode}` → existing `exchangeAuthCode` + AES-GCM storage. `GET /api/calendar/status` → `{connected, lastSyncAt}`.

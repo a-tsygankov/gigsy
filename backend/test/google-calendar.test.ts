@@ -52,6 +52,7 @@ describe("CalendarClient", () => {
   const EVENT = {
     summary: "Acme — Costco on 5th",
     description: "notes",
+    location: "Costco on 5th",
     startMs: 1757500000000,
     endMs: 1757514400000,
   };
@@ -111,5 +112,62 @@ describe("CalendarClient", () => {
   it("treats deleting an already-gone event (404/410) as success", async () => {
     const fetchFn = (async () => new Response(null, { status: 410 })) as typeof fetch;
     expect(await new CalendarClient("at", fetchFn).deleteEvent("evt-1")).toBe(true);
+  });
+});
+
+// The venue used to live only in the event title, so a calendar entry
+// offered no map or directions — the thing you actually want when
+// you're heading to a booth you've never been to.
+describe("CalendarEventInput — location and reminders", () => {
+  function capture() {
+    const sent: Record<string, unknown>[] = [];
+    const fetchFn = (async (_url: string, init: RequestInit) => {
+      sent.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return new Response(JSON.stringify({ id: "evt-1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    return { sent, fetchFn };
+  }
+
+  const base = {
+    summary: "Acme — Costco on 5th",
+    description: "notes",
+    startMs: 1757500000000,
+    endMs: 1757510000000,
+  };
+
+  it("sends the venue in Google's own location field", async () => {
+    const { sent, fetchFn } = capture();
+    await new CalendarClient("token", fetchFn).createEvent({
+      ...base,
+      location: "Costco on 5th, booth 12",
+    });
+    expect(sent[0]?.["location"]).toBe("Costco on 5th, booth 12");
+  });
+
+  it("omits location entirely when the gig has none", async () => {
+    const { sent, fetchFn } = capture();
+    await new CalendarClient("token", fetchFn).createEvent({
+      ...base,
+      location: null,
+    });
+    expect(sent[0]).not.toHaveProperty("location");
+  });
+
+  // Phase 7 argued push notifications were unnecessary because the
+  // calendar reminds you. That only holds if there IS a reminder — a
+  // user whose calendar default is "none" would get silence.
+  it("sets an explicit reminder rather than trusting calendar defaults", async () => {
+    const { sent, fetchFn } = capture();
+    await new CalendarClient("token", fetchFn).createEvent({
+      ...base,
+      location: null,
+    });
+    expect(sent[0]?.["reminders"]).toEqual({
+      useDefault: false,
+      overrides: [{ method: "popup", minutes: 60 }],
+    });
   });
 });
