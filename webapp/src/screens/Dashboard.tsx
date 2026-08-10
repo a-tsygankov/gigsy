@@ -25,6 +25,7 @@ function CalendarSection() {
   const queryClient = useQueryClient();
   const offline = sync !== null && !sync.online;
   const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
 
   const status = useQuery({
     queryKey: ["calendar-status"],
@@ -45,7 +46,21 @@ function CalendarSection() {
 
   const syncNow = useMutation({
     mutationFn: () => data.calendarSyncNow(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["calendar-status"] }),
+    onSuccess: (r) => {
+      // The server always said what it did; the UI used to discard it,
+      // which made "nothing appears in my calendar" impossible to
+      // diagnose from the app. Now it reports — including the silent
+      // case, where the answer is usually that nothing was eligible.
+      const touched = r.created + r.updated + r.deleted;
+      setResult(
+        touched === 0
+          ? r.failed > 0
+            ? `Google rejected ${r.failed} change(s). Try reconnecting.`
+            : "Nothing to sync — only confirmed gigs with a date go to your calendar."
+          : `Synced: ${r.created} added, ${r.updated} updated, ${r.deleted} removed.`,
+      );
+      void queryClient.invalidateQueries({ queryKey: ["calendar-status"] });
+    },
     onError: (e) => {
       // Say what actually went wrong. The server distinguishes a
       // revoked grant from an unreadable stored token from an
@@ -85,6 +100,7 @@ function CalendarSection() {
           disabled={offline || connect.isPending || syncNow.isPending}
           onClick={() => {
             setError(null);
+            setResult(null);
             status.data?.connected ? syncNow.mutate() : connect.mutate();
           }}
         >
@@ -112,6 +128,11 @@ function CalendarSection() {
         >
           {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
         </button>
+      )}
+      {result !== null && (
+        <p className="mt-2 text-xs text-slate-600" data-testid="calendar-sync-result">
+          {result}
+        </p>
       )}
       {error !== null && <p className="mt-2 text-xs text-red-600">{error}</p>}
     </Card>

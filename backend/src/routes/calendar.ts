@@ -75,11 +75,18 @@ export function makeCalendarRouter(deps: CalendarDeps = defaultCalendarDeps) {
       if (exchanged === null) {
         return c.json({ error: "authorization exchange failed" }, 400);
       }
-      await UsersRepo.for(c.env.DB).setGoogleRefreshTokenEnc(
+      const usersRepo = UsersRepo.for(c.env.DB);
+      await usersRepo.setGoogleRefreshTokenEnc(
         c.get("userId"),
         await encryptString(exchanged.refreshToken, c.env.REFRESH_TOKEN_ENC_KEY),
         Date.now(),
       );
+      // Connecting means "put my gigs on this calendar", so the
+      // watermark resets and the next run reconsiders everything.
+      // Without this, a reconnect only picks up gigs touched since the
+      // last successful run — so an existing schedule silently never
+      // appears, which is exactly how a working sync looks broken.
+      await usersRepo.setLastCalendarSyncAt(c.get("userId"), 0);
       return c.json({ connected: true });
     })
     .post("/sync-now", async (c) => {
@@ -120,6 +127,11 @@ export function makeCalendarRouter(deps: CalendarDeps = defaultCalendarDeps) {
         deps.makeClient(minted.accessToken),
         Date.now(),
       );
+      // Always logged, including a run that did nothing: a manual sync
+      // is someone asking "what happened?", and a 200 with no record of
+      // the counts is the reason that question was unanswerable from
+      // the hidden console.
+      log.info("calendar sync-now", { userId, ...result });
       return c.json(result);
     });
 }

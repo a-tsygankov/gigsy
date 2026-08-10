@@ -40,6 +40,9 @@ export class OfflineDataService {
       | "getDraft"
       | "setDraftStatus"
       | "getDraftRawBlob"
+      | "getPushConfig"
+      | "savePushSubscription"
+      | "deletePushSubscription"
       | "reverseGeocode"
       | "getCalendarStatus"
       | "connectCalendar"
@@ -198,6 +201,15 @@ export class OfflineDataService {
   }
 
   // ── calendar (online-only) ───────────────────────────────────────
+  getPushConfig() {
+    return this.reportsApi.getPushConfig();
+  }
+  savePushSubscription(input: { endpoint: string; p256dh: string; auth: string }) {
+    return this.reportsApi.savePushSubscription(input);
+  }
+  deletePushSubscription(endpoint: string) {
+    return this.reportsApi.deletePushSubscription(endpoint);
+  }
   reverseGeocode(lat: number, lon: number) {
     return this.reportsApi.reverseGeocode(lat, lon);
   }

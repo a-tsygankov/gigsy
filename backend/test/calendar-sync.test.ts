@@ -49,6 +49,47 @@ beforeAll(async () => {
 });
 
 describe("syncUserGigs", () => {
+  /**
+   * Regression: the watermark is stamped with the WORKER's clock, but
+   * `modified_at` arrives from the PHONE's clock via /api/sync. Comparing
+   * the two means a gig edited offline at 10:00 and uploaded at 14:00 —
+   * after a 13:45 cron run — sits permanently below the watermark and is
+   * never seen again. Offline-first makes this the normal case, not an
+   * edge case: the gap between "when you typed it" and "when it uploaded"
+   * is the whole point of the outbox.
+   */
+  it("syncs a gig whose client clock stamped it before the watermark", async () => {
+    const OFFLINE_GIG = "44444444-dddd-4ddd-8ddd-444444444444";
+
+    // A sync run happens now, advancing the watermark to the server's clock.
+    await syncUserGigs(env.DB, U1, stubClient(), Date.now());
+
+    // The phone now drains its outbox for an edit it made an hour ago.
+    const anHourAgo = Date.now() - 60 * 60 * 1000;
+    const res = await api(U1, "POST", "/api/sync", {
+      ops: [
+        {
+          op: "upsert",
+          entity: "gig",
+          id: OFFLINE_GIG,
+          modifiedAt: anHourAgo,
+          payload: {
+            clientId: ACME,
+            status: "confirmed",
+            location: "Backstage",
+            dateTime: WHEN,
+          },
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    const client = stubClient();
+    await syncUserGigs(env.DB, U1, client, Date.now());
+
+    expect(client.calls.map((c) => c.op)).toContain("create");
+  });
+
   it("creates an event for a confirmed dated gig and stores the id", async () => {
     await api(U1, "PUT", `/api/gigs/${GIG}`, {
       clientId: ACME,

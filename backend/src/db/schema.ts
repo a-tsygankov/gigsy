@@ -93,10 +93,21 @@ export const gigs = sqliteTable(
     // Where the record came from: manual | email | photo.
     source: text("source"),
     createdAt: integer("created_at").notNull(),
+    // When the *author* last changed it — the phone's clock, carried
+    // through /api/sync so last-write-wins works between devices.
     modifiedAt: integer("modified_at").notNull(),
+    // When the *server* last stored it. Only the worker writes this, so
+    // it is the only timestamp the calendar watermark can safely be
+    // compared against: an offline edit arrives with an old modifiedAt
+    // but a fresh serverModifiedAt.
+    serverModifiedAt: integer("server_modified_at").notNull().default(0),
   },
   (t) => ({
     userDateIdx: index("idx_gigs_user_date").on(t.userId, t.dateTime),
+    userServerModifiedIdx: index("idx_gigs_user_server_modified").on(
+      t.userId,
+      t.serverModifiedAt,
+    ),
     userStatusIdx: index("idx_gigs_user_status").on(t.userId, t.status),
     clientIdx: index("idx_gigs_client").on(t.clientId),
   }),

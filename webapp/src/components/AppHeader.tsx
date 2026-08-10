@@ -4,6 +4,7 @@
  * two translucent surfaces in the app. The wordmark doubles as the
  * hidden-console trigger (three quick taps).
  */
+import { Link, useLocation } from "react-router-dom";
 import { useAuthState, useServices, useSyncState } from "../lib/app-context.tsx";
 import { useConsoleTap } from "./ConsoleProvider.tsx";
 import { SyncBadge } from "./SyncBadge.tsx";
@@ -13,6 +14,8 @@ export function AppHeader({ title }: { title: string }) {
   const { user } = useAuthState();
   const sync = useSyncState();
   const tap = useConsoleTap();
+  // No point linking to the screen you're already on.
+  const onSettings = useLocation().pathname === "/settings";
 
   return (
     <header
@@ -33,16 +36,22 @@ export function AppHeader({ title }: { title: string }) {
             <SyncBadge online={sync.online} pendingCount={sync.pendingCount} />
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => void auth.signOut()}
+        {/* Settings is a rare destination, so it gets a header link
+            rather than a sixth tab — five is already the practical
+            limit at 375px. Sign out moved inside it, next to the
+            account it signs out of. */}
+        {!onSettings && (
+        <Link
+          to="/settings"
           title={user?.email}
+          data-testid="settings-link"
           className="rounded-xl px-2 py-1 text-xs font-medium text-slate-500 transition-colors
                      hover:bg-slate-200 hover:text-slate-700 focus:outline-none
                      focus-visible:ring-2 focus-visible:ring-emerald-500"
         >
-          Sign out
-        </button>
+          Settings
+        </Link>
+        )}
       </div>
     </header>
   );

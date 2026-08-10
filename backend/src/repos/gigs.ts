@@ -60,7 +60,7 @@ export class GigsRepo {
     if (existing !== undefined) {
       const updated = await this.db
         .update(gigs)
-        .set({ ...data, modifiedAt })
+        .set({ ...data, modifiedAt, serverModifiedAt: stamps.now })
         .where(and(eq(gigs.id, id), eq(gigs.userId, userId)))
         .returning();
       return { record: updated[0]!, created: false };
@@ -68,7 +68,14 @@ export class GigsRepo {
 
     const inserted = await this.db
       .insert(gigs)
-      .values({ id, userId, ...data, createdAt: stamps.now, modifiedAt })
+      .values({
+        id,
+        userId,
+        ...data,
+        createdAt: stamps.now,
+        modifiedAt,
+        serverModifiedAt: stamps.now,
+      })
       .returning();
     return { record: inserted[0]!, created: true };
   }
@@ -101,11 +108,17 @@ export class GigsRepo {
   }
 
   /** Calendar sync input: everything touched since the watermark. */
-  async listModifiedSince(userId: string, sinceMs: number): Promise<GigRecord[]> {
+  /**
+   * Gigs the server stored after `sinceMs`. Deliberately NOT
+   * `modifiedAt`: that is the authoring device's clock, and comparing
+   * it to a server-stamped watermark silently drops every gig that was
+   * edited offline and uploaded after the last run.
+   */
+  async listStoredSince(userId: string, sinceMs: number): Promise<GigRecord[]> {
     return this.db
       .select()
       .from(gigs)
-      .where(and(eq(gigs.userId, userId), gt(gigs.modifiedAt, sinceMs)));
+      .where(and(eq(gigs.userId, userId), gt(gigs.serverModifiedAt, sinceMs)));
   }
 
   /** Calendar bookkeeping — deliberately no modified_at bump, so the
