@@ -2,6 +2,10 @@ import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
 
 export default defineWorkersConfig({
   test: {
+    // The live-calendar test needs real Google credentials and runs in
+    // plain node (vitest.live.config.ts). Excluded here so an ordinary
+    // `pnpm test` never depends on secrets or the network.
+    exclude: ["test/live/**", "node_modules/**"],
     poolOptions: {
       workers: {
         wrangler: { configPath: "./wrangler.toml" },
