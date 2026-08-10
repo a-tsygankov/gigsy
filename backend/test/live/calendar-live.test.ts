@@ -17,6 +17,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   CalendarClient,
   mintAccessToken,
+  queryFreeBusy,
   type CalendarEventInput,
 } from "../../src/calendar/google-calendar.ts";
 
@@ -172,5 +173,74 @@ describe("live Google Calendar", () => {
 
     const stored = await readEvent(eventId!);
     expect(stored!.location).toBeUndefined();
+  });
+});
+
+/**
+ * The read back out (Phase 12, Task 3).
+ *
+ * Every other freebusy test in this repo runs against a double that we
+ * wrote, so it proves our client is consistent with our own beliefs
+ * about Google. This is the only test that proves the belief itself:
+ * that `freebusy` really does return ranges for a busy calendar, and
+ * really does not return what the user is doing.
+ *
+ * It needs `calendar.readonly`, which mint-e2e-token.ps1 only started
+ * requesting in Phase 12 — a token minted before then fails here with
+ * a message saying exactly that, rather than looking like a bug.
+ */
+describe("live Google freebusy", () => {
+  /** A window well away from the other tests' 2099 dates, so a leftover
+   *  event from a previous failed run cannot make this pass. */
+  const WINDOW_START = Date.parse("2098-03-10T12:00:00.000Z");
+  const WINDOW_END = Date.parse("2098-03-10T20:00:00.000Z");
+  const BUSY_START = Date.parse("2098-03-10T14:00:00.000Z");
+  const BUSY_END = Date.parse("2098-03-10T16:00:00.000Z");
+
+  async function askFreeBusy() {
+    const result = await queryFreeBusy({
+      accessToken,
+      timeMinMs: WINDOW_START,
+      timeMaxMs: WINDOW_END,
+      calendarIds: ["primary"],
+    });
+    if (result === "insufficient-scope") {
+      throw new Error(
+        "Google refused freebusy for lack of scope. E2E_GOOGLE_REFRESH_TOKEN " +
+          "predates Phase 12 — re-mint it with scripts/mint-e2e-token.ps1, " +
+          "which now also asks for calendar.readonly.",
+      );
+    }
+    if (result === null) throw new Error("Could not reach Google for freebusy.");
+    return result;
+  }
+
+  it("reports an empty window as free", async () => {
+    expect((await askFreeBusy()).busy).toEqual([]);
+  });
+
+  it("reports a real event as busy, without saying what it is", async () => {
+    const eventId = await client.createEvent(
+      gigEvent({
+        summary: `Something private - ${MARKER}`,
+        description: "nobody else's business",
+        location: "A place the agency must not learn",
+        startMs: BUSY_START,
+        endMs: BUSY_END,
+      }),
+    );
+    expect(eventId).not.toBeNull();
+    created.push(eventId!);
+
+    const result = await askFreeBusy();
+
+    expect(result.busy).toEqual([{ start: BUSY_START, end: BUSY_END }]);
+    // The reason the plan allows this read at all: Google's freebusy
+    // carries times and nothing else, so personal event content is
+    // never held even for the length of a request.
+    const serialised = JSON.stringify(result);
+    expect(serialised).not.toContain("Something private");
+    expect(serialised).not.toContain("nobody else's business");
+    expect(serialised).not.toContain("A place the agency must not learn");
   });
 });

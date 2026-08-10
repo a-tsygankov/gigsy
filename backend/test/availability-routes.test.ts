@@ -133,7 +133,14 @@ describe("GET /api/a/:token — what a stranger can learn", () => {
     // An exact key set, not a subset: this is what makes the amount,
     // the client id and every future column unreachable by
     // construction rather than by remembering to omit them.
+    //
+    // `basedOn` was added in Task 3 and had to pass through here to get
+    // in — which is the point of the assertion. It carries whether the
+    // user's calendar was read, never anything that was on it, and the
+    // plan requires the page to say which it is: silently offering
+    // slots the user cannot work is worse than saying "gigs only".
     expect(Object.keys(body).sort()).toEqual([
+      "basedOn",
       "displayName",
       "generatedAt",
       "horizonEndsAt",
@@ -226,6 +233,30 @@ describe("GET /api/a/:token — what it counts as busy", () => {
     for (const slot of body.slots) {
       expect(slot.start).toBeGreaterThanOrEqual(body.generatedAt);
     }
+  });
+
+  it("opens the window on the quarter hour, not on the current minute", async () => {
+    // "Free from 15:59" is arithmetically right and reads as broken,
+    // because that boundary is an artefact of when the page was loaded
+    // rather than anything about the schedule. Rounding up is the only
+    // safe direction — down would offer time that has already gone.
+    //
+    // Boundaries made by actual bookings are deliberately NOT rounded:
+    // a gig that ends at 16:45 means free from 16:45, and tidying that
+    // would throw away real information to look neater.
+    const body = (await (await fetchLink(await issueLink())).json()) as PublicAvailability;
+
+    expect(body.slots[0]!.start % (15 * 60 * 1000)).toBe(0);
+    expect(body.slots[0]!.start).toBeGreaterThanOrEqual(body.generatedAt);
+  });
+
+  it("runs to the end of a local day, not to a ragged instant", async () => {
+    // "Four weeks" means whole days to a reader; ending mid-afternoon
+    // on an arbitrary date is a number, not an answer.
+    const body = (await (await fetchLink(await issueLink())).json()) as PublicAvailability;
+
+    // The fixture's zone is UTC, so a local midnight is a UTC one.
+    expect(body.horizonEndsAt % (24 * 60 * 60 * 1000)).toBe(0);
   });
 
   it("stops at the horizon it reports", async () => {

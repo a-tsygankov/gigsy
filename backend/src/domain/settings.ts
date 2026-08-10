@@ -120,6 +120,19 @@ export const SettingsSchema = z.object({
   availabilityHorizonWeeks: z.number().int().min(1).max(52).default(4),
   /** A 20-minute hole between two gigs is not something to offer. */
   availabilityMinSlotMinutes: z.number().int().min(5).max(DAY_MINUTES).default(60),
+  /**
+   * Read the user's Google Calendar when computing availability.
+   *
+   * Off by default, and deliberately its own setting rather than a
+   * consequence of connecting the calendar. Phase 6 made the
+   * integration one-way; this reverses it for reads, needs a wider
+   * scope (`calendar.readonly`), and therefore has to be a choice the
+   * user makes knowingly — "let Gigsy see when you are busy, so your
+   * availability page is right" — never something slipped into the
+   * connect flow. A user who leaves it off still gets the page, built
+   * on Gigsy bookings alone, and the page says so.
+   */
+  availabilityUseCalendar: z.boolean().default(false),
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;

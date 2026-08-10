@@ -33,6 +33,14 @@ export interface RecordedRequest {
   body: unknown;
 }
 
+/** One calendar's answer to a freeBusy query. Google returns either
+ *  busy ranges or per-calendar errors — never both usefully, and never
+ *  an event title, which is the whole reason Phase 12 uses this API. */
+export interface FakeFreeBusyCalendar {
+  busy?: { start: string; end: string }[];
+  errors?: { domain: string; reason: string }[];
+}
+
 export interface FakeCalendarOptions {
   /** The bearer the client is expected to present; anything else 401s. */
   accessToken?: string;
@@ -47,6 +55,13 @@ export interface FakeCalendarOptions {
    *  404, so pointing the client at the wrong one is a test failure
    *  rather than silently passing (Phase 11 dedicated calendars). */
   calendarId?: string;
+  /** What POST /freeBusy answers, per calendar id (Phase 12). A
+   *  calendar the query asks for but this map omits comes back with an
+   *  empty busy list, exactly as Google does for a genuinely free one. */
+  freeBusy?: Record<string, FakeFreeBusyCalendar>;
+  /** Force /freeBusy to fail with this status — 403 is the shape of a
+   *  grant that never included calendar.readonly. */
+  freeBusyStatus?: number;
 }
 
 export interface FakeCalendar {
@@ -61,6 +76,7 @@ export interface FakeCalendar {
 }
 
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3/calendars";
+const FREEBUSY_URL = "https://www.googleapis.com/calendar/v3/freeBusy";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 function json(body: unknown, status = 200): Response {
@@ -131,6 +147,32 @@ export function fakeGoogleCalendar(options: FakeCalendarOptions = {}): FakeCalen
     // Google authenticates every Calendar call; so does the fake.
     if (headers.get("authorization") !== `Bearer ${accessToken}`) {
       return json({ error: { code: 401, message: "Invalid Credentials" } }, 401);
+    }
+
+    // freeBusy is not scoped to one calendar — the query names them.
+    if (url === FREEBUSY_URL && method === "POST") {
+      if (options.freeBusyStatus !== undefined) {
+        return json(
+          { error: { code: options.freeBusyStatus, message: "freeBusy refused" } },
+          options.freeBusyStatus,
+        );
+      }
+      const query = JSON.parse(rawBody ?? "{}") as {
+        items?: { id?: string }[];
+      };
+      const calendars: Record<string, FakeFreeBusyCalendar> = {};
+      for (const item of query.items ?? []) {
+        const id = item.id ?? "";
+        // An unlisted calendar is free, not missing — that is what
+        // Google returns and what the client must not confuse.
+        calendars[id] = options.freeBusy?.[id] ?? { busy: [] };
+      }
+      return json({
+        kind: "calendar#freeBusy",
+        timeMin: query["timeMin" as keyof typeof query],
+        timeMax: query["timeMax" as keyof typeof query],
+        calendars,
+      });
     }
 
     if (url === EVENTS_URL && method === "POST") {

@@ -35,7 +35,15 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $redirectUri = "http://localhost:$Port"
-$scope = 'https://www.googleapis.com/auth/calendar.events'
+# calendar.events writes gigs onto the calendar (Phase 6). calendar.readonly
+# reads back WHEN the account is busy, via freebusy, for the availability
+# page (Phase 12) — ranges only, never event titles. The live test asserts
+# both halves, so the CI token has to carry both; a token minted before
+# Phase 12 will make the freebusy live test fail with a message saying so.
+$scope = @(
+    'https://www.googleapis.com/auth/calendar.events'
+    'https://www.googleapis.com/auth/calendar.readonly'
+) -join ' '
 
 # access_type=offline asks for a refresh token at all; prompt=consent
 # forces one even when this account has already granted the scope.

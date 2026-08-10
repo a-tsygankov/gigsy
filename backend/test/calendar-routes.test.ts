@@ -44,6 +44,7 @@ function appWith(overrides: Partial<CalendarDeps> = {}) {
     mintAccessToken: vi.fn(async () => ({ accessToken: "google-at" })),
     makeClient: () => client,
     createCalendar: vi.fn(async () => "gigsy-cal@group.calendar.google.com"),
+    queryFreeBusy: vi.fn(async () => ({ busy: [] })),
     ...overrides,
   };
   const app = new Hono().route("/api/calendar", makeCalendarRouter(deps));
@@ -323,5 +324,94 @@ describe("POST /api/calendar/dedicated", () => {
     const res = await call(app, "POST", "/api/calendar/dedicated");
 
     expect(res.status).toBe(409);
+  });
+});
+
+/**
+ * The probe behind the availability page's calendar toggle (Phase 12).
+ *
+ * Turning that toggle on needs a scope the connect flow never asked
+ * for, so the settings screen has to be able to find out whether the
+ * grant actually covers it — before the user shares a link built on an
+ * assumption. Every answer is a 200 with a reason, not an error: "your
+ * grant is too narrow" is information the UI acts on, not a failure.
+ */
+describe("GET /api/calendar/freebusy-check", () => {
+  const connect = (app: Hono) =>
+    call(app, "POST", "/api/calendar/connect", { authCode: "code" });
+
+  it("says not-connected when there is no calendar at all", async () => {
+    const { app, deps } = appWith();
+
+    const res = await call(app, "GET", "/api/calendar/freebusy-check");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ readable: false, reason: "not-connected" });
+    // And it did not go asking Google about a user it has no token for.
+    expect(deps.queryFreeBusy).not.toHaveBeenCalled();
+  });
+
+  it("says readable when the grant covers freebusy", async () => {
+    const { app } = appWith();
+    await connect(app);
+
+    const res = await call(app, "GET", "/api/calendar/freebusy-check");
+
+    expect(await res.json()).toEqual({ readable: true });
+  });
+
+  it("names insufficient-scope so the UI can ask for consent again", async () => {
+    // The whole reason this endpoint exists: a grant from before
+    // Phase 12 covers calendar.events and nothing else.
+    const { app } = appWith({
+      queryFreeBusy: vi.fn(async () => "insufficient-scope" as const),
+    });
+    await connect(app);
+
+    const res = await call(app, "GET", "/api/calendar/freebusy-check");
+
+    expect(await res.json()).toEqual({
+      readable: false,
+      reason: "insufficient-scope",
+    });
+  });
+
+  it("distinguishes Google being down from a scope that is missing", async () => {
+    // Re-prompting for consent would be the wrong fix for an outage,
+    // and the user would decline a popup they did not expect.
+    const { app } = appWith({ queryFreeBusy: vi.fn(async () => null) });
+    await connect(app);
+
+    const res = await call(app, "GET", "/api/calendar/freebusy-check");
+
+    expect(await res.json()).toEqual({ readable: false, reason: "unavailable" });
+  });
+
+  it("says not-connected when the grant was revoked on Google's side", async () => {
+    const { app } = appWith({ mintAccessToken: vi.fn(async () => "revoked" as const) });
+    await connect(app);
+
+    const res = await call(app, "GET", "/api/calendar/freebusy-check");
+
+    expect(await res.json()).toEqual({ readable: false, reason: "not-connected" });
+    // Unlike the public path, this one IS allowed to heal: the user is
+    // right here and can reconnect.
+    expect((await UsersRepo.for(env.DB).get(U1))?.googleRefreshTokenEnc).toBeNull();
+  });
+
+  it("probes a short window — it is a permission check, not a sync", async () => {
+    const { app, deps } = appWith();
+    await connect(app);
+
+    await call(app, "GET", "/api/calendar/freebusy-check");
+
+    const asked = vi.mocked(deps.queryFreeBusy).mock.calls[0]![0];
+    expect(asked.timeMaxMs - asked.timeMinMs).toBeLessThanOrEqual(60 * 60 * 1000);
+  });
+
+  it("refuses an unauthenticated request", async () => {
+    const res = await SELF.fetch("https://localhost/api/calendar/freebusy-check");
+
+    expect(res.status).toBe(401);
   });
 });

@@ -16,12 +16,18 @@ import { PaymentEdit } from "./screens/PaymentEdit.tsx";
 import { Capture } from "./screens/Capture.tsx";
 import { Drafts } from "./screens/Drafts.tsx";
 import { DraftReview } from "./screens/DraftReview.tsx";
+import { PublicAvailability } from "./screens/PublicAvailability.tsx";
 
 export function App() {
   return (
     <ConsoleProvider>
       <Routes>
         <Route path="/login" element={<Login />} />
+        {/* Outside AuthGate, and the only route that is (Phase 12).
+            The token in the path is the whole access control; an
+            agency opening this has no account and must never be
+            asked for one. */}
+        <Route path="/a/:token" element={<PublicAvailability />} />
         <Route element={<AuthGate />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/gigs" element={<Gigs />} />

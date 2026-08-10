@@ -17,7 +17,11 @@
 import { Hono } from "hono";
 import type { Bindings } from "../env.ts";
 import { AvailabilityTokenStore } from "../repos/availability-tokens.ts";
-import { buildPublicAvailability } from "../services/availability.ts";
+import {
+  buildPublicAvailability,
+  type CalendarBusyReader,
+} from "../services/availability.ts";
+import { makeCalendarBusyReader } from "../calendar/freebusy-reader.ts";
 import { fixedWindowLimiter, type RateLimiter } from "../lib/rate-limit.ts";
 
 /**
@@ -32,6 +36,9 @@ export function makeAvailabilityRouter(
     limit: DEFAULT_LIMIT,
     windowMs: DEFAULT_WINDOW_MS,
   }),
+  /** Built per request because it needs the bindings. Injected so the
+   *  route's own tests never reach for a network. */
+  makeReader: (env: Bindings) => CalendarBusyReader = makeCalendarBusyReader,
 ) {
   return new Hono<{ Bindings: Bindings }>()
     .use("*", async (c, next) => {
@@ -62,6 +69,12 @@ export function makeAvailabilityRouter(
         return c.json({ error: "not_found" }, 404);
       }
 
-      return c.json(await buildPublicAvailability(c.env.DB, userId, now));
+      return c.json(
+        await buildPublicAvailability(c.env.DB, userId, now, {
+          // Only consulted when the user switched it on; the service
+          // owns that decision, so the reader is always supplied.
+          readCalendarBusy: makeReader(c.env),
+        }),
+      );
     });
 }
