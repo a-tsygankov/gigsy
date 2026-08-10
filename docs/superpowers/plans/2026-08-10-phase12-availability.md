@@ -254,9 +254,33 @@ What this commits us to, stated plainly so it is not rediscovered later:
 - **"UTC (UTC)"** was what the zone label produced before it learned
   to drop a half that says the same thing twice.
 
-### Task 6: Docs + verification
-- [ ] docs/plan.md §13 Phase 12; the privacy rule recorded where it
-      cannot be lost
-- [ ] Full sweep; e2e covering the public page unauthenticated
+### Task 6: Docs + verification — DONE (uncommitted)
+- [x] `docs/plan.md` §13 gains a Phase 12 bullet and a subsection that
+      opens with the privacy rule as a blockquote, followed by the
+      three mechanisms enforcing it and a note that the exact-key-set
+      test must never be deleted.
+- [x] `webapp/e2e/availability.spec.ts` — five specs, all making their
+      assertions in a **fresh browser context** with no session, since
+      a page that worked only because the tab was logged in would
+      prove nothing. Covers: a dead link, opening with no account, the
+      leak promise, `noindex`/`no-store`, and revoke taking effect.
+- [x] Full sweep: 474 backend, 213 webapp, 30 e2e (1 skipped — the
+      offline shell needs a production build).
+
+**Found while doing this, and worth more than the task itself:** the
+existing e2e named "a gig duration and a billable expense round-trip"
+saved a value and read it straight back from Dexie. It never drained
+the outbox and never re-pulled, so it passed for months while neither
+field reached the server at all — it was not testing a round trip.
+Renamed and fixed to drain and reload, and confirmed it now fails
+against the old bug before being restored.
+
+Two of my own tests were wrong before they were right, both caught by
+running them rather than reading them:
+- The leak spec created a gig with no date, which the projection never
+  looks at — so it passed for the wrong reason.
+- Reloading straight after clicking Save cancelled the write, because
+  `click()` returns when the click is dispatched, not when the save
+  lands.
 
 **Branch:** dev-24 onward. No commits without the user's command.
