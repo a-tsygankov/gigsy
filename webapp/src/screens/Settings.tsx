@@ -10,6 +10,10 @@ import {
 } from "../lib/push.ts";
 import { fetchTierVersions } from "../lib/versions.ts";
 import { AppHeader, Button, Card, SectionHeading } from "../components/index.ts";
+import { CalendarSection } from "./settings/CalendarSection.tsx";
+import { GigDefaultsSection } from "./settings/GigDefaultsSection.tsx";
+import { NudgeSection } from "./settings/NudgeSection.tsx";
+import { useSettings } from "./settings/useSettings.ts";
 
 /** Why push isn't on offer, in words that say what to do about it. */
 const UNAVAILABLE_COPY: Record<PushUnavailable, string> = {
@@ -169,12 +173,50 @@ function AboutSection() {
 }
 
 export function Settings() {
+  const { isLoading, loadError, saveError } = useSettings();
+
   return (
     <>
       <AppHeader title="Settings" />
-      <main className="mx-auto max-w-lg space-y-4 p-4">
+      <main className="mx-auto max-w-lg space-y-4 p-4 pb-24">
+        {/* One banner for the whole screen: a failed save is a failed
+            save whichever control caused it, and thirteen inline error
+            slots would be thirteen places to forget one. */}
+        {saveError !== null && (
+          <p
+            className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700"
+            data-testid="settings-save-error"
+          >
+            That change didn't save, so it's been put back. Check your
+            connection and try again.
+          </p>
+        )}
+
         <SectionHeading>Preferences</SectionHeading>
+
+        {loadError !== null ? (
+          <Card as="section" data-testid="settings-load-error">
+            <p className="text-sm text-slate-600">
+              Settings couldn't be loaded. They live on the server, so this
+              needs a connection.
+            </p>
+          </Card>
+        ) : isLoading ? (
+          <Card as="section" data-testid="settings-loading">
+            <p className="text-sm text-slate-400">Loading…</p>
+          </Card>
+        ) : (
+          <>
+            <CalendarSection />
+            <GigDefaultsSection />
+            <NudgeSection />
+          </>
+        )}
+
+        <SectionHeading>Notifications on this device</SectionHeading>
         <NotificationsSection />
+
+        <SectionHeading>Account</SectionHeading>
         <AccountSection />
         <AboutSection />
       </main>

@@ -5,6 +5,7 @@
  * write nudges the SyncEngine's debounced drain. Reports remain
  * server-computed — grouped SQL beats re-implementing it in Dexie.
  */
+import type { SettingsPatch } from "./settings-schema.ts";
 import type { LocalStore } from "./local-store.ts";
 import type { SyncEngine } from "./sync-engine.ts";
 import type { ApiClient } from "./api.ts";
@@ -48,6 +49,10 @@ export class OfflineDataService {
       | "connectCalendar"
       | "disconnectCalendar"
       | "calendarSyncNow"
+      | "calendarResync"
+      | "createDedicatedCalendar"
+      | "getSettings"
+      | "updateSettings"
     >,
   ) {}
 
@@ -221,6 +226,18 @@ export class OfflineDataService {
   }
   disconnectCalendar() {
     return this.reportsApi.disconnectCalendar();
+  }
+  calendarResync() {
+    return this.reportsApi.calendarResync();
+  }
+  createDedicatedCalendar() {
+    return this.reportsApi.createDedicatedCalendar();
+  }
+  getSettings() {
+    return this.reportsApi.getSettings();
+  }
+  updateSettings(patch: SettingsPatch) {
+    return this.reportsApi.updateSettings(patch);
   }
   calendarSyncNow() {
     return this.reportsApi.calendarSyncNow();
