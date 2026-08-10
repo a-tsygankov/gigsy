@@ -11,6 +11,8 @@ import {
 import { fetchTierVersions } from "../lib/versions.ts";
 import { AppHeader, Button, Card, SectionHeading } from "../components/index.ts";
 import { AppearanceSection } from "./settings/AppearanceSection.tsx";
+import { AvailabilitySection } from "./settings/AvailabilitySection.tsx";
+import { AvailabilityLinkSection } from "./settings/AvailabilityLinkSection.tsx";
 import { CalendarSection } from "./settings/CalendarSection.tsx";
 import { GigDefaultsSection } from "./settings/GigDefaultsSection.tsx";
 import { NudgeSection } from "./settings/NudgeSection.tsx";
@@ -217,6 +219,13 @@ export function Settings() {
             <NudgeSection />
           </>
         )}
+
+        {/* Its own heading: this is the one group that decides what
+            people outside the app can see, and burying it among
+            personal preferences would understate that. */}
+        <SectionHeading>Sharing your availability</SectionHeading>
+        {loadError === null && !isLoading && <AvailabilitySection />}
+        <AvailabilityLinkSection />
 
         <SectionHeading>Notifications on this device</SectionHeading>
         <NotificationsSection />

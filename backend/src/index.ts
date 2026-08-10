@@ -18,6 +18,7 @@ import { draftsRouter } from "./routes/drafts.ts";
 import { makeCaptureRouter } from "./routes/capture.ts";
 import { makeCalendarRouter } from "./routes/calendar.ts";
 import { makeAvailabilityRouter } from "./routes/availability.ts";
+import { makeAvailabilityLinkRouter } from "./routes/availability-link.ts";
 import { runCalendarCron } from "./calendar/cron.ts";
 import { runPushCron } from "./push/cron.ts";
 import { makeAuthRouter } from "./routes/auth.ts";
@@ -67,6 +68,8 @@ app.route("/api/services", servicesRouter);
 app.route("/api/payments", paymentsRouter);
 app.route("/api/sync", syncRouter);
 app.route("/api/settings", settingsRouter);
+// The owner's side of the public page above: mint, inspect, revoke.
+app.route("/api/availability/link", makeAvailabilityLinkRouter());
 app.route("/api/reports", reportsRouter);
 app.route("/api/drafts", draftsRouter);
 app.route("/api/capture", makeCaptureRouter());

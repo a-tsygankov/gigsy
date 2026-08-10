@@ -170,7 +170,10 @@ export function formatZoneLabel(
     timeZoneName: "short",
   }).formatToParts(new Date(at));
   const abbreviation = parts.find((p) => p.type === "timeZoneName")?.value;
-  return abbreviation === undefined ? city : `${city} (${abbreviation})`;
+  // "UTC (UTC)" — when the two halves say the same thing, one of them
+  // is noise.
+  if (abbreviation === undefined || abbreviation === city) return city;
+  return `${city} (${abbreviation})`;
 }
 
 /** When the answer was true, in the owner's zone. */

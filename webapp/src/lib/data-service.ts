@@ -51,6 +51,10 @@ export class OfflineDataService {
       | "calendarSyncNow"
       | "calendarResync"
       | "createDedicatedCalendar"
+      | "checkCalendarFreeBusy"
+      | "getAvailabilityLink"
+      | "createAvailabilityLink"
+      | "revokeAvailabilityLink"
       | "getSettings"
       | "updateSettings"
     >,
@@ -232,6 +236,19 @@ export class OfflineDataService {
   }
   createDedicatedCalendar() {
     return this.reportsApi.createDedicatedCalendar();
+  }
+  /** Phase 12: whether the stored grant can read busy time at all. */
+  checkCalendarFreeBusy() {
+    return this.reportsApi.checkCalendarFreeBusy();
+  }
+  getAvailabilityLink() {
+    return this.reportsApi.getAvailabilityLink();
+  }
+  createAvailabilityLink(expiresInDays: number | null = null) {
+    return this.reportsApi.createAvailabilityLink(expiresInDays);
+  }
+  revokeAvailabilityLink() {
+    return this.reportsApi.revokeAvailabilityLink();
   }
   getSettings() {
     return this.reportsApi.getSettings();
