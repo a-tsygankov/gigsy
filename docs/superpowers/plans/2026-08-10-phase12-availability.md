@@ -107,15 +107,49 @@ What this commits us to, stated plainly so it is not rediscovered later:
       23 tests. Timezone is injected as `localDayAt` rather than solved
       here — DST is its own problem behind that seam, and still open.
 
-### Task 2: Tokens + public endpoint
-- [ ] Migration: `availability_tokens` (token hash, userId, createdAt,
-      expiresAt, revokedAt). Store a **hash**, as with refresh tokens —
-      a leaked database should not hand over live links.
-- [ ] `GET /api/a/:token` — unauthenticated, rate-limited, `noindex`.
-      Returns free ranges + display name + timezone. Nothing else.
-- [ ] Tests that assert the response contains **no** client name,
-      location, amount or id, for a user whose gigs have all of them.
-      This is the test that must never be deleted.
+> **Note:** this commit lives on `dev-22` and was never merged into
+> `dev-23`, which carries only the plan edits. Task 2 was built on the
+> restored files; landing the phase means bringing `db8d938` along.
+
+### Task 2: Tokens + public endpoint — DONE (uncommitted)
+- [x] Migration `0010_availability_tokens` (token hash, userId,
+      createdAt, expiresAt, revokedAt). Stores a **hash**, as with
+      refresh tokens. Revoked rather than deleted, so "cut off" stays
+      distinguishable from "never existed". One active link per user:
+      issuing revokes the last. The cost, accepted: nothing stored can
+      redisplay a link, so the share screen (Task 5) shows it once.
+- [x] `GET /api/a/:token` — unauthenticated, rate-limited, `noindex`
+      and `no-store` on every response including the failures. Returns
+      free ranges + display name + timezone + the instant it was made
+      and the end of its horizon. Nothing else. Every failure answers
+      404: a 401 would confirm a link had once been real.
+- [x] The leak test. Seeds a user whose gigs carry a client name, a
+      location, an amount and notes, and asserts none of it — nor any
+      id — reaches the response. Verified by mutation: adding a field
+      or a busy range to the response makes it fail.
+
+**Beyond the checklist, and why:**
+- **The timezone seam is closed** (`domain/timezone.ts`, 16 tests).
+  Task 1 left DST open; an endpoint cannot. `midnightMs + 9h` is not
+  09:00 local on the two days a year a zone shifts, so `localMinuteAt`
+  was added to `AvailabilityOptions` — optional, defaulting to the old
+  arithmetic, so nothing existing changed. Chile, which shifts at
+  midnight, is why a local day is "the earliest instant that is really
+  this date" rather than "the instant the clock reads 00:00".
+- **Availability settings shipped early** (display name, timezone,
+  working week, horizon, minimum slot). The endpoint returns a name and
+  a zone, so they had to exist; Task 5 still owns the UI.
+- **`listBusyBetween` selects two columns**, `dateTime` and
+  `durationMinutes`. The client, place and amount never enter the
+  worker on this path — the privacy rule becomes structural rather
+  than something to remember.
+- **`domain/gig-time.ts`** now holds "how long a gig occupies", shared
+  with the calendar sync. If the two disagreed, the page would offer a
+  slot the user's own calendar shows as booked.
+- **Rate limiting is per isolate** and says so in its own comment. It
+  is a speed bump against hammering one link, not a guarantee; the
+  defence is that the token is 128 random bits and revocable.
+- **`webapp/public/robots.txt`** disallows `/a/` and `/api/`.
 
 ### Task 3: Google freebusy (decided — see above)
 - [ ] `freebusy.query` against the connected calendar, ranges only
@@ -129,7 +163,11 @@ What this commits us to, stated plainly so it is not rediscovered later:
 - [ ] Empty state that does not look broken when the week is full
 
 ### Task 5: Settings + sharing
-- [ ] Working hours, timezone, horizon, display name
+- [ ] Working hours, timezone, horizon, display name — the settings
+      themselves landed in Task 2; this is the screen for them
+- [ ] The link can only be shown once. Hashing was the right call and
+      this is its bill: the screen has to say "copy it now", and offer
+      regenerate rather than reveal
 - [ ] Show the link, copy it, regenerate it, revoke it
 - [ ] Say plainly what the recipient can and cannot see. A user who
       does not trust the boundary will not use the feature.

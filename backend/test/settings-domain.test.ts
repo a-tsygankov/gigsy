@@ -37,6 +37,19 @@ describe("parseSettings", () => {
       nudgeUnpaidEnabled: true,
       nudgeStaleLeadDays: 7,
       nudgeUnpaidDays: 14,
+      availabilityDisplayName: null,
+      availabilityTimeZone: "UTC",
+      availabilityWorkingWeek: [
+        null,
+        { startMinute: 540, endMinute: 1020 },
+        { startMinute: 540, endMinute: 1020 },
+        { startMinute: 540, endMinute: 1020 },
+        { startMinute: 540, endMinute: 1020 },
+        { startMinute: 540, endMinute: 1020 },
+        null,
+      ],
+      availabilityHorizonWeeks: 4,
+      availabilityMinSlotMinutes: 60,
     });
   });
 
@@ -108,6 +121,111 @@ describe("SettingsPatchSchema", () => {
   it("allows clearing the optional duration with null", () => {
     const result = SettingsPatchSchema.safeParse({ defaultGigDurationMinutes: null });
     expect(result.success).toBe(true);
+  });
+});
+
+/**
+ * The availability settings (Phase 12). Held to a tighter standard
+ * than the rest of the blob for one reason: these are the only
+ * settings that shape what an unauthenticated stranger sees, and a
+ * value that survives validation here is a value the public endpoint
+ * will act on.
+ */
+describe("availability settings", () => {
+  const day = { startMinute: 540, endMinute: 1020 };
+  const week = [null, day, day, day, day, day, null];
+
+  it("accepts a working week and a real zone", () => {
+    const result = SettingsPatchSchema.safeParse({
+      availabilityTimeZone: "America/New_York",
+      availabilityWorkingWeek: week,
+      availabilityDisplayName: "Andrey",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a timezone Intl cannot resolve", () => {
+    // Unchecked, this reaches Intl inside a public request and throws.
+    expect(
+      SettingsPatchSchema.safeParse({ availabilityTimeZone: "Mars/Olympus_Mons" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a week that is not exactly seven days", () => {
+    // The projection indexes this by Date#getDay; a short array would
+    // silently read as "day off" for the missing days.
+    expect(
+      SettingsPatchSchema.safeParse({ availabilityWorkingWeek: [null, day] }).success,
+    ).toBe(false);
+    expect(
+      SettingsPatchSchema.safeParse({
+        availabilityWorkingWeek: [...week, day],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a day whose end is not after its start", () => {
+    const inverted = [null, { startMinute: 1020, endMinute: 540 }, null, null, null, null, null];
+    expect(
+      SettingsPatchSchema.safeParse({ availabilityWorkingWeek: inverted }).success,
+    ).toBe(false);
+
+    const empty = [null, { startMinute: 540, endMinute: 540 }, null, null, null, null, null];
+    expect(
+      SettingsPatchSchema.safeParse({ availabilityWorkingWeek: empty }).success,
+    ).toBe(false);
+  });
+
+  it("rejects minutes outside a day", () => {
+    const late = [null, { startMinute: 540, endMinute: 1441 }, null, null, null, null, null];
+    expect(SettingsPatchSchema.safeParse({ availabilityWorkingWeek: late }).success).toBe(
+      false,
+    );
+  });
+
+  it("allows a shift that ends at 24:00", () => {
+    // 1440 is the end of the day, and the projection resolves it to the
+    // next midnight rather than inverting the window.
+    const late = [null, { startMinute: 1080, endMinute: 1440 }, null, null, null, null, null];
+    expect(SettingsPatchSchema.safeParse({ availabilityWorkingWeek: late }).success).toBe(
+      true,
+    );
+  });
+
+  it("bounds the horizon", () => {
+    // An infinite calendar invites scraping and answers a question
+    // nobody asked.
+    expect(SettingsPatchSchema.safeParse({ availabilityHorizonWeeks: 0 }).success).toBe(false);
+    expect(SettingsPatchSchema.safeParse({ availabilityHorizonWeeks: 53 }).success).toBe(
+      false,
+    );
+    expect(SettingsPatchSchema.safeParse({ availabilityHorizonWeeks: 12 }).success).toBe(true);
+  });
+
+  it("clears the display name with null", () => {
+    expect(
+      SettingsPatchSchema.safeParse({ availabilityDisplayName: null }).success,
+    ).toBe(true);
+  });
+
+  it("refuses a display name long enough to be a message", () => {
+    // The name is echoed verbatim to strangers; it is a label, not a
+    // free-text channel.
+    expect(
+      SettingsPatchSchema.safeParse({ availabilityDisplayName: "x".repeat(200) }).success,
+    ).toBe(false);
+  });
+
+  it("keeps a valid week when some other setting is corrupt", () => {
+    const stored = JSON.stringify({
+      availabilityWorkingWeek: week,
+      availabilityHorizonWeeks: 999,
+    });
+
+    const settings = parseSettings(stored);
+
+    expect(settings.availabilityWorkingWeek).toEqual(week);
+    expect(settings.availabilityHorizonWeeks).toBe(4);
   });
 });
 

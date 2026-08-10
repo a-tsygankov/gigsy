@@ -45,6 +45,18 @@ export interface AvailabilityOptions {
    * merge/mask/clamp rules below should not be hostage to it.
    */
   localDayAt: (ms: number) => { dayOfWeek: number; midnightMs: number };
+  /**
+   * The instant at which the local clock reads `minute` past midnight
+   * on the day starting at `midnightMs`.
+   *
+   * Deliberately not `midnightMs + minute * 60000`: on the two days a
+   * year a zone shifts, those differ by an hour, and an hour out on a
+   * page an agency books from is the failure this phase exists to
+   * avoid. Optional, and defaulted to that arithmetic, because a
+   * caller working in a fixed offset — every unit test here — has
+   * nothing to gain from the extra seam.
+   */
+  localMinuteAt?: (midnightMs: number, minute: number) => number;
   /** Gaps shorter than this are not availability. A 20-minute hole
    *  between two gigs is not something to offer an agency. */
   minSlotMs: number;
@@ -52,6 +64,10 @@ export interface AvailabilityOptions {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
+
+/** What `localMinuteAt` means in a zone that never shifts. */
+const fixedOffsetMinuteAt = (midnightMs: number, minute: number): number =>
+  midnightMs + minute * MINUTE_MS;
 
 /**
  * Merge overlapping and touching ranges into the fewest that cover the
@@ -102,8 +118,9 @@ export function subtractRanges(span: Range, busy: readonly Range[]): Range[] {
 export function workingWindows(
   from: number,
   to: number,
-  options: Pick<AvailabilityOptions, "workingWeek" | "localDayAt">,
+  options: Pick<AvailabilityOptions, "workingWeek" | "localDayAt" | "localMinuteAt">,
 ): Range[] {
+  const minuteAt = options.localMinuteAt ?? fixedOffsetMinuteAt;
   const windows: Range[] = [];
   // Start from the local midnight containing `from`; the first day's
   // window may have already begun.
@@ -117,8 +134,8 @@ export function workingWindows(
     const hours = options.workingWeek[dayOfWeek] ?? null;
     if (hours !== null) {
       windows.push({
-        start: midnightMs + hours.startMinute * MINUTE_MS,
-        end: midnightMs + hours.endMinute * MINUTE_MS,
+        start: minuteAt(midnightMs, hours.startMinute),
+        end: minuteAt(midnightMs, hours.endMinute),
       });
     }
     const next = options.localDayAt(midnightMs + DAY_MS + DAY_MS / 2);

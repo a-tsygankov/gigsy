@@ -16,6 +16,7 @@ import {
   type AvailabilityOptions,
   type WorkingWeek,
 } from "../src/domain/availability.ts";
+import { localClock } from "../src/domain/timezone.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
@@ -230,5 +231,83 @@ describe("availableSlots", () => {
   it("offers nothing on a fully booked day", () => {
     const all = { start: MON + 8 * HOUR, end: MON + 18 * HOUR };
     expect(availableSlots([all], opts())).toEqual([]);
+  });
+});
+
+/**
+ * The seam Task 1 left open, now driven by a real zone.
+ *
+ * `midnightMs + startMinute` is right on 363 days a year. On the other
+ * two it is an hour out, and an hour out on a page an agency books
+ * from is the failure this whole phase exists to avoid — so the offset
+ * is asked of the clock rather than assumed.
+ */
+describe("availableSlots across a DST change", () => {
+  const NY = localClock("America/New_York");
+  const EVERY_DAY: WorkingWeek = Array.from({ length: 7 }, () => ({
+    startMinute: 9 * 60,
+    endMinute: 17 * 60,
+  }));
+
+  function inNewYork(over: Partial<AvailabilityOptions> = {}): AvailabilityOptions {
+    return {
+      now: 0,
+      horizonMs: DAY,
+      workingWeek: EVERY_DAY,
+      localDayAt: NY.localDayAt,
+      localMinuteAt: NY.localMinuteAt,
+      minSlotMs: 30 * MIN,
+      ...over,
+    };
+  }
+
+  it("holds 09:00 local on the day that gains an hour", () => {
+    // 2026-11-01: 02:00 EDT falls back to 01:00 EST, so the day is 25
+    // hours long. 09:00 local is 14:00Z — midnight (04:00Z) plus NINE
+    // hours would be 13:00Z, which is 08:00 to the reader.
+    const midnight = Date.parse("2026-11-01T04:00:00.000Z");
+
+    const slots = availableSlots([], inNewYork({ now: midnight, horizonMs: DAY }));
+
+    expect(slots[0]!.start).toBe(Date.parse("2026-11-01T14:00:00.000Z"));
+    expect(slots[0]!.end).toBe(Date.parse("2026-11-01T22:00:00.000Z"));
+  });
+
+  it("holds 09:00 local on the day that loses an hour", () => {
+    // 2026-03-08: 02:00 EST becomes 03:00 EDT. 09:00 local is 13:00Z;
+    // midnight (05:00Z) plus nine would be 14:00Z — an hour late.
+    const midnight = Date.parse("2026-03-08T05:00:00.000Z");
+
+    const slots = availableSlots([], inNewYork({ now: midnight, horizonMs: DAY }));
+
+    expect(slots[0]!.start).toBe(Date.parse("2026-03-08T13:00:00.000Z"));
+    expect(slots[0]!.end).toBe(Date.parse("2026-03-08T21:00:00.000Z"));
+  });
+
+  it("still subtracts a gig booked in local terms on such a day", () => {
+    const midnight = Date.parse("2026-11-01T04:00:00.000Z");
+    // Noon to 14:00 local, i.e. 17:00Z-19:00Z under EST.
+    const gig = {
+      start: Date.parse("2026-11-01T17:00:00.000Z"),
+      end: Date.parse("2026-11-01T19:00:00.000Z"),
+    };
+
+    const slots = availableSlots([gig], inNewYork({ now: midnight, horizonMs: DAY }));
+
+    expect(slots.map((s) => [s.start, s.end])).toEqual([
+      [Date.parse("2026-11-01T14:00:00.000Z"), Date.parse("2026-11-01T17:00:00.000Z")],
+      [Date.parse("2026-11-01T19:00:00.000Z"), Date.parse("2026-11-01T22:00:00.000Z")],
+    ]);
+  });
+
+  it("defaults to plain arithmetic when no clock is supplied", () => {
+    // Every existing caller — and every test above — omits
+    // localMinuteAt. The seam must be additive, not a breaking change.
+    const windows = workingWindows(MON, MON + DAY, {
+      workingWeek: NINE_TO_FIVE,
+      localDayAt: utcDayAt,
+    });
+
+    expect(windows[0]).toEqual({ start: MON + 9 * HOUR, end: MON + 17 * HOUR });
   });
 });
