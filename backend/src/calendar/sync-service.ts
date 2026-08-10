@@ -5,7 +5,9 @@
  * - `completed|paid` keep their events untouched (history);
  * - demotion to lead — or a removed date — deletes the event;
  * - the per-user watermark (`last_calendar_sync_at`) only advances
- *   on a fully clean run, so failures retry next time;
+ *   on a fully clean run, so failures retry next time. It is compared
+ *   against `server_modified_at`, never `modified_at` — the latter is
+ *   the phone's clock, and an offline edit would land below the mark;
  * - events whose gig was deleted are drained from the cleanup queue
  *   first (Phase 8) — the gig row that held the id is already gone,
  *   so the watermark can't find them.
@@ -93,7 +95,7 @@ export async function syncUserGigs(
     }
   }
 
-  const changed = await gigsRepo.listModifiedSince(
+  const changed = await gigsRepo.listStoredSince(
     userId,
     user.lastCalendarSyncAt ?? 0,
   );

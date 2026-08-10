@@ -127,6 +127,11 @@ export function makeCalendarRouter(deps: CalendarDeps = defaultCalendarDeps) {
         deps.makeClient(minted.accessToken),
         Date.now(),
       );
+      // Always logged, including a run that did nothing: a manual sync
+      // is someone asking "what happened?", and a 200 with no record of
+      // the counts is the reason that question was unanswerable from
+      // the hidden console.
+      log.info("calendar sync-now", { userId, ...result });
       return c.json(result);
     });
 }
