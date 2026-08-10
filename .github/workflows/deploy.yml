@@ -147,8 +147,13 @@ jobs:
           workingDirectory: webapp
           command: pages deploy dist --project-name=gigsy-webapp --branch=${{ github.head_ref }} --commit-dirty=true
 
-  webapp-e2e:
-    name: Webapp E2E (Playwright)
+  # Deployment smoke check. The preview's /api proxies to the
+  # PRODUCTION worker, where the test-auth bypass is switched off, so
+  # every signed-in spec skips here by design — this job proves the
+  # built artifact deploys, loads and serves its unauthenticated
+  # routes. The authenticated half is covered by webapp-e2e-full below.
+  webapp-e2e-preview:
+    name: Webapp E2E (preview smoke)
     needs: [changes, webapp-preview-deploy]
     if: github.event_name == 'pull_request' && needs.changes.outputs.webapp == 'true'
     runs-on: ubuntu-latest
@@ -168,9 +173,92 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-preview
           path: webapp/playwright-report
           retention-days: 7
+
+  # The whole suite against a hermetic local stack: wrangler dev with a
+  # local D1 and ENVIRONMENT=development, so the test-auth bypass is
+  # live and the signed-in specs actually run. This exists because the
+  # preview job reported green while skipping 12 of 20 tests — the
+  # authenticated half of the app had no CI coverage at all. Nothing
+  # here touches production data.
+  webapp-e2e-full:
+    name: Webapp E2E (full stack)
+    needs: changes
+    if: >-
+      github.event_name == 'pull_request' &&
+      (needs.changes.outputs.webapp == 'true' || needs.changes.outputs.backend == 'true')
+    runs-on: ubuntu-latest
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: webapp
+
+      # Throwaway local-only values (ENVIRONMENT=development,
+      # AI_PROVIDER=stub). The example file is the same one contributors
+      # copy, so this can't drift from local dev.
+      - name: Local worker config
+        working-directory: backend
+        run: cp .dev.vars.example .dev.vars
+
+      - name: Migrate the local D1
+        working-directory: backend
+        run: pnpm exec wrangler d1 migrations apply gigsy-db --local
+
+      - name: Start the worker
+        working-directory: backend
+        run: |
+          nohup pnpm exec wrangler dev --port 8787 > /tmp/wrangler.log 2>&1 &
+          for _ in $(seq 1 90); do
+            curl -sf http://127.0.0.1:8787/api/health > /dev/null && exit 0
+            sleep 1
+          done
+          echo "::error::worker never came up"; cat /tmp/wrangler.log; exit 1
+
+      - name: Start the webapp
+        working-directory: webapp
+        run: |
+          nohup pnpm dev --port 5192 --host 127.0.0.1 > /tmp/vite.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf http://127.0.0.1:5192 > /dev/null && exit 0
+            sleep 1
+          done
+          echo "::error::vite never came up"; cat /tmp/vite.log; exit 1
+
+      # Fail before the suite rather than after a green-but-empty run.
+      - name: Verify the test-auth bypass is live
+        run: |
+          enabled=$(curl -sf http://127.0.0.1:8787/api/auth/config \
+            | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).testAuthEnabled")
+          if [ "$enabled" != "true" ]; then
+            echo "::error::testAuthEnabled=$enabled — the signed-in specs would skip"
+            exit 1
+          fi
+
+      - name: Run the full E2E suite
+        working-directory: webapp
+        env:
+          E2E_BASE_URL: http://127.0.0.1:5192
+          # Turns a skipped signed-in spec into a failure here.
+          E2E_REQUIRE_AUTH: '1'
+        run: pnpm test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-full
+          path: webapp/playwright-report
+          retention-days: 7
+      - name: Server logs on failure
+        if: failure()
+        run: tail -n 100 /tmp/wrangler.log /tmp/vite.log || true
 
   webapp-deploy:
     name: Webapp deploy
