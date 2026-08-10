@@ -7,22 +7,11 @@
 import { and, eq, gt } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import { refreshTokens } from "../db/schema.ts";
+import { hashToken, mintToken } from "../lib/opaque-token.ts";
 
-function toBase64Url(bytes: Uint8Array): string {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  return [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+/** 256 bits. Availability links (Phase 12) settle for 128; a refresh
+ *  token buys a session, so it keeps the wider margin it shipped with. */
+const TOKEN_BYTES = 32;
 
 export class RefreshTokenStore {
   constructor(private readonly db: DrizzleD1Database) {}
@@ -33,9 +22,9 @@ export class RefreshTokenStore {
 
   /** Mint a raw token for the user and persist only its hash. */
   async issue(userId: string, now: number, ttlMs: number): Promise<string> {
-    const raw = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+    const raw = mintToken(TOKEN_BYTES);
     await this.db.insert(refreshTokens).values({
-      tokenHash: await sha256Hex(raw),
+      tokenHash: await hashToken(raw),
       userId,
       expiresAt: now + ttlMs,
       createdAt: now,
@@ -46,7 +35,7 @@ export class RefreshTokenStore {
   /** Redeem a raw token: returns its userId and deletes the row
    * (one-shot). Expired/unknown → null. */
   async consume(raw: string, now: number): Promise<string | null> {
-    const tokenHash = await sha256Hex(raw);
+    const tokenHash = await hashToken(raw);
     const deleted = await this.db
       .delete(refreshTokens)
       .where(

@@ -17,6 +17,7 @@ import { reportsRouter } from "./routes/reports.ts";
 import { draftsRouter } from "./routes/drafts.ts";
 import { makeCaptureRouter } from "./routes/capture.ts";
 import { makeCalendarRouter } from "./routes/calendar.ts";
+import { makeAvailabilityRouter } from "./routes/availability.ts";
 import { runCalendarCron } from "./calendar/cron.ts";
 import { runPushCron } from "./push/cron.ts";
 import { makeAuthRouter } from "./routes/auth.ts";
@@ -50,6 +51,13 @@ app.get("/api/health", (c) =>
 
 app.route("/api/version", versionRouter);
 app.route("/api/debug", debugRouter);
+
+// Public availability (Phase 12). Mounted apart from everything below
+// and above the auth boundary on purpose: it is the only user-scoped
+// route with no requireAuth, and the token in its path is the entire
+// access control. It serves free ranges and a chosen display name —
+// never a client, a place or an amount.
+app.route("/api/a", makeAvailabilityRouter());
 
 // User-scoped routers — each mounts requireAuth itself.
 app.route("/api/clients", clientsRouter);

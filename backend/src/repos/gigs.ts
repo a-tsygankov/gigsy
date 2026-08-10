@@ -1,7 +1,8 @@
 /** User-scoped data access for `gigs`. Same contract as ClientsRepo. */
-import { and, desc, eq, gt, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, lte } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import { calendarCleanup, gigs, type GigStatus } from "../db/schema.ts";
+import { MAX_GIG_DURATION_MS, type TimedGig } from "../domain/gig-time.ts";
 import type { UpsertResult, WriteStamps } from "./clients.ts";
 
 export type GigRecord = typeof gigs.$inferSelect;
@@ -145,6 +146,50 @@ export class GigsRepo {
       .update(gigs)
       .set({ calendarEventId: null })
       .where(and(eq(gigs.userId, userId), isNotNull(gigs.calendarEventId)));
+  }
+
+  /**
+   * When this user is occupied between two instants — times only.
+   *
+   * Two deliberate choices, both about the public availability page
+   * (Phase 12) that this feeds:
+   *
+   * - The projection is `{ dateTime, durationMinutes }` and nothing
+   *   else. Not a convenience: the client name, location and amount
+   *   never enter the worker on this path, so the endpoint above
+   *   cannot serialise what it was never given. The privacy rule
+   *   becomes structural instead of a thing to remember.
+   * - `statuses` is a parameter rather than a constant here, because
+   *   which states count as busy is a product decision (leads never
+   *   block) and belongs with the caller that made it.
+   *
+   * The lower bound reaches back a full day before the window: a gig
+   * that started yesterday evening can still be running now, and
+   * MAX_GIG_DURATION_MS is how far back it is worth looking.
+   */
+  async listBusyBetween(
+    userId: string,
+    fromMs: number,
+    toMs: number,
+    statuses: readonly GigStatus[],
+  ): Promise<TimedGig[]> {
+    if (statuses.length === 0) return [];
+
+    return this.db
+      .select({
+        dateTime: gigs.dateTime,
+        durationMinutes: gigs.durationMinutes,
+      })
+      .from(gigs)
+      .where(
+        and(
+          eq(gigs.userId, userId),
+          inArray(gigs.status, [...statuses]),
+          isNotNull(gigs.dateTime),
+          gte(gigs.dateTime, fromMs - MAX_GIG_DURATION_MS),
+          lte(gigs.dateTime, toMs),
+        ),
+      );
   }
 
   async setCalendarEventId(

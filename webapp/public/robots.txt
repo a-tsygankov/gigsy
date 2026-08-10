@@ -1,0 +1,10 @@
+# Availability links (Phase 12).
+#
+# A link shared with an agency is not a published one. The endpoint
+# itself sends `X-Robots-Tag: noindex, nofollow`, which is what
+# actually binds a crawler — this file only helps the ones that ask
+# first, and it cannot help at all against one that already has a
+# token. Both are here because neither alone is enough.
+User-agent: *
+Disallow: /a/
+Disallow: /api/

@@ -50,6 +50,33 @@ export const refreshTokens = sqliteTable(
   }),
 );
 
+/**
+ * Public availability links (Phase 12) — mirrors
+ * migrations/0010_availability_tokens.sql.
+ *
+ * Only SHA-256 hashes, as with refreshTokens: the token is the whole
+ * access control for /api/a/:token, so a leaked database must not hand
+ * over live links. Revoked and expired rows are kept rather than
+ * deleted — one active link per user is enforced by revoking the old
+ * one, and a dead link stays distinguishable from one that never was.
+ */
+export const availabilityTokens = sqliteTable(
+  "availability_tokens",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+    /** NULL means it does not expire on its own. */
+    expiresAt: integer("expires_at"),
+    revokedAt: integer("revoked_at"),
+  },
+  (t) => ({
+    userIdx: index("idx_availability_tokens_user").on(t.userId),
+  }),
+);
+
 // Agencies/companies/individuals a user works gigs for. Private per
 // user — not shared even if two users work for the same agency.
 export const clients = sqliteTable(

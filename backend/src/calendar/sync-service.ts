@@ -18,11 +18,7 @@ import { GigsRepo, type GigRecord } from "../repos/gigs.ts";
 import { UsersRepo } from "../repos/users.ts";
 import type { CalendarEventInput } from "./google-calendar.ts";
 import type { Settings } from "../domain/settings.ts";
-
-// Used only when a gig has no duration of its own (Phase 9 added the
-// field; everything created before it, and anything the user leaves
-// blank, still needs an end time for the calendar).
-const DEFAULT_DURATION_MS = 4 * 60 * 60 * 1000;
+import { gigOccupies } from "../domain/gig-time.ts";
 
 export interface CalendarClientLike {
   createEvent(event: CalendarEventInput): Promise<string | null>;
@@ -59,6 +55,11 @@ function buildEvent(
   const description = [gig.notes ?? "", "Managed by Gigsy"]
     .filter((p) => p !== "")
     .join("\n\n");
+  // Callers only reach here for a gig with a date, so the interval is
+  // never null. Shared with the availability projection so the two
+  // cannot drift: a gig blocking four hours here must block four
+  // hours there (domain/gig-time.ts).
+  const occupies = gigOccupies(gig)!;
   return {
     summary,
     description,
@@ -66,12 +67,8 @@ function buildEvent(
     reminderMinutes: settings.calendarUseDefaultReminder
       ? null
       : settings.calendarReminderMinutes,
-    startMs: gig.dateTime!,
-    endMs:
-      gig.dateTime! +
-      (gig.durationMinutes !== null
-        ? gig.durationMinutes * 60 * 1000
-        : DEFAULT_DURATION_MS),
+    startMs: occupies.start,
+    endMs: occupies.end,
   };
 }
 

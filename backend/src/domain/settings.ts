@@ -18,10 +18,39 @@
  * the user.
  */
 import { z } from "zod";
+import { isSupportedTimeZone } from "./timezone.ts";
 
 /** Minutes before a gig that its calendar reminder fires. */
 const REMINDER_MIN = 0;
 const REMINDER_MAX = 40320; // four weeks; beyond this Google rejects it.
+
+/** Minutes in a day. 1440 is a valid *end* — a shift finishing at
+ *  midnight — which is why the bound is inclusive. */
+const DAY_MINUTES = 1440;
+
+/**
+ * One weekday's working hours, in minutes from local midnight.
+ *
+ * `null` for a day off rather than a zero-length window: "no hours"
+ * reads as a bug where "closed" reads as a decision, and the
+ * projection treats the two differently.
+ */
+const WorkingDaySchema = z
+  .object({
+    startMinute: z.number().int().min(0).max(DAY_MINUTES),
+    endMinute: z.number().int().min(0).max(DAY_MINUTES),
+  })
+  .strict()
+  .refine((d) => d.endMinute > d.startMinute, {
+    message: "endMinute must be after startMinute",
+  })
+  .nullable();
+
+/** Sunday-first and exactly seven long, because the projection indexes
+ *  it by Date#getDay — a short array would silently read as a day off. */
+const WorkingWeekSchema = z.array(WorkingDaySchema).length(7);
+
+const NINE_TO_FIVE = { startMinute: 9 * 60, endMinute: 17 * 60 };
 
 export const SettingsSchema = z.object({
   // --- Calendar ---
@@ -60,6 +89,37 @@ export const SettingsSchema = z.object({
    *  finds too quiet, which is why they are settings and not constants. */
   nudgeStaleLeadDays: z.number().int().min(1).max(365).default(7),
   nudgeUnpaidDays: z.number().int().min(1).max(365).default(14),
+
+  // --- Availability (Phase 12) ---
+  // These are the only settings that shape what an unauthenticated
+  // stranger sees, so each one is bounded rather than merely typed.
+  /** The name on the public page. null means the page stays generic —
+   *  a user who wants to share hours without sharing who they are. */
+  availabilityDisplayName: z.string().min(1).max(60).nullable().default(null),
+  /** IANA zone the working week is expressed in. Validated against Intl
+   *  here so an unresolvable value can never reach the public endpoint,
+   *  where it would throw mid-request. UTC by default because the
+   *  server cannot guess; the settings screen offers the browser's. */
+  availabilityTimeZone: z
+    .string()
+    .refine(isSupportedTimeZone, { message: "unknown IANA time zone" })
+    .default("UTC"),
+  /** Free time outside these hours is not availability, it is an
+   *  evening. Sunday first, matching Date#getDay. */
+  availabilityWorkingWeek: WorkingWeekSchema.default([
+    null,
+    NINE_TO_FIVE,
+    NINE_TO_FIVE,
+    NINE_TO_FIVE,
+    NINE_TO_FIVE,
+    NINE_TO_FIVE,
+    null,
+  ]),
+  /** Today plus N weeks. Bounded deliberately: an infinite calendar
+   *  invites scraping and answers a question nobody asked. */
+  availabilityHorizonWeeks: z.number().int().min(1).max(52).default(4),
+  /** A 20-minute hole between two gigs is not something to offer. */
+  availabilityMinSlotMinutes: z.number().int().min(5).max(DAY_MINUTES).default(60),
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;
