@@ -98,12 +98,14 @@ What this commits us to, stated plainly so it is not rediscovered later:
 
 ## Tasks
 
-### Task 1: Availability projection (pure, TDD)
-- [ ] RED: busy blocks from gigs; working-hours mask; horizon clamp;
+### Task 1: Availability projection (pure, TDD) — DONE (db8d938)
+- [x] RED: busy blocks from gigs; working-hours mask; horizon clamp;
       timezone; minimum-slot length (a 20-minute gap is not a booking);
       adjacent-block merging; DST boundaries
-- [ ] GREEN. No I/O in this module — it takes blocks and settings and
+- [x] GREEN. No I/O in this module — it takes blocks and settings and
       returns free ranges, so every rule above is testable directly.
+      23 tests. Timezone is injected as `localDayAt` rather than solved
+      here — DST is its own problem behind that seam, and still open.
 
 ### Task 2: Tokens + public endpoint
 - [ ] Migration: `availability_tokens` (token hash, userId, createdAt,
@@ -115,7 +117,7 @@ What this commits us to, stated plainly so it is not rediscovered later:
       location, amount or id, for a user whose gigs have all of them.
       This is the test that must never be deleted.
 
-### Task 3: Google freebusy (pending the decision above)
+### Task 3: Google freebusy (decided — see above)
 - [ ] `freebusy.query` against the connected calendar, ranges only
 - [ ] Re-consent flow for the wider scope, presented as a choice
 - [ ] Contract test against the fake; live test extended
@@ -137,4 +139,4 @@ What this commits us to, stated plainly so it is not rediscovered later:
       cannot be lost
 - [ ] Full sweep; e2e covering the public page unauthenticated
 
-**Branch:** dev-23. No commits without the user's command.
+**Branch:** dev-24 onward. No commits without the user's command.
