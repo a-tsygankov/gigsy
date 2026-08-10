@@ -246,6 +246,24 @@ export class ApiClient {
   }
 
   // ── calendar (docs/plan.md §9) ──────────────────────────────────
+  // ── push (Phase 10) ──────────────────────────────────────────────
+  /** The VAPID public key the browser needs to subscribe. `enabled`
+   * false means the server has no keys, so the UI says so rather than
+   * letting the user hit a permission prompt for nothing. */
+  getPushConfig(): Promise<{ enabled: boolean; publicKey: string }> {
+    return this.request("GET", "/api/push/config");
+  }
+  savePushSubscription(input: {
+    endpoint: string;
+    p256dh: string;
+    auth: string;
+  }): Promise<{ subscribed: boolean }> {
+    return this.request("PUT", "/api/push/subscription", input);
+  }
+  deletePushSubscription(endpoint: string): Promise<{ subscribed: boolean }> {
+    return this.request("DELETE", "/api/push/subscription", { endpoint });
+  }
+
   /** Coordinates → a place name. Server-side so no geocoder key
    * reaches the browser; `fallback` means the lookup failed and the
    * caller should show the raw coordinates. */
