@@ -290,6 +290,14 @@ Phase 2 lands (TODO in `backend/src/routes/debug.ts`).
   permission flow — with the caveat that iOS only delivers push to a
   PWA installed to the home screen. The existing 15-minute cron is the
   natural place to evaluate what deserves a nudge.
+- **Phase 11 — Settings.** One screen for the knobs currently hardcoded
+  or hidden: calendar target and title prefix, reminder minutes, force
+  resync, notification thresholds, default gig duration, currency, the
+  capture forwarding address, account and app versions. Plus themes
+  (system/light/dark) — the one setting that stays device-local rather
+  than syncing, since a theme belongs to the surroundings, not the
+  person. Stored as a `settings_json` blob on `users` so new settings
+  need code, not a migration. See `2026-08-10-phase11-settings.md`.
 
 ## 14. Open items (carried from handoff)
 
