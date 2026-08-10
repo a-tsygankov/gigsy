@@ -232,8 +232,37 @@ export async function queryFreeBusy(options: {
   }
 }
 
+/**
+ * Why a call failed, when the reason changes what the user should do.
+ *
+ * "api-disabled" earned its place the hard way: the Calendar API was
+ * never enabled on the Cloud project, so every request 403'd while
+ * consent, the token mint and the sync all reported success. The app
+ * told the user to reconnect, which could never have helped.
+ */
+export type CalendarFailure = "api-disabled" | "auth" | "other";
+
+function classify(status: number, body: string): CalendarFailure {
+  if (status === 401) return "auth";
+  if (status === 403) {
+    // Google distinguishes these itself; the distinction is the whole
+    // point, since one is fixed in a console and the other by the user.
+    return body.includes("SERVICE_DISABLED") ||
+      body.includes("accessNotConfigured")
+      ? "api-disabled"
+      : "auth";
+  }
+  return "other";
+}
+
 export class CalendarClient {
   private readonly eventsUrl: string;
+  /** The most recent failure's reason, for the caller to report. */
+  private failure: CalendarFailure | null = null;
+
+  lastFailureReason(): CalendarFailure | null {
+    return this.failure;
+  }
 
   constructor(
     private readonly accessToken: string,
@@ -258,7 +287,10 @@ export class CalendarClient {
         headers: this.headers(),
         body: JSON.stringify(eventBody(event)),
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        this.failure = classify(res.status, await res.text().catch(() => ""));
+        return null;
+      }
       const body = (await res.json()) as { id?: string };
       return typeof body.id === "string" ? body.id : null;
     } catch {
@@ -273,6 +305,9 @@ export class CalendarClient {
         headers: this.headers(),
         body: JSON.stringify(eventBody(event)),
       });
+      if (!res.ok) {
+        this.failure = classify(res.status, await res.text().catch(() => ""));
+      }
       return res.ok;
     } catch {
       return false;
@@ -286,7 +321,11 @@ export class CalendarClient {
         method: "DELETE",
         headers: { Authorization: `Bearer ${this.accessToken}` },
       });
-      return res.ok || res.status === 404 || res.status === 410;
+      const gone = res.ok || res.status === 404 || res.status === 410;
+      if (!gone) {
+        this.failure = classify(res.status, await res.text().catch(() => ""));
+      }
+      return gone;
     } catch {
       return false;
     }

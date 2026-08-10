@@ -449,6 +449,53 @@ describe("CalendarClient against a Google-shaped server", () => {
     expect(google.events.size).toBe(1);
   });
 
+  /**
+   * The failure that actually happened in production, and the reason
+   * this test file exists: every hermetic test passed against a fake
+   * with no concept of a disabled API, while the real one refused
+   * everything.
+   */
+  it("reports a disabled Calendar API as its own cause, not an auth problem", async () => {
+    const google = fakeGoogleCalendar({ apiDisabled: true });
+    await uploadGig(newGigId(), {
+      clientId: ACME,
+      status: "confirmed",
+      location: "Anywhere",
+      dateTime: WHEN,
+    });
+
+    const result = await syncUserGigs(
+      env.DB,
+      U1,
+      new CalendarClient("test-access-token", google.fetch),
+      Date.now(),
+    );
+
+    expect(result.failed).toBe(1);
+    // Not "auth": reconnecting cannot enable an API, and saying so sends
+    // the user round a loop.
+    expect(result.failureReason).toBe("api-disabled");
+  });
+
+  it("still calls a plain 403 an auth problem", async () => {
+    const google = fakeGoogleCalendar({ accessToken: "the-right-one" });
+    await uploadGig(newGigId(), {
+      clientId: ACME,
+      status: "confirmed",
+      location: "Anywhere",
+      dateTime: WHEN,
+    });
+
+    const result = await syncUserGigs(
+      env.DB,
+      U1,
+      new CalendarClient("the-wrong-one", google.fetch),
+      Date.now(),
+    );
+
+    expect(result.failureReason).toBe("auth");
+  });
+
   it("never puts a lead on the calendar", async () => {
     const google = fakeGoogleCalendar();
     await uploadGig(newGigId(), {
