@@ -40,6 +40,61 @@ user's and adds what the codebase shows is missing.
 integer cents, IDs stay UUIDs, sync stays last-write-wins. A setting is a
 promise to support both branches forever.
 
+## Themes
+
+**System / Light / Dark, defaulting to System.** Three options, not a toggle:
+a phone that dims itself at night should take the app with it, and forcing a
+choice on someone who has already told the OS their preference is rude.
+
+**This is the one setting that does not sync.** Everything else belongs to the
+person and rides in `settings_json`; a theme belongs to the *device and its
+surroundings* — dark on the phone at a night shift, light on a laptop in
+daylight. It lives in `localStorage`, and syncing it would actively work
+against the user.
+
+### What it actually costs, honestly
+
+The design system says dark mode is "configured but no dark values exist", and
+the code agrees: `darkMode: "class"` is set and **zero** `dark:` utilities are
+used anywhere. The 27 semantic tokens (`--surface-card`, `--text-strong`, …)
+are exactly the right abstraction — but the screens consume Tailwind utilities
+(`bg-white`, `text-slate-900`), not those tokens, so defining dark values alone
+changes nothing.
+
+That gap is the consequence of a deliberate choice during the design-system
+adoption: Tailwind was *not* routed through `var()` because it would have
+broken the `/90` and `/95` alpha modifiers the sticky header and tab bar
+depend on. Reversing that needs care rather than enthusiasm.
+
+**Route taken:** express the palette in `tailwind.config.ts` as
+`rgb(var(--token) / <alpha-value>)`, with tokens stored as raw channel
+triplets (`--surface-card: 255 255 255`). Tailwind substitutes the alpha, so
+`bg-white/90` keeps working and a single `data-theme="dark"` on the root
+re-points every utility at once.
+
+**Rejected:** sprinkling `dark:` variants across fourteen screens. It doubles
+every colour decision, guarantees drift, and would put the design system's
+"one accent, one radius" discipline back where it was before Phase 8.
+
+### Details that bite
+
+- **Apply before first paint.** A tiny inline script in `index.html` reads the
+  stored choice and sets the root attribute. React state resolves too late and
+  the user gets a white flash on every launch — worst on the installed PWA,
+  which is the primary surface.
+- **`theme-color` is declared twice** — `index.html` and the PWA manifest — and
+  the design system already warns that a mismatch flashes the wrong colour
+  during launch. Both must follow the theme, and the manifest's is static, so
+  the meta tag is updated at runtime.
+- **Audit the hand-written surfaces**, not just components: the `Splash`, the
+  login sheet, and the hidden console all carry literal slate colours.
+- **The design-token adherence test** pins token values against Tailwind's
+  palette; restating them as channel triplets means that test changes shape and
+  must keep asserting the same guarantee.
+
+**No accent choice.** "One accent" is a stated design-system principle, not an
+oversight — a picker would trade the app's coherence for a novelty.
+
 ## Decisions
 
 - **Storage is one `settings_json` column on `users`**, not a column per
@@ -85,13 +140,26 @@ user's command.
 - [ ] Creating/selecting a Gigsy calendar, with the extra scope handled as a
       re-consent rather than a silent failure
 
-### Task 4: The screen
+### Task 4: Theming
 
-- [ ] `/settings` built from design-system components; account, calendar,
-      notifications, capture, app info; each section explains what it changes
-- [ ] e2e: a setting persists across a reload
+**Files:** `tailwind.config.ts`, `src/styles/tokens/*.css`, `index.html`, `src/lib/theme.ts`, tests
 
-### Task 5: Docs + verification
+- [ ] RED: the theme resolver maps system/light/dark to a root attribute and
+      honours `prefers-color-scheme` only in system mode; the adherence test
+      still pins token values after they become channel triplets
+- [ ] GREEN: palette via `rgb(var(--token) / <alpha-value>)` so `/90` scrims
+      survive; pre-paint inline script; `theme-color` updated at runtime
+- [ ] Audit Splash, login sheet and hidden console for literal colours
+
+### Task 5: The screen
+
+- [ ] `/settings` built from design-system components; account, appearance,
+      calendar, notifications, capture, app info; each section explains what it
+      changes
+- [ ] e2e: a setting persists across a reload; dark mode applies with no
+      white flash on load
+
+### Task 6: Docs + verification
 
 - [ ] docs/plan.md §13 Phase 11; §4 note on `settings_json`
 - [ ] Full sweep; tree left uncommitted pending the user's command
