@@ -8,6 +8,7 @@ import calendarCleanupSql from "../../migrations/0005_calendar_cleanup.sql?raw";
 import durationReimbursableSql from "../../migrations/0006_duration_reimbursable.sql?raw";
 import pushSubscriptionsSql from "../../migrations/0007_push_subscriptions.sql?raw";
 import serverModifiedAtSql from "../../migrations/0008_server_modified_at.sql?raw";
+import userSettingsSql from "../../migrations/0009_user_settings.sql?raw";
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
@@ -21,6 +22,7 @@ const MIGRATIONS = [
   durationReimbursableSql,
   pushSubscriptionsSql,
   serverModifiedAtSql,
+  userSettingsSql,
 ];
 
 /**

@@ -55,6 +55,7 @@ describe("CalendarClient", () => {
     location: "Costco on 5th",
     startMs: 1757500000000,
     endMs: 1757514400000,
+    reminderMinutes: 60,
   };
 
   it("creates an event on the primary calendar with bearer auth", async () => {
@@ -136,6 +137,7 @@ describe("CalendarEventInput — location and reminders", () => {
     description: "notes",
     startMs: 1757500000000,
     endMs: 1757510000000,
+    reminderMinutes: 60,
   };
 
   it("sends the venue in Google's own location field", async () => {

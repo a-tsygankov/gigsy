@@ -43,6 +43,10 @@ export interface FakeCalendarOptions {
   /** Refresh tokens the token endpoint accepts. Anything else is
    *  invalid_grant, which the client must read as "revoked". */
   validRefreshTokens?: string[];
+  /** Which calendar this fake serves. Requests for any other calendar
+   *  404, so pointing the client at the wrong one is a test failure
+   *  rather than silently passing (Phase 11 dedicated calendars). */
+  calendarId?: string;
 }
 
 export interface FakeCalendar {
@@ -56,7 +60,7 @@ export interface FakeCalendar {
   onlyEvent(): FakeEvent;
 }
 
-const EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+const CALENDAR_API = "https://www.googleapis.com/calendar/v3/calendars";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 function json(body: unknown, status = 200): Response {
@@ -72,6 +76,8 @@ export function fakeGoogleCalendar(options: FakeCalendarOptions = {}): FakeCalen
   const validRefreshTokens = new Set(
     options.validRefreshTokens ?? ["test-refresh-token"],
   );
+  // Google's own ids are email-shaped, so the URL carries them encoded.
+  const EVENTS_URL = `${CALENDAR_API}/${encodeURIComponent(options.calendarId ?? "primary")}/events`;
   const events = new Map<string, FakeEvent>();
   const requests: RecordedRequest[] = [];
   let nextId = 0;

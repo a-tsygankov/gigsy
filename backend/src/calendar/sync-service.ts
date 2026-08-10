@@ -17,6 +17,7 @@ import { ClientsRepo } from "../repos/clients.ts";
 import { GigsRepo, type GigRecord } from "../repos/gigs.ts";
 import { UsersRepo } from "../repos/users.ts";
 import type { CalendarEventInput } from "./google-calendar.ts";
+import type { Settings } from "../domain/settings.ts";
 
 // Used only when a gig has no duration of its own (Phase 9 added the
 // field; everything created before it, and anything the user leaves
@@ -40,15 +41,21 @@ export interface CalendarSyncResult {
   cleaned: number;
 }
 
+/** Optional prefix so Gigsy entries are scannable among personal ones.
+ *  Off by default: it costs title width on a phone (Phase 11). */
+const TITLE_PREFIX = "Gigsy: ";
+
 function buildEvent(
   gig: GigRecord,
   clientNames: Map<string, string>,
+  settings: Settings,
 ): CalendarEventInput {
   const clientName =
     gig.clientId !== null ? clientNames.get(gig.clientId) : undefined;
-  const summary =
+  const base =
     [clientName, gig.location].filter((p) => p != null && p !== "").join(" — ") ||
     "Gig";
+  const summary = settings.calendarTitlePrefix ? `${TITLE_PREFIX}${base}` : base;
   const description = [gig.notes ?? "", "Managed by Gigsy"]
     .filter((p) => p !== "")
     .join("\n\n");
@@ -56,6 +63,9 @@ function buildEvent(
     summary,
     description,
     location: gig.location,
+    reminderMinutes: settings.calendarUseDefaultReminder
+      ? null
+      : settings.calendarReminderMinutes,
     startMs: gig.dateTime!,
     endMs:
       gig.dateTime! +
@@ -95,6 +105,9 @@ export async function syncUserGigs(
     }
   }
 
+  // Once per run: every gig in this pass shares the same preferences.
+  const settings = await usersRepo.getSettings(userId);
+
   const changed = await gigsRepo.listStoredSince(
     userId,
     user.lastCalendarSyncAt ?? 0,
@@ -107,7 +120,7 @@ export async function syncUserGigs(
     const wantsEvent = gig.status === "confirmed" && gig.dateTime !== null;
 
     if (wantsEvent) {
-      const event = buildEvent(gig, clientNames);
+      const event = buildEvent(gig, clientNames, settings);
       if (gig.calendarEventId === null) {
         const eventId = await client.createEvent(event);
         if (eventId === null) {

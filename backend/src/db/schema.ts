@@ -25,6 +25,10 @@ export const users = sqliteTable("users", {
   // notification per person per day, whatever they're holding.
   lastPushAt: integer("last_push_at"),
   lastPushKey: text("last_push_key"),
+  // User preferences as one JSON blob (Phase 11). NULL means "all
+  // defaults"; reads go through parseSettings(), so a row written
+  // before a setting existed is still valid.
+  settingsJson: text("settings_json"),
   createdAt: integer("created_at").notNull(),
   modifiedAt: integer("modified_at").notNull(),
 });

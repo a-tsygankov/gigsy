@@ -9,6 +9,7 @@
  *
  * fetch is injectable everywhere; unit tests never touch the network.
  */
+import type { Settings, SettingsPatch } from "./settings-schema.ts";
 import type {
   AuthApi,
   AuthSession,
@@ -284,6 +285,33 @@ export class ApiClient {
    * connection, and how you re-grant against another account. */
   disconnectCalendar(): Promise<{ connected: boolean }> {
     return this.request("DELETE", "/api/calendar/connection");
+  }
+
+  /** Make the next sync exhaustive. Does not sync — that stays a
+   * separate, slower action the user triggers knowingly. */
+  calendarResync(): Promise<{ queued: true }> {
+    return this.request("POST", "/api/calendar/resync");
+  }
+
+  /** Create a dedicated "Gigsy" calendar and move future events to it.
+   * A 409 with `reconnect-required` means the grant only covers events
+   * and the user must consent to the broader scope. */
+  createDedicatedCalendar(): Promise<{
+    calendarId: string;
+    removed: number;
+    failed: number;
+  }> {
+    return this.request("POST", "/api/calendar/dedicated");
+  }
+
+  // ── settings (Phase 11) ──────────────────────────────────────────
+  getSettings(): Promise<Settings> {
+    return this.request("GET", "/api/settings");
+  }
+  /** Server-side merge: sending one setting never disturbs the others,
+   * so two screens editing different settings cannot clobber. */
+  updateSettings(patch: SettingsPatch): Promise<Settings> {
+    return this.request("PATCH", "/api/settings", patch);
   }
 
   calendarSyncNow(): Promise<{
