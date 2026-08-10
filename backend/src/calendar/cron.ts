@@ -5,7 +5,7 @@
  */
 import type { Bindings } from "../env.ts";
 import { UsersRepo } from "../repos/users.ts";
-import { decryptString } from "../auth/crypto.ts";
+import { resolveRefreshToken } from "./token.ts";
 import {
   CalendarClient,
   mintAccessToken,
@@ -38,13 +38,15 @@ export async function runCalendarCron(
 
   for (const user of await usersRepo.listConnected()) {
     try {
-      const refreshToken = await decryptString(
-        user.googleRefreshTokenEnc!,
+      // An unreadable token disconnects the user rather than failing
+      // on every run forever — the dashboard then offers Connect.
+      const refreshToken = await resolveRefreshToken(
+        usersRepo,
+        user,
         env.REFRESH_TOKEN_ENC_KEY,
       );
       if (refreshToken === null) {
         summary.usersFailed++;
-        log.warn("calendar cron: stored token unreadable", { userId: user.id });
         continue;
       }
       const minted = await deps.mintAccessToken({

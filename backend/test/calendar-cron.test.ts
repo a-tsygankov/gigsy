@@ -70,3 +70,27 @@ describe("runCalendarCron", () => {
     expect(summary).toEqual({ usersSynced: 0, usersFailed: 0 });
   });
 });
+
+// The cron used to log "stored token unreadable" and skip — forever,
+// with the UI still claiming Connected. It now disconnects the user so
+// the dashboard offers Connect again and the loop can be broken.
+describe("runCalendarCron — unreadable token", () => {
+  it("disconnects the user instead of failing every run", async () => {
+    const repo = UsersRepo.for(env.DB);
+    const BROKEN = "cron-broken-user";
+    await seedUser(env.DB, BROKEN);
+    await repo.setGoogleRefreshTokenEnc(BROKEN, "not-decryptable", Date.now());
+
+    const summary = await runCalendarCron(env as unknown as Bindings, {
+      mintAccessToken: async () => ({ accessToken: "at" }),
+      makeClient: () => ({
+        createEvent: async () => "evt",
+        patchEvent: async () => true,
+        deleteEvent: async () => true,
+      }),
+    });
+
+    expect(summary.usersFailed).toBeGreaterThanOrEqual(1);
+    expect((await repo.get(BROKEN))?.googleRefreshTokenEnc).toBeNull();
+  });
+});

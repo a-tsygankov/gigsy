@@ -9,7 +9,8 @@ import { z } from "zod";
 import type { Bindings } from "../env.ts";
 import { requireAuth, type AuthVars } from "../middleware/auth.ts";
 import { UsersRepo } from "../repos/users.ts";
-import { decryptString, encryptString } from "../auth/crypto.ts";
+import { encryptString } from "../auth/crypto.ts";
+import { resolveRefreshToken } from "../calendar/token.ts";
 import { exchangeAuthCode } from "../auth/google.ts";
 import {
   CalendarClient,
@@ -40,11 +41,29 @@ export function makeCalendarRouter(deps: CalendarDeps = defaultCalendarDeps) {
   return new Hono<{ Bindings: Bindings; Variables: AuthVars }>()
     .use("*", requireAuth)
     .get("/status", async (c) => {
-      const user = await UsersRepo.for(c.env.DB).get(c.get("userId"));
+      const usersRepo = UsersRepo.for(c.env.DB);
+      const user = await usersRepo.get(c.get("userId"));
+      // Reading the token here is what makes a broken connection
+      // self-heal: an unreadable one is cleared, so this reports
+      // disconnected and the dashboard offers Connect again.
+      const refreshToken =
+        user === null
+          ? null
+          : await resolveRefreshToken(usersRepo, user, c.env.REFRESH_TOKEN_ENC_KEY);
       return c.json({
-        connected: user?.googleRefreshTokenEnc != null,
+        connected: refreshToken !== null,
         lastSyncAt: user?.lastCalendarSyncAt ?? null,
       });
+    })
+    /** Explicit disconnect — the way back when a connection is wedged
+     * or the user wants to re-grant against a different account. */
+    .delete("/connection", async (c) => {
+      await UsersRepo.for(c.env.DB).setGoogleRefreshTokenEnc(
+        c.get("userId"),
+        null,
+        Date.now(),
+      );
+      return c.json({ connected: false });
     })
     .post("/connect", zValidator("json", Connect), async (c) => {
       const exchanged = await deps.exchangeCode({
@@ -71,8 +90,9 @@ export function makeCalendarRouter(deps: CalendarDeps = defaultCalendarDeps) {
         return c.json({ error: "calendar not connected" }, 409);
       }
 
-      const refreshToken = await decryptString(
-        user.googleRefreshTokenEnc,
+      const refreshToken = await resolveRefreshToken(
+        usersRepo,
+        user,
         c.env.REFRESH_TOKEN_ENC_KEY,
       );
       if (refreshToken === null) {
