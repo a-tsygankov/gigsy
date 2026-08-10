@@ -260,6 +260,48 @@ jobs:
         if: failure()
         run: tail -n 100 /tmp/wrangler.log /tmp/vite.log || true
 
+  # The service worker only exists in a production build, so the jobs
+  # above cannot see it at all. This one builds, serves the result, and
+  # checks the installed app still opens with no connectivity — the
+  # exact thing that broke when Phase 10 moved to injectManifest and
+  # the hand-written worker lost its SPA navigation fallback.
+  webapp-offline-shell:
+    name: Webapp offline shell (production build)
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.webapp == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: webapp
+      - run: pnpm build
+        working-directory: webapp
+      - name: Serve the build
+        working-directory: webapp
+        run: |
+          nohup pnpm preview --port 5193 --host 127.0.0.1 > /tmp/preview.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf http://127.0.0.1:5193 > /dev/null && exit 0
+            sleep 1
+          done
+          echo "::error::preview server never came up"; cat /tmp/preview.log; exit 1
+      - name: Offline reopen
+        working-directory: webapp
+        env:
+          E2E_BASE_URL: http://127.0.0.1:5193
+          E2E_PREVIEW: '1'
+        run: pnpm exec playwright test --project=chromium e2e/offline-shell.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-offline
+          path: webapp/playwright-report
+          retention-days: 7
+
   webapp-deploy:
     name: Webapp deploy
     needs: [changes, webapp-build]

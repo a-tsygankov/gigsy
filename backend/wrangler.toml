@@ -46,7 +46,7 @@ AI_DAILY_CAP = "50"
 # private half as a worker secret and prints this one. Push stays off
 # while this is empty, and the UI says so rather than failing at the
 # permission prompt.
-VAPID_PUBLIC_KEY = ""
+VAPID_PUBLIC_KEY = "BChOgtoYJF0huIquThGFdr052Hb8Ey5Zu1qLQPjB9afaPHgXnj5BeQNFmDB0T_vqOfG49K8YTC0HU0l4LF7OWIA"
 # Contact a push service can use to reach the sender (RFC 8292).
 PUSH_SUBJECT = "mailto:noreply@gigsy.app"
 # Secrets — set via `wrangler secret put` (bootstrap with
