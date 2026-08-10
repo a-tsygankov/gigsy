@@ -23,7 +23,13 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $ClientSecret,
 
-    [int] $Port = 8910
+    [int] $Port = 8910,
+
+    # Which account should grant consent. Whichever one does is the
+    # account whose calendar the live test writes to, so this is
+    # pre-selected and the chooser is forced rather than trusting
+    # whoever happens to be signed in already.
+    [string] $Account = 'gigsy.test@gmail.com'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,14 +40,19 @@ $scope = 'https://www.googleapis.com/auth/calendar.events'
 # access_type=offline asks for a refresh token at all; prompt=consent
 # forces one even when this account has already granted the scope.
 # Without the second, a re-consent returns an access token only and the
-# exchange below comes back with nothing to store.
+# exchange below comes back with nothing to store. select_account is
+# there so an already-signed-in personal account cannot slip through.
 $authUrl = 'https://accounts.google.com/o/oauth2/v2/auth' +
     "?client_id=$([uri]::EscapeDataString($ClientId))" +
     "&redirect_uri=$([uri]::EscapeDataString($redirectUri))" +
     '&response_type=code' +
     "&scope=$([uri]::EscapeDataString($scope))" +
     '&access_type=offline' +
-    '&prompt=consent'
+    "&login_hint=$([uri]::EscapeDataString($Account))" +
+    # select_account forces the chooser even when a session exists, so a
+    # personal account already signed in cannot be consented by accident.
+    # consent forces a refresh token even on a re-grant.
+    '&prompt=' + [uri]::EscapeDataString('select_account consent')
 
 $listener = [System.Net.HttpListener]::new()
 $listener.Prefixes.Add("$redirectUri/")
@@ -57,7 +68,8 @@ catch {
 }
 
 Write-Host ''
-Write-Host 'Sign in as the TEST account (gigsy.test@gmail.com), not your own.'
+Write-Host "Grant consent as $Account - NOT your personal account." -ForegroundColor Yellow
+Write-Host 'Whichever account consents is the one the live test writes to.'
 Write-Host 'Opening the consent screen...'
 Write-Host ''
 Start-Process $authUrl
