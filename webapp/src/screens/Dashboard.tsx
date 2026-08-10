@@ -46,7 +46,20 @@ function CalendarSection() {
   const syncNow = useMutation({
     mutationFn: () => data.calendarSyncNow(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["calendar-status"] }),
-    onError: () => setError("Sync failed — try reconnecting."),
+    onError: (e) => {
+      // Say what actually went wrong. The server distinguishes a
+      // revoked grant from an unreadable stored token from an
+      // unreachable Google, and "try reconnecting" was useless when
+      // the only cure was a disconnect the UI didn't offer.
+      setError(e instanceof Error ? e.message : "Sync failed — try again.");
+      void queryClient.invalidateQueries({ queryKey: ["calendar-status"] });
+    },
+  });
+
+  const disconnect = useMutation({
+    mutationFn: () => data.disconnectCalendar(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["calendar-status"] }),
+    onError: () => setError("Couldn't disconnect — try again."),
   });
 
   if (status.isError || status.data === undefined) return null;
@@ -84,6 +97,22 @@ function CalendarSection() {
               : "Connect"}
         </Button>
       </div>
+      {status.data.connected && (
+        <button
+          type="button"
+          data-testid="calendar-disconnect"
+          disabled={offline || disconnect.isPending}
+          onClick={() => {
+            setError(null);
+            if (window.confirm("Disconnect Google Calendar? Existing events stay put."))
+              disconnect.mutate();
+          }}
+          className="mt-2 text-xs font-medium text-slate-500 hover:underline
+                     disabled:opacity-50"
+        >
+          {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
+        </button>
+      )}
       {error !== null && <p className="mt-2 text-xs text-red-600">{error}</p>}
     </Card>
   );

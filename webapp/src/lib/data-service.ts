@@ -43,6 +43,7 @@ export class OfflineDataService {
       | "reverseGeocode"
       | "getCalendarStatus"
       | "connectCalendar"
+      | "disconnectCalendar"
       | "calendarSyncNow"
     >,
   ) {}
@@ -205,6 +206,9 @@ export class OfflineDataService {
   }
   connectCalendar(authCode: string) {
     return this.reportsApi.connectCalendar(authCode);
+  }
+  disconnectCalendar() {
+    return this.reportsApi.disconnectCalendar();
   }
   calendarSyncNow() {
     return this.reportsApi.calendarSyncNow();

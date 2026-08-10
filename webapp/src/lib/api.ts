@@ -262,6 +262,12 @@ export class ApiClient {
   connectCalendar(authCode: string): Promise<{ connected: boolean }> {
     return this.request("POST", "/api/calendar/connect", { authCode });
   }
+  /** Drop the stored Google token — the way back from a wedged
+   * connection, and how you re-grant against another account. */
+  disconnectCalendar(): Promise<{ connected: boolean }> {
+    return this.request("DELETE", "/api/calendar/connection");
+  }
+
   calendarSyncNow(): Promise<{
     created: number;
     updated: number;

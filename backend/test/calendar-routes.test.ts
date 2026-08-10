@@ -149,3 +149,53 @@ describe("/api/calendar", () => {
     expect(((await status.json()) as { connected: boolean }).connected).toBe(false);
   });
 });
+
+// A stored token that no longer decrypts — the everyday cause is
+// rotating REFRESH_TOKEN_ENC_KEY (setup-secrets.ps1 -All regenerates
+// it) after the calendar was connected. The old behaviour left the
+// user permanently "Connected ✓" with nothing syncing and no way back:
+// the Connect button only appears when disconnected.
+describe("recovering a broken calendar connection", () => {
+  const U2 = "user-2-broken";
+
+  beforeAll(async () => {
+    await seedUser(env.DB, U2);
+  });
+
+  it("status clears an unreadable token so the app offers Connect again", async () => {
+    const repo = UsersRepo.for(env.DB);
+    await repo.setGoogleRefreshTokenEnc(U1, "not-a-valid-ciphertext", Date.now());
+
+    const { app } = appWith();
+    const res = await call(app, "GET", "/api/calendar/status");
+
+    expect(await res.json()).toEqual({ connected: false, lastSyncAt: null });
+    // …and the garbage is gone, so it can't keep failing silently.
+    expect((await repo.get(U1))?.googleRefreshTokenEnc).toBeNull();
+  });
+
+  it("disconnect clears a working connection on request", async () => {
+    const { app } = appWith();
+    await call(app, "POST", "/api/calendar/connect", { authCode: "code" });
+    expect(
+      ((await (await call(app, "GET", "/api/calendar/status")).json()) as {
+        connected: boolean;
+      }).connected,
+    ).toBe(true);
+
+    const res = await call(app, "DELETE", "/api/calendar/connection");
+    expect(res.status).toBe(200);
+
+    expect(
+      ((await (await call(app, "GET", "/api/calendar/status")).json()) as {
+        connected: boolean;
+      }).connected,
+    ).toBe(false);
+  });
+
+  it("disconnecting when never connected is not an error", async () => {
+    const { app } = appWith();
+    const res = await call(app, "DELETE", "/api/calendar/connection");
+    expect(res.status).toBe(200);
+  });
+});
