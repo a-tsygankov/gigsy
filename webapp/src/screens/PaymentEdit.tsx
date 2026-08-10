@@ -185,7 +185,7 @@ export function PaymentEdit() {
                     accept="image/*,.eml,.pdf"
                     className="block w-full text-xs text-slate-500 file:mr-3 file:rounded-xl
                                file:border-0 file:bg-emerald-600 file:px-3 file:py-2
-                               file:text-xs file:font-semibold file:text-white
+                               file:text-xs file:font-semibold file:text-on-accent
                                hover:file:bg-emerald-700"
                     onChange={(e) => {
                       const file = e.target.files?.[0];

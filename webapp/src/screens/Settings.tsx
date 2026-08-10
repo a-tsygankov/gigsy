@@ -10,6 +10,7 @@ import {
 } from "../lib/push.ts";
 import { fetchTierVersions } from "../lib/versions.ts";
 import { AppHeader, Button, Card, SectionHeading } from "../components/index.ts";
+import { AppearanceSection } from "./settings/AppearanceSection.tsx";
 import { CalendarSection } from "./settings/CalendarSection.tsx";
 import { GigDefaultsSection } from "./settings/GigDefaultsSection.tsx";
 import { NudgeSection } from "./settings/NudgeSection.tsx";
@@ -193,6 +194,10 @@ export function Settings() {
         )}
 
         <SectionHeading>Preferences</SectionHeading>
+
+        {/* Device-local, so it renders even when the server settings
+            can't be reached. */}
+        <AppearanceSection />
 
         {loadError !== null ? (
           <Card as="section" data-testid="settings-load-error">

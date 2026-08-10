@@ -1,10 +1,116 @@
-/* Palette — the exact Tailwind slate/emerald/sky/amber/red values used in gigsy/webapp. */
-:root{
-  --slate-50:#f8fafc;--slate-100:#f1f5f9;--slate-200:#e2e8f0;--slate-300:#cbd5e1;--slate-400:#94a3b8;
-  --slate-500:#64748b;--slate-600:#475569;--slate-700:#334155;--slate-800:#1e293b;--slate-900:#0f172a;
-  --emerald-50:#ecfdf5;--emerald-100:#d1fae5;--emerald-200:#a7f3d0;--emerald-500:#10b981;--emerald-600:#059669;--emerald-700:#047857;
-  --sky-50:#f0f9ff;--sky-100:#e0f2fe;--sky-200:#bae6fd;--sky-700:#0369a1;
-  --amber-50:#fffbeb;--amber-100:#fef3c7;--amber-700:#b45309;--amber-800:#92400e;
-  --red-50:#fef2f2;--red-200:#fecaca;--red-500:#ef4444;--red-600:#dc2626;
-  --white:#ffffff;
+/* Palette — the exact Tailwind slate/emerald/sky/amber/red values used
+   in gigsy/webapp, stored as raw "R G B" channel triplets.
+
+   Triplets, not hex, because tailwind.config.ts consumes them as
+   `rgb(var(--c-slate-50) / <alpha-value>)`. Tailwind substitutes the
+   alpha, so `bg-white/90` and `bg-slate-50/95` keep working — the
+   sticky header and tab bar scrims depend on them, and that is exactly
+   why the design system avoided routing Tailwind through var() the
+   first time.
+
+   Dark mode is one attribute on <html>. Because every utility resolves
+   through these variables, re-pointing them re-themes all fourteen
+   screens at once — no `dark:` variant anywhere, and no chance of a
+   screen drifting because someone forgot one. */
+:root {
+  --c-slate-50: 248 250 252;
+  --c-slate-100: 241 245 249;
+  --c-slate-200: 226 232 240;
+  --c-slate-300: 203 213 225;
+  --c-slate-400: 148 163 184;
+  --c-slate-500: 100 116 139;
+  --c-slate-600: 71 85 105;
+  --c-slate-700: 51 65 85;
+  --c-slate-800: 30 41 59;
+  --c-slate-900: 15 23 42;
+
+  --c-emerald-50: 236 253 245;
+  --c-emerald-100: 209 250 229;
+  --c-emerald-200: 167 243 208;
+  --c-emerald-500: 16 185 129;
+  --c-emerald-600: 5 150 105;
+  --c-emerald-700: 4 120 87;
+
+  --c-sky-50: 240 249 255;
+  --c-sky-100: 224 242 254;
+  --c-sky-200: 186 230 253;
+  --c-sky-700: 3 105 161;
+
+  --c-amber-50: 255 251 235;
+  --c-amber-100: 254 243 199;
+  --c-amber-700: 180 83 9;
+  --c-amber-800: 146 64 14;
+
+  --c-red-50: 254 242 242;
+  --c-red-200: 254 202 202;
+  --c-red-500: 239 68 68;
+  --c-red-600: 220 38 38;
+
+  --c-white: 255 255 255;
+
+  /* Two tokens that exist because one palette step cannot serve two
+     jobs across themes:
+
+     on-accent — text sitting ON the accent (buttons, the FAB). It has
+     to stay near-white in both themes; `text-white` cannot, because
+     white becomes a dark surface below.
+
+     accent-hover — the button's hover background. It was emerald-700,
+     which is also the app's "good news" text colour in ten places.
+     Inverting serves the text and ruins the button, so they split. */
+  --c-on-accent: 255 255 255;
+  --c-accent-hover: 4 120 87;
+}
+
+/* Resolved by the pre-paint script in index.html, which always writes
+   an explicit light|dark — never "system". Keeping the resolution in
+   one place means CSS needs no prefers-color-scheme branch that could
+   disagree with what the script decided. */
+:root[data-theme="dark"] {
+  /* The slate ramp inverts: bg-slate-50 (the app background) becomes
+     the darkest value and text-slate-900 becomes the lightest, so every
+     existing utility lands the right way up. */
+  --c-slate-50: 15 23 42;
+  --c-slate-100: 30 41 59;
+  --c-slate-200: 51 65 85;
+  --c-slate-300: 71 85 105;
+  --c-slate-400: 100 116 139;
+  --c-slate-500: 148 163 184;
+  --c-slate-600: 203 213 225;
+  --c-slate-700: 226 232 240;
+  --c-slate-800: 241 245 249;
+  --c-slate-900: 248 250 252;
+
+  /* Cards are bg-white, so white has to read as a surface one step
+     lighter than the app background rather than as a colour. */
+  --c-white: 30 41 59;
+
+  /* Tinted scales swap ends: the 50/100/200 steps are soft fills that
+     must go dark, the 500/600/700 steps are text and accents that must
+     go light. Emerald keeps its hue so the accent stays recognisably
+     the same app. */
+  --c-emerald-50: 6 46 33;
+  --c-emerald-100: 6 59 41;
+  --c-emerald-200: 6 78 59;
+  --c-emerald-500: 52 211 153;
+  --c-emerald-600: 16 185 129;
+  --c-emerald-700: 110 231 183;
+
+  --c-sky-50: 12 34 56;
+  --c-sky-100: 12 45 74;
+  --c-sky-200: 7 89 133;
+  --c-sky-700: 125 211 252;
+
+  --c-amber-50: 48 32 8;
+  --c-amber-100: 69 44 8;
+  --c-amber-700: 252 211 77;
+  --c-amber-800: 253 230 138;
+
+  --c-red-50: 60 20 20;
+  --c-red-200: 127 29 29;
+  --c-red-500: 248 113 113;
+  --c-red-600: 252 165 165;
+
+  --c-on-accent: 255 255 255;
+  --c-accent-hover: 52 211 153;
 }
