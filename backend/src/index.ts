@@ -8,6 +8,7 @@ import { gigsRouter } from "./routes/gigs.ts";
 import { expensesRouter } from "./routes/expenses.ts";
 import { servicesRouter } from "./routes/services.ts";
 import { geoRouter } from "./routes/geo.ts";
+import { pushRouter } from "./routes/push.ts";
 import { paymentsRouter } from "./routes/payments.ts";
 import { syncRouter } from "./routes/sync.ts";
 import PostalMime from "postal-mime";
@@ -16,6 +17,7 @@ import { draftsRouter } from "./routes/drafts.ts";
 import { makeCaptureRouter } from "./routes/capture.ts";
 import { makeCalendarRouter } from "./routes/calendar.ts";
 import { runCalendarCron } from "./calendar/cron.ts";
+import { runPushCron } from "./push/cron.ts";
 import { makeAuthRouter } from "./routes/auth.ts";
 import { UsersRepo } from "./repos/users.ts";
 import { providerFromEnv } from "./capture/providers.ts";
@@ -60,6 +62,7 @@ app.route("/api/drafts", draftsRouter);
 app.route("/api/capture", makeCaptureRouter());
 app.route("/api/calendar", makeCalendarRouter());
 app.route("/api/geo", geoRouter);
+app.route("/api/push", pushRouter);
 app.route("/api/auth", makeAuthRouter());
 
 export { app };
@@ -70,7 +73,11 @@ export default {
   // Calendar sync fan-out (docs/plan.md §9) — [triggers] in
   // wrangler.toml fires this every 15 minutes.
   async scheduled(_event, env, ctx) {
-    ctx.waitUntil(runCalendarCron(env));
+    // Calendar first: a nudge should reflect the state the user is
+    // about to see, and the two passes are independent otherwise.
+    ctx.waitUntil(
+      runCalendarCron(env).then(() => runPushCron(env)),
+    );
   },
 
   // Email capture (docs/plan.md §8): Cloudflare Email Routing

@@ -69,4 +69,13 @@ export class UsersRepo {
       .set({ lastCalendarSyncAt: ts })
       .where(eq(users.id, userId));
   }
+
+  /** What we last told this user, and when — the anti-nagging state
+   * (push/nudges.ts). Bookkeeping, so no modified_at bump. */
+  async setLastPush(userId: string, key: string, ts: number): Promise<void> {
+    await this.db
+      .update(users)
+      .set({ lastPushKey: key, lastPushAt: ts })
+      .where(eq(users.id, userId));
+  }
 }

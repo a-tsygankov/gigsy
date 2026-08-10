@@ -120,3 +120,54 @@ describe("vapidAuthorization", () => {
     ).rejects.toThrow(/uncompressed P-256/);
   });
 });
+
+/**
+ * The keys the worker uses are minted by scripts/setup-secrets.ps1
+ * (`GENERATE_VAPID`), not by WebCrypto — different runtime, different
+ * export path, same required format. This pair came from that script,
+ * so if its encoding ever drifts from what the worker can import, this
+ * fails here rather than silently in production.
+ */
+describe("keys minted by setup-secrets.ps1", () => {
+  const fromScript: VapidKeys = {
+    publicKey:
+      "BF-bLRDu_TUmGC9_AhKD_ZFI6lS_ZGRnuIAleFVsYcLjIP7Ontvnwmf2YDue91llbX7hSErb0klnBwZp7NgclBo",
+    privateKey: "3eT1lnQWN8fRwkwGPQIuG51_zSLnLo0iWtwNwSsrCh8",
+  };
+
+  it("has the shape Web Push requires", () => {
+    const publicBytes = base64UrlDecode(fromScript.publicKey);
+    expect(publicBytes.length).toBe(65);
+    expect(publicBytes[0]).toBe(0x04); // uncompressed point
+    expect(base64UrlDecode(fromScript.privateKey).length).toBe(32);
+  });
+
+  it("signs a header the worker can actually produce", async () => {
+    const header = await vapidAuthorization({
+      endpoint: "https://fcm.googleapis.com/fcm/send/abc",
+      keys: fromScript,
+      subject: "mailto:dev@example.com",
+    });
+
+    const jwt = header.slice("vapid t=".length).split(",")[0]!;
+    const [h, c, sig] = jwt.split(".");
+
+    // Verify against the public half the script printed for
+    // wrangler.toml — proving the two halves really are a pair.
+    const publicBytes = base64UrlDecode(fromScript.publicKey);
+    const publicKey = await crypto.subtle.importKey(
+      "raw",
+      publicBytes,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"],
+    );
+    const ok = await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      publicKey,
+      base64UrlDecode(sig!),
+      new TextEncoder().encode(`${h}.${c}`),
+    );
+    expect(ok).toBe(true);
+  });
+});

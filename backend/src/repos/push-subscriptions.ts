@@ -47,6 +47,15 @@ export class PushSubscriptionsRepo {
       });
   }
 
+  /** Users with at least one device subscribed — the only people the
+   * nudge pass can reach, so it iterates these rather than everyone. */
+  async listSubscribedUserIds(): Promise<string[]> {
+    const rows = await this.db
+      .selectDistinct({ userId: pushSubscriptions.userId })
+      .from(pushSubscriptions);
+    return rows.map((r) => r.userId);
+  }
+
   list(userId: string): Promise<PushSubscriptionRecord[]> {
     return this.db
       .select()

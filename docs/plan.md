@@ -195,8 +195,11 @@ expenses. Plus CSV export (open item in handoff, planned here).
 | Worker secret | `GOOGLE_CLIENT_SECRET` | yes | OAuth code → refresh token exchange |
 | Worker secret | `GEMINI_API_KEY` | yes | Primary extraction provider |
 | Worker secret | `ANTHROPIC_API_KEY` | yes (optional) | Fallback/alt extraction provider |
+| Worker secret | `VAPID_PRIVATE_KEY` | yes (optional) | Web Push signing (`GENERATE_VAPID`); rotating it invalidates every subscription |
 | wrangler.toml `[vars]` | `GOOGLE_CLIENT_ID` | no | Public OAuth client ID |
 | wrangler.toml `[vars]` | `AI_PROVIDER`, `AI_MODEL` | no | Extraction provider selection |
+| wrangler.toml `[vars]` | `VAPID_PUBLIC_KEY` | no | Web Push public key — the browser needs it to subscribe; empty disables push |
+| wrangler.toml `[vars]` | `PUSH_SUBJECT` | no | Contact for push services (RFC 8292) |
 | wrangler.toml `[vars]` | `ENVIRONMENT` | no | Env echo |
 
 Bootstrap: `scripts/setup-secrets.ps1` (placeholders → `gh secret set`

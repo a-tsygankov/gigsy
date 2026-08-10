@@ -7,6 +7,16 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      // injectManifest, not generateSW: the worker hosts a `push`
+      // handler (Phase 10), which generated workers cannot. The cost
+      // is that precaching becomes src/sw.ts's job — that file is what
+      // keeps the installed app opening offline.
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
+      injectManifest: {
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,webmanifest}"],
+      },
       // The service worker precaches the app shell so the PWA loads
       // with zero connectivity (docs/plan.md §7). Icons come from
       // scripts/generate-icons.mjs (committed output — rerun after
@@ -38,6 +48,17 @@ export default defineConfig({
       },
     }),
   ],
+  // `vite preview` serves the built app WITH the real service worker,
+  // which is the only way to exercise offline reopen — dev has no
+  // worker at all. It needs the same /api proxy as dev.
+  preview: {
+    proxy: {
+      "/api": {
+        target: process.env["VITE_WORKER_ORIGIN"] ?? "http://127.0.0.1:8787",
+        changeOrigin: true,
+      },
+    },
+  },
   server: {
     proxy: {
       "/api": {

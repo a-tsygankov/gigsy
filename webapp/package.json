@@ -1,6 +1,6 @@
 {
   "name": "gigsy-webapp",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "private": true,
   "type": "module",
   "scripts": {
@@ -36,6 +36,9 @@
     "vite": "^5.4.0",
     "vite-plugin-pwa": "^0.21.0",
     "vitest": "~2.1.0",
+    "workbox-core": "7.4.1",
+    "workbox-precaching": "7.4.1",
+    "workbox-routing": "7.4.1",
     "wrangler": "^3.90.0"
   }
 }
