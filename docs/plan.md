@@ -301,6 +301,83 @@ Phase 2 lands (TODO in `backend/src/routes/debug.ts`).
   than syncing, since a theme belongs to the surroundings, not the
   person. Stored as a `settings_json` blob on `users` so new settings
   need code, not a migration. See `2026-08-10-phase11-settings.md`.
+- **Phase 12 — Client-facing availability.** A link you can send an
+  agency that answers "when are you free?" and nothing else: one
+  public, unauthenticated page at `/a/<token>`, backed by
+  `GET /api/a/:token`. Free time is a projection of gigs plus working
+  hours, optionally minus the user's own Google Calendar (read through
+  `freebusy`, which returns ranges and never titles). Tokens are
+  hashed, revocable and optionally expiring (migration 0010). See
+  `2026-08-10-phase12-availability.md`.
+
+### Phase 12 — Client-facing availability (2026-08-10)
+
+**The privacy rule, and it governs everything else here:**
+
+> **Nothing identifying leaves the boundary.** The endpoint returns
+> time ranges and a display name the user chose. It must be impossible
+> to learn from this page who someone's other clients are, where they
+> work, or what they charge.
+
+That is not a nice-to-have. It is the reason the feature was allowed to
+exist, and three mechanisms enforce it, in increasing order of how much
+they can be trusted:
+
+1. `PublicAvailability` has no field for a client, a place or an amount.
+2. `backend/test/availability-routes.test.ts` asserts an **exact key
+   set** on the response — not a subset — for a user whose gigs all
+   carry a client, a location, an amount and notes. **That test must
+   never be deleted.** A new field on the public response should cost a
+   deliberate edit to it; that is the point, and it is how `basedOn`
+   was reviewed into existence.
+3. `GigsRepo.listBusyBetween` selects **two columns**, `date_time` and
+   `duration_minutes`. The sensitive fields never enter the worker on
+   this path, so the handler cannot serialise what it was never given.
+   The rule is structural rather than remembered.
+
+The response carries **free** ranges, never busy ones: "busy 14:00–18:00
+at Pier 39" is one join away from a competitor knowing a schedule. The
+gap either side of a booking is unavoidably visible — publishing free
+time at all reveals that much — but nothing says whether it is a gig, a
+dentist or a nap, and there is a test asserting those produce identical
+output.
+
+**Reading Google reverses Phase 6's one-way rule, for reads only.**
+Gigsy does not know about the dentist or a job booked elsewhere, so a
+page built on Gigsy data alone confidently offers slots the user cannot
+work — worse than no page, because they have now promised something.
+`freebusy` is the only API allowed here because it returns times and
+never event content. Nothing from it is ever stored. It is off by
+default (`availabilityUseCalendar`) and needs `calendar.readonly` on
+top of `calendar.events`, so it is presented as a choice and never
+slipped into the connect flow; `GET /api/calendar/freebusy-check` lets
+the settings screen tell "your grant is too narrow" (ask again) from
+"Google is down" (do not).
+
+**Degrade honestly.** Three ways to end up on gigs alone — the setting
+is off, the scope was declined, Google was unreachable — and none may
+be reported as if the calendar had been read. `basedOn` carries which,
+and the page says so. Silently offering time the user cannot work is
+the one outcome worse than no page at all.
+
+Other decisions worth not rediscovering:
+
+- **A token, not a slug.** `/a/andrey` is guessable and permanent. One
+  active 128-bit token per user, stored only as a SHA-256 hash, so
+  "regenerate" *is* the revoke. The cost, accepted: nothing can
+  redisplay a link, so the share screen shows it once and says so.
+- **Every failure answers 404** — unknown, revoked, expired alike. A
+  401 would confirm a link had once been real, which tells the holder
+  something about the user's relationship with them.
+- **The public path never writes.** Elsewhere an unreadable or revoked
+  Google token is healed by clearing it; here that would let a
+  stranger's page load disconnect someone's calendar.
+- **Times are the owner's, labelled.** A New York agency reading a
+  London page on its own clock books an hour that does not exist. DST
+  is handled by asking `Intl` for the instant the local clock reads
+  09:00, never by adding nine hours to midnight.
+- **Rate limiting is per isolate** and says so in its own comment. The
+  real defence is that the token is unguessable and revocable.
 
 ### Phase 11 — Settings (2026-08-10)
 

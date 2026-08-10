@@ -126,9 +126,20 @@ test("a hung refresh cannot freeze startup indefinitely", async ({ page, context
   await context.unroute("**/api/auth/refresh");
 });
 
-// Phase 9: a gig's own length (which the calendar then honours) and an
-// expense the client is expected to cover.
-test("a gig duration and a billable expense round-trip", async ({ page }) => {
+/**
+ * Phase 9: a gig's own length (which the calendar then honours) and an
+ * expense the client is expected to cover.
+ *
+ * This test used to save and read straight back, which proved only
+ * that Dexie kept the value — and it passed happily for months while
+ * neither field was reaching the server at all, because the outbox
+ * payload omitted both. So each half now drains the outbox and
+ * reloads, forcing the pull that overwrites the local copy with the
+ * server's. That reload is the step that used to erase the evidence.
+ */
+test("a gig duration and a billable expense survive a server round-trip", async ({
+  page,
+}) => {
   const marker = `dur-booth-${Date.now()}`;
 
   await page.getByRole("link", { name: "Gigs" }).click();
@@ -136,6 +147,12 @@ test("a gig duration and a billable expense round-trip", async ({ page }) => {
   await page.getByLabel("Location").fill(marker);
   await page.getByTestId("gig-duration").selectOption("180");
   await page.getByRole("button", { name: "Save gig" }).click();
+
+  // Let the save land first: click() returns once the click is
+  // dispatched, so reloading straight after cancels the write.
+  await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+  await page.reload();
 
   await page.getByText(marker).click();
   await expect(page.getByTestId("gig-duration")).toHaveValue("180");
@@ -147,6 +164,10 @@ test("a gig duration and a billable expense round-trip", async ({ page }) => {
   await page.getByLabel("Category").fill(marker);
   await page.getByTestId("expense-reimbursable").check();
   await page.getByRole("button", { name: "Save expense" }).click();
+
+  await expect(page.getByText(marker).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+  await page.reload();
 
   await page.getByText(marker).first().click();
   await expect(page.getByTestId("expense-reimbursable")).toBeChecked();
