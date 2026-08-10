@@ -78,6 +78,10 @@ export const gigs = sqliteTable(
     status: text("status").$type<GigStatus>().notNull().default("lead"),
     location: text("location"),
     dateTime: integer("date_time"),
+    // How long the gig runs. A length rather than an end timestamp, so
+    // it can't go stale when the start moves; the calendar sync uses it
+    // in place of its 4h default.
+    durationMinutes: integer("duration_minutes"),
     calendarEventId: text("calendar_event_id"),
     amountOfferedCents: integer("amount_offered_cents"),
     amountPaidCents: integer("amount_paid_cents"),
@@ -183,6 +187,11 @@ export const expenses = sqliteTable(
     category: text("category"),
     receiptR2Key: text("receipt_r2_key"),
     notes: text("notes"),
+    // The client is expected to cover this cost. An expectation, not a
+    // receipt — net income still subtracts it (reports.ts).
+    reimbursable: integer("reimbursable", { mode: "boolean" })
+      .notNull()
+      .default(false),
     createdAt: integer("created_at").notNull(),
     modifiedAt: integer("modified_at").notNull(),
   },

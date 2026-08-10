@@ -63,6 +63,13 @@ Conventions:
 - Every query scoped `WHERE user_id = ?` from the verified JWT claim.
   This is the entire multi-tenancy boundary; never trust a
   client-supplied user ID.
+- **Durations are stored as a length, not an end timestamp**
+  (`gigs.duration_minutes`, Phase 9) — an end time would duplicate the
+  start and go stale whenever it moved. Nullable; the calendar sync
+  falls back to 4h when it is unset.
+- **Boolean-ish columns are INTEGER 0/1 with a NOT NULL DEFAULT**
+  (`expenses.reimbursable`), so adding one never changes the meaning of
+  an existing row.
 
 ```sql
 users
@@ -271,6 +278,18 @@ Phase 2 lands (TODO in `backend/src/routes/debug.ts`).
 - **Phase 6 — Calendar sync.** Cron + Google Calendar API round-trips.
 - **Phase 7 — Reports + export.** Reports UI, CSV export, notification
   strategy decision.
+- **Phase 8 — Hardening.** Calendar-cleanup queue for deleted gigs;
+  extraction-provider fallback chain.
+- **Phase 9 — Gig duration, reimbursable expenses, location capture.**
+  Optional `duration_minutes` (which the calendar then honours instead
+  of assuming 4h), an expense flag for costs the client is expected to
+  cover, and reverse-geocoded "use my current location" on a gig.
+- **Phase 10 — Push notifications.** Reminders for unconfirmed leads
+  and unpaid gigs, revisiting the Phase 7 deferral. Needs VAPID keys, a
+  `push_subscriptions` table, a service-worker `push` handler, and a
+  permission flow — with the caveat that iOS only delivers push to a
+  PWA installed to the home screen. The existing 15-minute cron is the
+  natural place to evaluate what deserves a nudge.
 
 ## 14. Open items (carried from handoff)
 
@@ -283,7 +302,11 @@ Phase 2 lands (TODO in `backend/src/routes/debug.ts`).
   rejected: iOS requires the PWA installed to the home screen plus a
   permission prompt, and it adds VAPID keys and subscription lifecycle —
   real cost for one user whose gigs are already on their calendar.
-  Revisit if leads go stale in practice.
+  **Revisited 2026-08-10 at the user's request: push is now scheduled as
+  Phase 10.** The Phase 7 reasoning still holds for what it covered
+  (calendar reminders handle *dated, confirmed* work); what it does not
+  cover is the undated end — a lead that never gets confirmed and an
+  invoice that never gets paid never reach a calendar.
 - Whether `lead` gigs sync to calendar (default no).
 - Fuzzy-match threshold for client names (avoid silent merges).
 - Email Routing domain for per-user forwarding addresses.

@@ -246,6 +246,16 @@ export class ApiClient {
   }
 
   // ── calendar (docs/plan.md §9) ──────────────────────────────────
+  /** Coordinates → a place name. Server-side so no geocoder key
+   * reaches the browser; `fallback` means the lookup failed and the
+   * caller should show the raw coordinates. */
+  reverseGeocode(lat: number, lon: number): Promise<{
+    label: string | null;
+    fallback: boolean;
+  }> {
+    return this.request("GET", `/api/geo/reverse?lat=${lat}&lon=${lon}`);
+  }
+
   getCalendarStatus(): Promise<{ connected: boolean; lastSyncAt: number | null }> {
     return this.request("GET", "/api/calendar/status");
   }

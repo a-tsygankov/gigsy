@@ -125,3 +125,29 @@ test("a hung refresh cannot freeze startup indefinitely", async ({ page, context
 
   await context.unroute("**/api/auth/refresh");
 });
+
+// Phase 9: a gig's own length (which the calendar then honours) and an
+// expense the client is expected to cover.
+test("a gig duration and a billable expense round-trip", async ({ page }) => {
+  const marker = `dur-booth-${Date.now()}`;
+
+  await page.getByRole("link", { name: "Gigs" }).click();
+  await page.getByRole("link", { name: "Add gig" }).click();
+  await page.getByLabel("Location").fill(marker);
+  await page.getByTestId("gig-duration").selectOption("180");
+  await page.getByRole("button", { name: "Save gig" }).click();
+
+  await page.getByText(marker).click();
+  await expect(page.getByTestId("gig-duration")).toHaveValue("180");
+
+  // …and an expense flagged as the client's to cover.
+  await page.getByRole("link", { name: "Expenses" }).click();
+  await page.getByRole("link", { name: "Add expense" }).click();
+  await page.getByLabel("Amount ($)").fill("18.75");
+  await page.getByLabel("Category").fill(marker);
+  await page.getByTestId("expense-reimbursable").check();
+  await page.getByRole("button", { name: "Save expense" }).click();
+
+  await page.getByText(marker).first().click();
+  await expect(page.getByTestId("expense-reimbursable")).toBeChecked();
+});

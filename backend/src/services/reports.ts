@@ -43,6 +43,11 @@ export interface ReportSummary {
     paidCents: number;
     varianceCents: number;
     expensesCents: number;
+    /** Portion of expensesCents the client is expected to cover. Shown
+     * beside net rather than removed from it: the flag records an
+     * expectation of reimbursement, not money received, so netCents
+     * stays the conservative figure. */
+    reimbursableCents: number;
     netCents: number;
   };
   byMonth: MonthRow[];
@@ -129,13 +134,14 @@ export async function reportSummary(
     await d1
       .prepare(
         `SELECT ${MONTH_EXPR(effectiveTs)} AS month,
-                SUM(e.amount_cents) AS expenses
+                SUM(e.amount_cents) AS expenses,
+                SUM(CASE WHEN e.reimbursable = 1 THEN e.amount_cents ELSE 0 END) AS reimbursable
          FROM expenses e ${expJoin}
          WHERE ${expWhere.join(" AND ")}
          GROUP BY month`,
       )
       .bind(...expParams)
-      .all<{ month: string; expenses: number }>()
+      .all<{ month: string; expenses: number; reimbursable: number }>()
   ).results;
 
   // ── merge months ───────────────────────────────────────────────
@@ -228,6 +234,7 @@ export async function reportSummary(
   const offeredCents = byMonth.reduce((sum, r) => sum + r.offeredCents, 0);
   const paidCents = byMonth.reduce((sum, r) => sum + r.paidCents, 0);
   const expensesCents = byMonth.reduce((sum, r) => sum + r.expensesCents, 0);
+  const reimbursableCents = expenseRows.reduce((sum, r) => sum + r.reimbursable, 0);
 
   return {
     totals: {
@@ -235,6 +242,7 @@ export async function reportSummary(
       paidCents,
       varianceCents: offeredCents - paidCents,
       expensesCents,
+      reimbursableCents,
       netCents: paidCents - expensesCents,
     },
     byMonth,

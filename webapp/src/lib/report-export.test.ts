@@ -31,6 +31,7 @@ function gig(over: Partial<Gig> = {}): Gig {
     status: "paid",
     location: "Costco on 5th",
     dateTime: SEP,
+    durationMinutes: null,
     calendarEventId: null,
     amountOfferedCents: 20000,
     amountPaidCents: 15000,
@@ -65,6 +66,7 @@ function expense(over: Partial<Expense> = {}): Expense {
     category: "parking",
     receiptR2Key: null,
     notes: null,
+    reimbursable: false,
     createdAt: SEP,
     modifiedAt: SEP,
     ...over,
@@ -205,14 +207,24 @@ describe("expenseRows", () => {
   it("emits the expense with its category, amount and linked gig", () => {
     const rows = expenseRows([expense()], [gig()], [acme], {});
     expect(rows).toEqual([
-      ["2026-09-10", "parking", "23.50", "Acme", "Costco on 5th", ""],
+      ["2026-09-10", "parking", "23.50", "no", "Acme", "Costco on 5th", ""],
     ]);
   });
 
   it("dates an unlinked expense by its own creation, and says so", () => {
     const rows = expenseRows([expense({ gigId: null })], [], [acme], {});
     expect(rows[0]?.[0]).toMatch(/^2026-09-\d{2}$/);
-    expect(rows[0]?.slice(3, 5)).toEqual(["", "Not linked"]);
+    expect(rows[0]?.slice(4, 6)).toEqual(["", "Not linked"]);
+  });
+
+  it("marks whether the client should cover the cost", () => {
+    const rows = expenseRows(
+      [expense({ reimbursable: true })],
+      [gig()],
+      [acme],
+      {},
+    );
+    expect(rows[0]?.[3]).toBe("yes");
   });
 
   it("labels a missing category rather than leaving it blank", () => {

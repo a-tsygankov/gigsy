@@ -50,6 +50,7 @@ export class LocalStore {
       status: input.status ?? "lead",
       location: input.location ?? null,
       dateTime: input.dateTime ?? null,
+      durationMinutes: input.durationMinutes ?? null,
       calendarEventId: existing?.calendarEventId ?? null,
       amountOfferedCents: input.amountOfferedCents ?? null,
       amountPaidCents: input.amountPaidCents ?? null,
@@ -130,6 +131,7 @@ export class LocalStore {
       category: input.category ?? null,
       receiptR2Key: existing?.receiptR2Key ?? null,
       notes: input.notes ?? null,
+      reimbursable: input.reimbursable ?? false,
       createdAt: existing?.createdAt ?? now,
       modifiedAt: now,
     };

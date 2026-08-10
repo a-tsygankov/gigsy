@@ -79,3 +79,33 @@ describe("/api/gigs", () => {
     expect(body.items).toEqual([]);
   });
 });
+
+// Phase 9: an optional length, which the calendar then honours instead
+// of assuming four hours.
+describe("gig duration", () => {
+  const DUR = "91111111-1111-4111-8111-111111111111";
+
+  it("round-trips durationMinutes and defaults it to null", async () => {
+    await api(U1, "PUT", `/api/gigs/${DUR}`, { status: "lead" });
+    const bare = (await (await api(U1, "GET", `/api/gigs/${DUR}`)).json()) as {
+      durationMinutes: number | null;
+    };
+    expect(bare.durationMinutes).toBeNull();
+
+    await api(U1, "PUT", `/api/gigs/${DUR}`, { status: "lead", durationMinutes: 210 });
+    const withDuration = (await (await api(U1, "GET", `/api/gigs/${DUR}`)).json()) as {
+      durationMinutes: number | null;
+    };
+    expect(withDuration.durationMinutes).toBe(210);
+  });
+
+  it("rejects a non-positive or absurd duration", async () => {
+    for (const durationMinutes of [0, -30, 25 * 60]) {
+      const res = await api(U1, "PUT", `/api/gigs/${DUR}`, {
+        status: "lead",
+        durationMinutes,
+      });
+      expect(res.status).toBe(400);
+    }
+  });
+});

@@ -245,12 +245,20 @@ export function Reports() {
                   testId="tile-variance"
                 />
               </div>
-              <Tile
-                label="Expenses"
-                value={formatMoney(summary.data.totals.expensesCents)}
-                tone="neutral"
-                testId="tile-expenses"
-              />
+              <div className="grid grid-cols-2 gap-3">
+                <Tile
+                  label="Expenses"
+                  value={formatMoney(summary.data.totals.expensesCents)}
+                  tone="neutral"
+                  testId="tile-expenses"
+                />
+                <Tile
+                  label="Billable to client"
+                  value={formatMoney(summary.data.totals.reimbursableCents)}
+                  tone="neutral"
+                  testId="tile-reimbursable"
+                />
+              </div>
             </div>
 
             <section data-testid="report-months">

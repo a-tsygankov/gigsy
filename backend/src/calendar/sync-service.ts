@@ -16,7 +16,10 @@ import { GigsRepo, type GigRecord } from "../repos/gigs.ts";
 import { UsersRepo } from "../repos/users.ts";
 import type { CalendarEventInput } from "./google-calendar.ts";
 
-const DEFAULT_DURATION_MS = 4 * 60 * 60 * 1000; // gigs carry no duration
+// Used only when a gig has no duration of its own (Phase 9 added the
+// field; everything created before it, and anything the user leaves
+// blank, still needs an end time for the calendar).
+const DEFAULT_DURATION_MS = 4 * 60 * 60 * 1000;
 
 export interface CalendarClientLike {
   createEvent(event: CalendarEventInput): Promise<string | null>;
@@ -51,7 +54,11 @@ function buildEvent(
     summary,
     description,
     startMs: gig.dateTime!,
-    endMs: gig.dateTime! + DEFAULT_DURATION_MS,
+    endMs:
+      gig.dateTime! +
+      (gig.durationMinutes !== null
+        ? gig.durationMinutes * 60 * 1000
+        : DEFAULT_DURATION_MS),
   };
 }
 

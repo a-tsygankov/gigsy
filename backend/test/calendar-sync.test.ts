@@ -253,3 +253,37 @@ describe("syncUserGigs — cleanup queue", () => {
     expect(await CalendarCleanupRepo.for(env.DB).listPending(U1)).toHaveLength(0);
   });
 });
+
+// Phase 9: the event stops being a guess when the gig knows how long
+// it runs. The 4h fallback stays for gigs that don't.
+describe("syncUserGigs — event duration", () => {
+  const TIMED = "88888888-eeee-4eee-8eee-888888888888";
+
+  it("spans the gig's own duration when it has one", async () => {
+    await api(U1, "PUT", `/api/gigs/${TIMED}`, {
+      status: "confirmed",
+      dateTime: WHEN,
+      durationMinutes: 90,
+    });
+
+    const client = stubClient();
+    await syncUserGigs(env.DB, U1, client, Date.now());
+
+    const created = client.calls.find((c) => c.op === "create");
+    expect(created?.event?.endMs).toBe(WHEN + 90 * 60 * 1000);
+  });
+
+  it("falls back to four hours when the gig has no duration", async () => {
+    const NODUR = "89999999-eeee-4eee-8eee-899999999999";
+    await api(U1, "PUT", `/api/gigs/${NODUR}`, {
+      status: "confirmed",
+      dateTime: WHEN,
+    });
+
+    const client = stubClient();
+    await syncUserGigs(env.DB, U1, client, Date.now());
+
+    const created = client.calls.find((c) => c.op === "create");
+    expect(created?.event?.endMs).toBe(WHEN + FOUR_H);
+  });
+});

@@ -12,6 +12,8 @@ export interface Gig {
   status: GigStatus;
   location: string | null;
   dateTime: number | null;
+  /** How long the gig runs; the calendar uses it instead of guessing. */
+  durationMinutes: number | null;
   calendarEventId: string | null;
   amountOfferedCents: number | null;
   amountPaidCents: number | null;
@@ -26,6 +28,7 @@ export interface GigInput {
   status?: GigStatus;
   location?: string | null;
   dateTime?: number | null;
+  durationMinutes?: number | null;
   amountOfferedCents?: number | null;
   amountPaidCents?: number | null;
   notes?: string | null;
@@ -54,6 +57,8 @@ export interface Expense {
   category: string | null;
   receiptR2Key: string | null;
   notes: string | null;
+  /** The client is expected to cover this cost. */
+  reimbursable: boolean;
   createdAt: number;
   modifiedAt: number;
 }
@@ -63,6 +68,7 @@ export interface ExpenseInput {
   amountCents: number;
   category?: string | null;
   notes?: string | null;
+  reimbursable?: boolean;
 }
 
 // Additional services on a gig (client link derives through the gig).
@@ -169,6 +175,9 @@ export interface ReportSummary {
     paidCents: number;
     varianceCents: number;
     expensesCents: number;
+    /** Portion of expensesCents the client should cover. Reported
+     * beside net, never removed from it. */
+    reimbursableCents: number;
     netCents: number;
   };
   byMonth: {

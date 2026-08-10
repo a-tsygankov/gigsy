@@ -17,10 +17,22 @@ import {
   Textarea,
 } from "../components/index.ts";
 
+/** Shift lengths that cover real gig work. A select rather than a time
+ * picker: pickers are the slowest control on a phone, and the end time
+ * is shown underneath as confirmation. */
+const DURATIONS = [60, 90, 120, 180, 240, 300, 360, 480];
+
+function formatDuration(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return [h > 0 ? `${h}h` : "", m > 0 ? `${m}m` : ""].filter(Boolean).join(" ");
+}
+
 interface FormState {
   clientId: string; // "" = none
   status: GigStatus;
   dateTime: string; // datetime-local value
+  durationMinutes: string; // "" = not set
   location: string;
   offered: string; // dollars text
   paid: string;
@@ -31,6 +43,7 @@ const BLANK: FormState = {
   clientId: "",
   status: "lead",
   dateTime: "",
+  durationMinutes: "",
   location: "",
   offered: "",
   paid: "",
@@ -56,12 +69,16 @@ export function GigEdit() {
 
   const [form, setForm] = useState<FormState>(BLANK);
   const [moneyError, setMoneyError] = useState<string | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   useEffect(() => {
     if (gig.data === undefined) return;
     setForm({
       clientId: gig.data.clientId ?? "",
       status: gig.data.status,
       dateTime: msToLocalInput(gig.data.dateTime),
+      durationMinutes:
+        gig.data.durationMinutes !== null ? String(gig.data.durationMinutes) : "",
       location: gig.data.location ?? "",
       offered:
         gig.data.amountOfferedCents !== null
@@ -106,6 +123,48 @@ export function GigEdit() {
     },
   });
 
+  // Shown under the duration select so "3h" is legible as a clock time.
+  const startMs = localInputToMs(form.dateTime);
+  const endsAt =
+    startMs !== null && form.durationMinutes !== ""
+      ? new Date(startMs + Number(form.durationMinutes) * 60_000).toLocaleString(
+          undefined,
+          { weekday: "short", hour: "numeric", minute: "2-digit" },
+        )
+      : null;
+
+  /** Coordinates come from the device; the worker turns them into a
+   * place name. A failed lookup still fills the field with the raw
+   * coordinates — better than nothing when you're in a car park. */
+  async function useCurrentLocation() {
+    setLocationError(null);
+    if (!("geolocation" in navigator)) {
+      setLocationError("This device can't share its location.");
+      return;
+    }
+    setLocating(true);
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10_000,
+        });
+      });
+      const { latitude, longitude } = position.coords;
+      const rough = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+      try {
+        const { label } = await api.reverseGeocode(latitude, longitude);
+        set("location", label ?? rough);
+      } catch {
+        set("location", rough);
+      }
+    } catch {
+      setLocationError("Location unavailable — check the permission and try again.");
+    } finally {
+      setLocating(false);
+    }
+  }
+
   function submit() {
     const offered = form.offered.trim() === "" ? null : parseMoney(form.offered);
     const paid = form.paid.trim() === "" ? null : parseMoney(form.paid);
@@ -126,6 +185,8 @@ export function GigEdit() {
       clientId: form.clientId === "" ? null : form.clientId,
       status: form.status,
       dateTime: localInputToMs(form.dateTime),
+      durationMinutes:
+        form.durationMinutes === "" ? null : Number(form.durationMinutes),
       location: form.location.trim() === "" ? null : form.location.trim(),
       amountOfferedCents: offered,
       amountPaidCents: paid,
@@ -176,12 +237,45 @@ export function GigEdit() {
               />
             </Field>
 
+            <Field label="Duration">
+              <Select
+                data-testid="gig-duration"
+                value={form.durationMinutes}
+                onChange={(e) => set("durationMinutes", e.target.value)}
+              >
+                <option value="">Not set</option>
+                {DURATIONS.map((m) => (
+                  <option key={m} value={m}>
+                    {formatDuration(m)}
+                  </option>
+                ))}
+              </Select>
+              {endsAt !== null && (
+                <span className="mt-1 block text-xs text-slate-500">
+                  Ends {endsAt}
+                </span>
+              )}
+            </Field>
+
             <Field label="Location">
               <Input
                 placeholder="Costco on 5th, booth 12…"
                 value={form.location}
                 onChange={(e) => set("location", e.target.value)}
               />
+              <button
+                type="button"
+                data-testid="use-current-location"
+                disabled={locating}
+                onClick={() => void useCurrentLocation()}
+                className="mt-1 text-xs font-medium text-emerald-700 hover:underline
+                           disabled:opacity-50"
+              >
+                {locating ? "Finding you…" : "📍 Use current location"}
+              </button>
+              {locationError !== null && (
+                <span className="mt-1 block text-xs text-amber-700">{locationError}</span>
+              )}
             </Field>
 
             <div className="grid grid-cols-2 gap-3">

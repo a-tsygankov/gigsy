@@ -14,6 +14,10 @@ export type Bindings = {
   AI_MODEL: string;
   /** Max AI captures per user per UTC day (default 50). */
   AI_DAILY_CAP?: string;
+  /** Reverse-geocoder selection: unset = OpenStreetMap Nominatim,
+   * "stub" = canned (non-production), "off" = disabled, so no position
+   * ever leaves the worker and the client falls back to coordinates. */
+  GEOCODE_PROVIDER?: string;
 
   // Secrets
   AUTH_SECRET: string;

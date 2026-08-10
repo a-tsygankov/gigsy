@@ -42,6 +42,7 @@ export const expensesRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars
         category: input.category ?? null,
         receiptR2Key: input.receiptR2Key ?? null,
         notes: input.notes ?? null,
+        reimbursable: input.reimbursable,
       },
       { now: Date.now() },
     );

@@ -40,6 +40,7 @@ export class OfflineDataService {
       | "getDraft"
       | "setDraftStatus"
       | "getDraftRawBlob"
+      | "reverseGeocode"
       | "getCalendarStatus"
       | "connectCalendar"
       | "calendarSyncNow"
@@ -196,6 +197,9 @@ export class OfflineDataService {
   }
 
   // ── calendar (online-only) ───────────────────────────────────────
+  reverseGeocode(lat: number, lon: number) {
+    return this.reportsApi.reverseGeocode(lat, lon);
+  }
   getCalendarStatus() {
     return this.reportsApi.getCalendarStatus();
   }

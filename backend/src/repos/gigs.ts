@@ -13,6 +13,7 @@ export interface GigData {
   status: GigStatus;
   location: string | null;
   dateTime: number | null;
+  durationMinutes: number | null;
   amountOfferedCents: number | null;
   amountPaidCents: number | null;
   notes: string | null;

@@ -7,6 +7,7 @@ import { clientsRouter } from "./routes/clients.ts";
 import { gigsRouter } from "./routes/gigs.ts";
 import { expensesRouter } from "./routes/expenses.ts";
 import { servicesRouter } from "./routes/services.ts";
+import { geoRouter } from "./routes/geo.ts";
 import { paymentsRouter } from "./routes/payments.ts";
 import { syncRouter } from "./routes/sync.ts";
 import PostalMime from "postal-mime";
@@ -58,6 +59,7 @@ app.route("/api/reports", reportsRouter);
 app.route("/api/drafts", draftsRouter);
 app.route("/api/capture", makeCaptureRouter());
 app.route("/api/calendar", makeCalendarRouter());
+app.route("/api/geo", geoRouter);
 app.route("/api/auth", makeAuthRouter());
 
 export { app };
