@@ -7,6 +7,13 @@
       "runtimeArgs": ["vite", "dev", "--port", "5192", "--strictPort"],
       "cwd": "webapp",
       "port": 5192
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "dev", "--port", "8787"],
+      "cwd": "backend",
+      "port": 8787
     }
   ]
 }

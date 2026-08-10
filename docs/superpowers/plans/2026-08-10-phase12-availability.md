@@ -188,11 +188,39 @@ What this commits us to, stated plainly so it is not rediscovered later:
   why — a gig, a dentist and a nap are byte-identical in the output,
   and there is a test that asserts it.
 
-### Task 4: The public page
-- [ ] Static, fast, themed, readable on a phone — an agency opens this
-      on a phone between calls
-- [ ] Explicit about what it is: "Andrey's availability, as of <date>"
-- [ ] Empty state that does not look broken when the week is full
+### Task 4: The public page — DONE (uncommitted)
+- [x] One column, large type, no navigation and nothing to interact
+      with. Deliberately no AppHeader, TabBar or sync badge: those
+      belong to someone signed in, and showing them invites a stranger
+      to try. Route sits outside `AuthGate` — the only one that does.
+- [x] "Andrey's availability", the zone it is expressed in, and "as
+      of <date>". Falls back to a bare "Availability" for a user who
+      shared hours without sharing who they are.
+- [x] Empty state that reads as an answer.
+
+**Decided while building, because seeing it made them obvious:**
+- **The page speaks in the OWNER's timezone**, named in the header as
+  "London (BST)". An agency in New York reading a London page must not
+  assume its own clock — that is a mis-booking, which is the failure
+  the whole phase is about. Locale still follows the reader, because
+  "9:00 AM" vs "09:00" is how they read a clock, not which clock it is.
+- **The window opens on the quarter hour.** Clamping to the exact
+  instant of the request produced "free from 15:59", which is an
+  artefact of when the page loaded, not a fact about the schedule.
+  Boundaries made by real bookings are deliberately left ragged: a gig
+  ending at 16:45 means free from 16:45, and tidying that throws away
+  information to look neater.
+- **The horizon runs to the end of a local day.** "Four weeks" means
+  whole days to a reader; ending mid-afternoon on an arbitrary date is
+  a number, not an answer.
+- **The empty state does not say "it's all booked".** The page cannot
+  tell a full calendar from someone who does not work those days, and
+  guessing states a reason that is sometimes false — and reveals
+  something either way. It says what it knows: nothing available.
+- **Slot chips are `slate-200`, not `slate-100`.** The ramp inverts in
+  dark mode, where `slate-100` lands on exactly the card colour and the
+  chips disappear. Caught by reading computed styles in both themes,
+  not by looking at the light one.
 
 ### Task 5: Settings + sharing
 - [ ] Working hours, timezone, horizon, display name — the settings

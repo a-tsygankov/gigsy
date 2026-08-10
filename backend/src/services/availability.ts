@@ -27,6 +27,19 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
 
 /**
+ * Offers start on the quarter hour.
+ *
+ * Clamping to the exact instant of the request produces "free from
+ * 15:59", which is not something anyone sends an agency. Rounding UP
+ * is the only safe direction: it narrows the claim by a few minutes
+ * rather than offering time that has already gone.
+ */
+const SLOT_GRANULARITY_MS = 15 * MINUTE_MS;
+
+/** Minutes from local midnight to the end of the same local day. */
+const END_OF_DAY_MINUTE = 24 * 60;
+
+/**
  * What counts as booked.
  *
  * Leads never block: the whole point of a lead is that it is not yet a
@@ -97,9 +110,21 @@ export async function buildPublicAvailability(
   deps: AvailabilityDeps = {},
 ): Promise<PublicAvailability> {
   const settings = await UsersRepo.for(d1).getSettings(userId);
+  const clock = localClock(settings.availabilityTimeZone);
 
-  const horizonMs = settings.availabilityHorizonWeeks * WEEK_MS;
-  const horizonEndsAt = now + horizonMs;
+  // The window the page actually describes, rounded at both ends so it
+  // reads like something a person wrote. "Free 15:59–17:00, through
+  // 15:59 on the 17th" is arithmetically right and looks broken.
+  const startAt = Math.ceil(now / SLOT_GRANULARITY_MS) * SLOT_GRANULARITY_MS;
+  // "Four weeks" means four whole days-worth of weeks to a reader, so
+  // the horizon runs to the end of the local day it lands in. The -1ms
+  // keeps a horizon that falls exactly on midnight from gaining a day.
+  const horizonEndsAt = clock.localMinuteAt(
+    clock.localDayAt(startAt + settings.availabilityHorizonWeeks * WEEK_MS - 1)
+      .midnightMs,
+    END_OF_DAY_MINUTE,
+  );
+  const horizonMs = Math.max(0, horizonEndsAt - startAt);
 
   // Times only — the query never selects a name, place or amount, so
   // there is nothing sensitive in this function to leak by accident.
@@ -133,11 +158,10 @@ export async function buildPublicAvailability(
     }
   }
 
-  const clock = localClock(settings.availabilityTimeZone);
   const slots = availableSlots(
     busy,
     {
-      now,
+      now: startAt,
       horizonMs,
       workingWeek: settings.availabilityWorkingWeek,
       localDayAt: clock.localDayAt,
