@@ -20,10 +20,16 @@ function stubApi(overrides: Partial<AuthApi> = {}): AuthApi {
       refreshToken: "rt-1",
       user: USER,
     }),
-    refreshSession: async () => ({ accessToken: "at-2", refreshToken: "rt-2" }),
+    refreshSession: async () => ({
+      ok: true as const,
+      tokens: { accessToken: "at-2", refreshToken: "rt-2" },
+    }),
     ...overrides,
   };
 }
+
+const REJECTED = { ok: false as const, reason: "rejected" as const };
+const UNREACHABLE = { ok: false as const, reason: "unreachable" as const };
 
 function makeClock(start = 0) {
   let now = start;
@@ -45,8 +51,8 @@ describe("AuthManager", () => {
   it("bootstrap restores a session from the stored refresh token", async () => {
     const kv = memoryKV({ "gigsy.refreshToken": "rt-old" });
     const refreshSession = vi.fn(async () => ({
-      accessToken: "at-2",
-      refreshToken: "rt-2",
+      ok: true as const,
+      tokens: { accessToken: "at-2", refreshToken: "rt-2" },
       user: USER,
     }));
     const auth = new AuthManager(stubApi({ refreshSession }), kv, () => 0);
@@ -65,10 +71,10 @@ describe("AuthManager", () => {
     expect(auth.isSignedIn()).toBe(false);
   });
 
-  it("bootstrap clears storage when the refresh is rejected", async () => {
+  it("bootstrap clears storage when the server rejects the refresh token", async () => {
     const kv = memoryKV({ "gigsy.refreshToken": "rt-dead" });
     const auth = new AuthManager(
-      stubApi({ refreshSession: async () => null }),
+      stubApi({ refreshSession: async () => REJECTED }),
       kv,
       () => 0,
     );
@@ -79,11 +85,75 @@ describe("AuthManager", () => {
     expect(await kv.get("gigsy.refreshToken")).toBeNull();
   });
 
+  // Reopening the app on a dead network must not look like a sign-out:
+  // the ledger is local, so the app is fully usable offline. Only the
+  // server saying "no" may destroy a session.
+  it("bootstrap keeps the session and opens the app when the network is unreachable", async () => {
+    const kv = memoryKV({
+      "gigsy.refreshToken": "rt-good",
+      "gigsy.user": JSON.stringify(USER),
+    });
+    const auth = new AuthManager(
+      stubApi({ refreshSession: async () => UNREACHABLE }),
+      kv,
+      () => 0,
+    );
+
+    await auth.bootstrap();
+
+    expect(auth.isSignedIn()).toBe(true);
+    expect(auth.getUser()).toEqual(USER);
+    // The token survives for the next attempt…
+    expect(await kv.get("gigsy.refreshToken")).toBe("rt-good");
+    // …but there is no usable access token until a refresh succeeds.
+    expect(await auth.getAccessToken()).toBeNull();
+  });
+
+  it("bootstrap reports whether the session is fully live or offline", async () => {
+    const offline = new AuthManager(
+      stubApi({ refreshSession: async () => UNREACHABLE }),
+      memoryKV({
+        "gigsy.refreshToken": "rt",
+        "gigsy.user": JSON.stringify(USER),
+      }),
+      () => 0,
+    );
+    expect(await offline.bootstrap()).toBe("offline");
+
+    const live = new AuthManager(
+      stubApi(),
+      memoryKV({ "gigsy.refreshToken": "rt" }),
+      () => 0,
+    );
+    expect(await live.bootstrap()).toBe("live");
+
+    const out = new AuthManager(stubApi(), memoryKV(), () => 0);
+    expect(await out.bootstrap()).toBe("signed-out");
+  });
+
+  // A 500 from the worker is not the user's session going bad.
+  it("refresh keeps the session when the server is merely unreachable", async () => {
+    const kv = memoryKV();
+    const refreshSession = vi
+      .fn<AuthApi["refreshSession"]>()
+      .mockResolvedValue(UNREACHABLE);
+    const clock = makeClock();
+    const auth = new AuthManager(stubApi({ refreshSession }), kv, clock.now);
+    await auth.signIn("idt");
+
+    clock.advance(15 * 60 * 1000);
+    expect(await auth.getAccessToken()).toBeNull();
+
+    // Still signed in, token still on disk, ready to retry.
+    expect(auth.isSignedIn()).toBe(true);
+    expect(await kv.get("gigsy.refreshToken")).toBe("rt-1");
+  });
+
   it("getAccessToken refreshes only after the freshness window", async () => {
     const clock = makeClock();
     const refreshSession = vi.fn(async () => ({
-      accessToken: "at-2",
-      refreshToken: "rt-2",
+      ok: true as const,
+      tokens: { accessToken: "at-2", refreshToken: "rt-2" },
     }));
     const auth = new AuthManager(
       stubApi({ refreshSession }),

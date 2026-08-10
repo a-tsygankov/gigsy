@@ -9,7 +9,15 @@
  *
  * fetch is injectable everywhere; unit tests never touch the network.
  */
-import type { AuthApi, AuthSession, SessionTokens } from "./auth-store.ts";
+import type {
+  AuthApi,
+  AuthSession,
+  RefreshResult,
+  SessionTokens,
+} from "./auth-store.ts";
+
+/** Startup must never wait longer than this for a session refresh. */
+const REFRESH_TIMEOUT_MS = 8_000;
 import type {
   Client,
   ClientInput,
@@ -30,7 +38,6 @@ import type {
 export interface TokenSource {
   getAccessToken(): Promise<string | null>;
   refresh(): Promise<boolean>;
-  onSessionExpired(): void;
 }
 
 export class ApiError extends Error {
@@ -77,7 +84,10 @@ export class ApiClient {
       if (!retried && (await this.tokens.refresh())) {
         return this.request(method, path, body, true);
       }
-      this.tokens.onSessionExpired();
+      // Deliberately does NOT end the session. A refresh can fail
+      // because the token is dead OR because the network is — only the
+      // token source can tell, and it clears itself in the first case.
+      // Signing out here would log the user out of an offline app.
       throw new ApiError(401, "session expired");
     }
     if (!res.ok) {
@@ -343,13 +353,40 @@ export class AuthApiClient implements AuthApi {
     return (await res.json()) as AuthSession;
   }
 
-  async refreshSession(refreshToken: string): Promise<SessionTokens | null> {
-    const res = await this.fetchFn("/api/auth/refresh", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ refreshToken }),
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as SessionTokens;
+  /**
+   * Session restore, on a leash. `fetch` has no default timeout, so a
+   * connection that accepts but never answers — a phone waking onto a
+   * captive-portal Wi-Fi is the everyday case — would hang this call
+   * forever and freeze the whole app behind the startup gate.
+   *
+   * The outcome is three-way on purpose: only the server explicitly
+   * rejecting the token (401/403) means the session is dead. A
+   * timeout, a network error, or a 5xx from the worker says nothing
+   * about the token, so the caller keeps it and retries later.
+   */
+  async refreshSession(refreshToken: string): Promise<RefreshResult> {
+    const abort = new AbortController();
+    // Not AbortSignal.timeout(): older iOS Safari — the primary
+    // device — doesn't have it.
+    const timer = setTimeout(() => abort.abort(), REFRESH_TIMEOUT_MS);
+    try {
+      const res = await this.fetchFn("/api/auth/refresh", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+        signal: abort.signal,
+      });
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, reason: "rejected" };
+      }
+      if (!res.ok) return { ok: false, reason: "unreachable" };
+      return { ok: true, tokens: (await res.json()) as SessionTokens };
+    } catch {
+      // Aborted, offline, DNS failure — all indistinguishable here,
+      // and all mean "ask again later", never "sign the user out".
+      return { ok: false, reason: "unreachable" };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }

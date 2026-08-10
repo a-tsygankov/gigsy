@@ -98,3 +98,44 @@ test("a gig created while offline shows up instantly and drains on reconnect", a
   await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 15_000 });
   await expect(page.getByText(marker)).toBeVisible();
 });
+
+// Reopening the app when the server can't be reached used to hang on
+// the startup screen (fetch has no default timeout) and then bounce to
+// /login — even though the whole ledger is local and the session was
+// still valid. These drive the API-unreachable path directly; a true
+// offline reload also needs the service worker, which only exists in a
+// production build.
+test("reopening with the API unreachable lands in the app, not the login screen", async ({
+  page,
+  context,
+}) => {
+  await expect(page.getByTestId("tab-bar")).toBeVisible();
+
+  await context.route("**/api/**", (route) => route.abort());
+  await page.reload();
+
+  await expect(page.getByTestId("tab-bar")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("link", { name: "Gigs" }).click();
+  await expect(page.getByRole("heading", { name: "Gigs" })).toBeVisible();
+
+  await context.unroute("**/api/**");
+});
+
+test("a hung refresh cannot freeze startup indefinitely", async ({ page, context }) => {
+  await expect(page.getByTestId("tab-bar")).toBeVisible();
+
+  // A connection that accepts but never answers — a phone waking onto
+  // a captive-portal Wi-Fi. Without the abort timeout this never
+  // resolves and the app sits on the splash forever.
+  await context.route("**/api/auth/refresh", async () => {
+    await new Promise((resolve) => setTimeout(resolve, 60_000));
+  });
+
+  await page.reload();
+  await expect(page.getByTestId("splash")).toBeVisible();
+  await expect(page.getByTestId("splash-status")).toBeVisible();
+  // Bounded by the 8s refresh timeout, not by the hung request.
+  await expect(page.getByTestId("tab-bar")).toBeVisible({ timeout: 25_000 });
+
+  await context.unroute("**/api/auth/refresh");
+});
