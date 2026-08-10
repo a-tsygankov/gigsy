@@ -199,3 +199,20 @@ describe("recovering a broken calendar connection", () => {
     expect(res.status).toBe(200);
   });
 });
+
+// Connecting means "put my gigs on this calendar". If the watermark
+// survived a reconnect, only gigs touched since the last successful
+// run would sync — an existing schedule would silently never appear,
+// which is indistinguishable from the sync being broken.
+describe("connecting resets the sync watermark", () => {
+  it("clears lastCalendarSyncAt so the next run reconsiders every gig", async () => {
+    const repo = UsersRepo.for(env.DB);
+    await repo.setLastCalendarSyncAt(U1, Date.now());
+    expect((await repo.get(U1))?.lastCalendarSyncAt).toBeGreaterThan(0);
+
+    const { app } = appWith();
+    await call(app, "POST", "/api/calendar/connect", { authCode: "code" });
+
+    expect((await repo.get(U1))?.lastCalendarSyncAt).toBe(0);
+  });
+});
