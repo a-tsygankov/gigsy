@@ -167,10 +167,10 @@ describe("formatZoneLabel", () => {
     );
   });
 
-  it("falls back to the whole id when there is no region", () => {
-    expect(formatZoneLabel("UTC", at("2026-08-10T12:00:00Z"), "en-GB")).toContain(
-      "UTC",
-    );
+  it("does not say the same thing twice", () => {
+    // "UTC (UTC)" is what the naive version produced. When the city and
+    // the abbreviation agree, one of them is noise.
+    expect(formatZoneLabel("UTC", at("2026-08-10T12:00:00Z"), "en-GB")).toBe("UTC");
   });
 });
 

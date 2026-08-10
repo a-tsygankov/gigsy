@@ -222,15 +222,37 @@ What this commits us to, stated plainly so it is not rediscovered later:
   chips disappear. Caught by reading computed styles in both themes,
   not by looking at the light one.
 
-### Task 5: Settings + sharing
-- [ ] Working hours, timezone, horizon, display name — the settings
-      themselves landed in Task 2; this is the screen for them
-- [ ] The link can only be shown once. Hashing was the right call and
-      this is its bill: the screen has to say "copy it now", and offer
-      regenerate rather than reveal
-- [ ] Show the link, copy it, regenerate it, revoke it
-- [ ] Say plainly what the recipient can and cannot see. A user who
-      does not trust the boundary will not use the feature.
+### Task 5: Settings + sharing — DONE (uncommitted)
+- [x] Working hours (a seven-day editor), timezone, horizon, minimum
+      slot, display name. Plus the calendar toggle, which carries the
+      re-consent flow Task 3 built the plumbing for.
+- [x] The link is shown once. Hashing was the right call and this is
+      its bill: the screen says "copy it now", and offers regenerate
+      rather than reveal.
+- [x] Create with an optional expiry, copy, regenerate, revoke.
+      `POST /api/availability/link` is both create and regenerate,
+      because one active link per user means minting IS rotating.
+- [x] What a recipient can and cannot see, stated **before** the link
+      is made rather than after — someone deciding whether to share
+      needs it at the point of deciding.
+
+**Decisions worth keeping:**
+- **The editor cannot build a value the server rejects.** Dragging a
+  start past its end pushes the end along instead of producing
+  `end <= start` and a save that fails on submit.
+- **Times are chosen from a list, not `<input type="time">`**, which
+  cannot express 24:00 at all — and a shift ending at midnight is
+  ordinary for event work. 1440 is labelled "midnight", because
+  rendering it as a clock gives "12:00 AM", which reads as the start
+  of a day and is exactly backwards for the end of a shift.
+- **Turning the calendar on verifies rather than assumes.** A consent
+  screen can be dismissed with a partial grant; believing otherwise
+  would leave the page built on gigs alone while the toggle claimed
+  otherwise. And an `unavailable` answer never triggers a consent
+  popup — during an outage the user declines it and the feature then
+  looks broken.
+- **"UTC (UTC)"** was what the zone label produced before it learned
+  to drop a half that says the same thing twice.
 
 ### Task 6: Docs + verification
 - [ ] docs/plan.md §13 Phase 12; the privacy rule recorded where it

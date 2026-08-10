@@ -323,6 +323,35 @@ export class ApiClient {
     return this.request("GET", "/api/calendar/freebusy-check");
   }
 
+  // ── availability link (Phase 12) ─────────────────────────────────
+  /** Whether a link is live and when it was made — never the token
+   *  itself, which only exists in the response to createAvailabilityLink. */
+  getAvailabilityLink(): Promise<{
+    active: { createdAt: number; expiresAt: number | null } | null;
+  }> {
+    return this.request("GET", "/api/availability/link");
+  }
+
+  /**
+   * Mint a link, invalidating whatever came before.
+   *
+   * This is the ONLY moment the token exists outside the browser that
+   * receives it: the server keeps a hash, so it can never be shown
+   * again. Whatever calls this has to put it in front of the user now.
+   */
+  createAvailabilityLink(expiresInDays: number | null = null): Promise<{
+    token: string;
+    path: string;
+    createdAt: number;
+    expiresAt: number | null;
+  }> {
+    return this.request("POST", "/api/availability/link", { expiresInDays });
+  }
+
+  revokeAvailabilityLink(): Promise<{ active: null }> {
+    return this.request("DELETE", "/api/availability/link");
+  }
+
   // ── settings (Phase 11) ──────────────────────────────────────────
   getSettings(): Promise<Settings> {
     return this.request("GET", "/api/settings");
