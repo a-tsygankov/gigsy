@@ -5,7 +5,7 @@
  *
  *   core        Button, Card, Input, Textarea, Select, Field
  *   data        Tile, SectionHeading
- *   feedback    StatusPill, SyncBadge, EmptyState, ListSkeleton
+ *   feedback    StatusPill, SyncBadge, EmptyState, ListSkeleton, Splash
  *   navigation  AppHeader, TabBar, Fab
  */
 export { Button, ButtonLink, buttonClasses } from "./Button.tsx";
@@ -19,6 +19,7 @@ export { StatusPill, STATUS_PILL_CLASSES } from "./StatusPill.tsx";
 export { SyncBadge } from "./SyncBadge.tsx";
 export { EmptyState } from "./EmptyState.tsx";
 export { ListSkeleton } from "./ListSkeleton.tsx";
+export { Splash } from "./Splash.tsx";
 export { AppHeader } from "./AppHeader.tsx";
 export { TabBar } from "./TabBar.tsx";
 export { Fab } from "./Fab.tsx";

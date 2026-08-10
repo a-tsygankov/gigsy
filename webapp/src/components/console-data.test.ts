@@ -6,7 +6,6 @@ function tokens(): TokenSource {
   return {
     getAccessToken: async () => "t",
     refresh: async () => false,
-    onSessionExpired: () => undefined,
   };
 }
 

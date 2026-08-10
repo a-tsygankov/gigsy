@@ -12,7 +12,6 @@ function stubTokens(overrides: Partial<TokenSource> = {}): TokenSource {
   return {
     getAccessToken: async () => "token-1",
     refresh: async () => false,
-    onSessionExpired: vi.fn(),
     ...overrides,
   };
 }
@@ -73,17 +72,19 @@ describe("ApiClient", () => {
     expect(calls).toBe(2);
   });
 
-  it("signals session expiry when refresh fails after a 401", async () => {
+  // A 401 whose refresh fails is reported, not acted on: only the
+  // token source knows whether the refresh failed because the session
+  // is dead or merely because the network is down, and tearing the
+  // session down here would sign the user out every time they opened
+  // the app offline.
+  it("reports a 401 whose refresh failed without ending the session", async () => {
     const fetchFn = (async () =>
       jsonResponse({ error: "unauthorized" }, 401)) as typeof fetch;
-    const onSessionExpired = vi.fn();
-    const api = new ApiClient(
-      stubTokens({ refresh: async () => false, onSessionExpired }),
-      fetchFn,
-    );
+    const refresh = vi.fn(async () => false);
+    const api = new ApiClient(stubTokens({ refresh }), fetchFn);
 
     await expect(api.listGigs()).rejects.toThrow(ApiError);
-    expect(onSessionExpired).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("throws ApiError with status on non-OK responses", async () => {

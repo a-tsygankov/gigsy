@@ -25,12 +25,24 @@ export interface AuthSession extends SessionTokens {
   user: SessionUser;
 }
 
+/**
+ * A refresh has three outcomes, and conflating them is what turned a
+ * flaky network into a sign-out: only the server actually rejecting
+ * the token means the session is dead. Anything else — offline, DNS
+ * failure, timeout, a 5xx from the worker — says nothing about the
+ * token and must leave it alone.
+ */
+export type RefreshResult =
+  | { ok: true; tokens: SessionTokens; user?: SessionUser }
+  | { ok: false; reason: "rejected" | "unreachable" };
+
 export interface AuthApi {
   loginWithGoogle(idToken: string): Promise<AuthSession>;
-  refreshSession(
-    refreshToken: string,
-  ): Promise<(SessionTokens & { user?: SessionUser }) | null>;
+  refreshSession(refreshToken: string): Promise<RefreshResult>;
 }
+
+/** What bootstrap() managed to restore. */
+export type BootstrapOutcome = "live" | "offline" | "signed-out";
 
 const REFRESH_KEY = "gigsy.refreshToken";
 const USER_KEY = "gigsy.user";
@@ -48,7 +60,17 @@ export class AuthManager {
     private readonly clock: () => number = Date.now,
   ) {}
 
+  /** Signed in means "we know who you are", not "we hold a live
+   * access token" — the ledger is local, so a known user stays in the
+   * app while offline and the token is re-minted when the network
+   * returns. */
   isSignedIn(): boolean {
+    return this.user !== null;
+  }
+
+  /** True when we also hold a usable access token (server calls will
+   * carry auth). False during an offline restore. */
+  hasLiveToken(): boolean {
     return this.accessToken !== null;
   }
 
@@ -100,20 +122,36 @@ export class AuthManager {
   }
 
   /** App start: resurrect the session from the persisted refresh
-   * token. A rejected token (rotated elsewhere / expired) wipes
-   * local state — the user just sees the login screen. */
-  async bootstrap(): Promise<void> {
+   * token. A token the server rejects (rotated elsewhere / expired)
+   * wipes local state and the user sees the login screen — but an
+   * unreachable server does not, because the app's data is local and
+   * must open offline. */
+  async bootstrap(): Promise<BootstrapOutcome> {
     const stored = await this.storage.get(REFRESH_KEY);
-    if (stored === null) return;
-    const session = await this.api.refreshSession(stored);
-    if (session === null) {
-      await this.clearSession();
-      return;
+    if (stored === null) return "signed-out";
+
+    // Restore the cached identity BEFORE touching the network, so a
+    // slow or dead connection can't hold the whole app hostage.
+    const cached = JSON.parse(
+      (await this.storage.get(USER_KEY)) ?? "null",
+    ) as SessionUser | null;
+    if (cached !== null && this.user === null) {
+      this.user = cached;
+      this.notify();
     }
-    const user =
-      session.user ??
-      (JSON.parse((await this.storage.get(USER_KEY)) ?? "null") as SessionUser | null);
-    await this.setSession(session, user);
+
+    const result = await this.api.refreshSession(stored);
+    if (result.ok) {
+      await this.setSession(result.tokens, result.user ?? cached);
+      return "live";
+    }
+    if (result.reason === "rejected") {
+      await this.clearSession();
+      return "signed-out";
+    }
+    // Unreachable: keep the token and the identity. ApiClient will
+    // retry on the next call, and the sync engine retries on reconnect.
+    return cached === null ? "signed-out" : "offline";
   }
 
   async signOut(): Promise<void> {
@@ -132,16 +170,14 @@ export class AuthManager {
   async refresh(): Promise<boolean> {
     const stored = await this.storage.get(REFRESH_KEY);
     if (stored === null) return false;
-    const session = await this.api.refreshSession(stored);
-    if (session === null) {
-      await this.clearSession();
-      return false;
+    const result = await this.api.refreshSession(stored);
+    if (result.ok) {
+      await this.setSession(result.tokens, result.user ?? null);
+      return true;
     }
-    await this.setSession(session, session.user ?? null);
-    return true;
+    // Only a rejection ends the session; an unreachable server leaves
+    // it intact so the next attempt can recover it.
+    if (result.reason === "rejected") await this.clearSession();
+    return false;
   }
-
-  onSessionExpired = (): void => {
-    void this.clearSession();
-  };
 }
