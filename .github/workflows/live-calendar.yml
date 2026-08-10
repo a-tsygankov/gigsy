@@ -36,8 +36,27 @@ jobs:
           [ -z "$CLIENT_SECRET" ] && missing="$missing GOOGLE_CLIENT_SECRET"
           if [ -n "$missing" ]; then
             echo "::error::Missing secrets:$missing"
-            echo "Mint one with scripts/mint-e2e-token.ps1, then:"
-            echo "  gh secret set E2E_GOOGLE_REFRESH_TOKEN --repo a-tsygankov/gigsy"
+            # Remediation differs per secret: the client id and secret
+            # already exist as Worker secrets and only need copying to
+            # Actions, while the refresh token has to be minted. Telling
+            # someone to mint a token when they are missing the client
+            # secret sends them down the wrong path entirely.
+            case "$missing" in
+              *GOOGLE_CLIENT_ID*|*GOOGLE_CLIENT_SECRET*)
+                echo "These already exist as Worker secrets - copy them to Actions."
+                echo "Client id is public (backend/wrangler.toml); the secret is in"
+                echo "Google Cloud console -> APIs & Services -> Credentials."
+                echo "  gh secret set GOOGLE_CLIENT_ID --repo a-tsygankov/gigsy"
+                echo "  gh secret set GOOGLE_CLIENT_SECRET --repo a-tsygankov/gigsy"
+                ;;
+            esac
+            case "$missing" in
+              *E2E_GOOGLE_REFRESH_TOKEN*)
+                echo "Mint a refresh token for the test account, then store it:"
+                echo "  pwsh scripts/mint-e2e-token.ps1 -ClientId <id> -ClientSecret <secret>"
+                echo "  gh secret set E2E_GOOGLE_REFRESH_TOKEN --repo a-tsygankov/gigsy"
+                ;;
+            esac
             exit 1
           fi
 
