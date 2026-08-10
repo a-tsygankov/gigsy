@@ -170,6 +170,65 @@ describe("AuthManager", () => {
     expect(refreshSession).toHaveBeenCalledTimes(1);
   });
 
+  // Refresh tokens rotate and are consumed on use, so two concurrent
+  // refreshes spend the same one-shot token — the loser gets a 401
+  // that looks exactly like a dead session and signs the user out.
+  // Startup hits this: bootstrap refreshes while the sync engine's
+  // first (401ing) request triggers a refresh of its own.
+  it("coalesces concurrent refreshes into a single token exchange", async () => {
+    const refreshSession = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      return { ok: true as const, tokens: { accessToken: "at-2", refreshToken: "rt-2" } };
+    });
+    const auth = new AuthManager(
+      stubApi({ refreshSession }),
+      memoryKV({ "gigsy.refreshToken": "rt-1" }),
+      () => 0,
+    );
+
+    const results = await Promise.all([auth.refresh(), auth.refresh(), auth.refresh()]);
+
+    expect(results).toEqual([true, true, true]);
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("bootstrap shares the in-flight refresh with a concurrent caller", async () => {
+    const refreshSession = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      return { ok: true as const, tokens: { accessToken: "at-2", refreshToken: "rt-2" } };
+    });
+    const auth = new AuthManager(
+      stubApi({ refreshSession }),
+      memoryKV({
+        "gigsy.refreshToken": "rt-1",
+        "gigsy.user": JSON.stringify(USER),
+      }),
+      () => 0,
+    );
+
+    const [outcome] = await Promise.all([auth.bootstrap(), auth.refresh()]);
+
+    expect(outcome).toBe("live");
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows a fresh attempt once the in-flight one settles", async () => {
+    const refreshSession = vi.fn(async () => ({
+      ok: true as const,
+      tokens: { accessToken: "at-2", refreshToken: "rt-2" },
+    }));
+    const auth = new AuthManager(
+      stubApi({ refreshSession }),
+      memoryKV({ "gigsy.refreshToken": "rt-1" }),
+      () => 0,
+    );
+
+    await auth.refresh();
+    await auth.refresh();
+
+    expect(refreshSession).toHaveBeenCalledTimes(2);
+  });
+
   it("signOut clears memory and storage", async () => {
     const kv = memoryKV();
     const auth = new AuthManager(stubApi(), kv, () => 0);
