@@ -50,7 +50,7 @@ Concretely:
 - **Horizon is bounded**: today plus N weeks, default 4. An infinite
   calendar invites scraping and answers a question nobody asked.
 
-## The open question, to resolve before building
+## Resolved: read Google's freebusy (decided 2026-08-10)
 
 **Does availability need to read the user's Google Calendar?**
 
@@ -71,19 +71,41 @@ Two options, and they are not close in cost:
    busy/free via the freebusy API, which returns ranges only and never
    titles. That API exists precisely for this.
 
-**Recommendation: option 2, using `freebusy`.** It is the only version
-that answers the question truthfully, and `freebusy` means we never hold
-personal event content even momentarily. The extra scope is a real cost
-and must be presented as a choice, not slipped into the connect flow.
+**Decided: option 2, using `freebusy`.**
+
+It is the only version that answers the question truthfully, and
+`freebusy` means we never hold personal event content even momentarily.
+
+What this commits us to, stated plainly so it is not rediscovered later:
+
+- **A wider scope.** `calendar.readonly` on top of `calendar.events`,
+  which means a re-consent for every existing user. It must be presented
+  as a choice — "let Gigsy see when you are busy, so your availability
+  page is right" — and never slipped into the connect flow. A user who
+  declines still gets the feature, built on Gigsy data alone, with the
+  page saying so.
+- **The integration is no longer one-way.** Phase 6 made it Gigsy →
+  Google deliberately; this is the first read back. The direction stays
+  one-way for *writes*: nothing here ever modifies a personal event.
+- **Never store the response.** `freebusy` returns ranges, and those
+  ranges are someone's private life at one remove. They feed the
+  projection in memory and are discarded. Nothing personal reaches D1,
+  and no busy range ever reaches the public page — only the free time
+  computed from it.
+- **Degrade honestly.** If the call fails or the scope was declined, the
+  page is built from gigs alone and says which it is. Silently offering
+  slots the user cannot work is the one outcome worse than no page.
 
 ## Tasks
 
-### Task 1: Availability projection (pure, TDD)
-- [ ] RED: busy blocks from gigs; working-hours mask; horizon clamp;
+### Task 1: Availability projection (pure, TDD) — DONE (db8d938)
+- [x] RED: busy blocks from gigs; working-hours mask; horizon clamp;
       timezone; minimum-slot length (a 20-minute gap is not a booking);
       adjacent-block merging; DST boundaries
-- [ ] GREEN. No I/O in this module — it takes blocks and settings and
+- [x] GREEN. No I/O in this module — it takes blocks and settings and
       returns free ranges, so every rule above is testable directly.
+      23 tests. Timezone is injected as `localDayAt` rather than solved
+      here — DST is its own problem behind that seam, and still open.
 
 ### Task 2: Tokens + public endpoint
 - [ ] Migration: `availability_tokens` (token hash, userId, createdAt,
@@ -95,7 +117,7 @@ and must be presented as a choice, not slipped into the connect flow.
       location, amount or id, for a user whose gigs have all of them.
       This is the test that must never be deleted.
 
-### Task 3: Google freebusy (pending the decision above)
+### Task 3: Google freebusy (decided — see above)
 - [ ] `freebusy.query` against the connected calendar, ranges only
 - [ ] Re-consent flow for the wider scope, presented as a choice
 - [ ] Contract test against the fake; live test extended
@@ -117,4 +139,4 @@ and must be presented as a choice, not slipped into the connect flow.
       cannot be lost
 - [ ] Full sweep; e2e covering the public page unauthenticated
 
-**Branch:** dev-23. No commits without the user's command.
+**Branch:** dev-24 onward. No commits without the user's command.
