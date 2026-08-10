@@ -38,6 +38,10 @@ export interface FakeCalendarOptions {
   accessToken?: string;
   /** Force POST /events to fail, to exercise the `failed` counter. */
   failCreate?: boolean;
+  /** Answer every Calendar call the way Google does when the API is not
+   *  enabled on the Cloud project — the misconfiguration that made the
+   *  whole integration look broken while every other signal said fine. */
+  apiDisabled?: boolean;
   /** Event ids that answer 404 — an event the user deleted by hand. */
   goneEventIds?: string[];
   /** Refresh tokens the token endpoint accepts. Anything else is
@@ -127,6 +131,21 @@ export function fakeGoogleCalendar(options: FakeCalendarOptions = {}): FakeCalen
       contentType: headers.get("content-type"),
       body: rawBody === null ? null : JSON.parse(rawBody),
     });
+
+    if (options.apiDisabled === true) {
+      return json(
+        {
+          error: {
+            code: 403,
+            message: "Google Calendar API has not been used in project before or it is disabled.",
+            errors: [{ reason: "accessNotConfigured", domain: "usageLimits" }],
+            status: "PERMISSION_DENIED",
+            details: [{ reason: "SERVICE_DISABLED" }],
+          },
+        },
+        403,
+      );
+    }
 
     // Google authenticates every Calendar call; so does the fake.
     if (headers.get("authorization") !== `Bearer ${accessToken}`) {

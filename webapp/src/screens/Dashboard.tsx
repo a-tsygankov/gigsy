@@ -55,7 +55,7 @@ function CalendarSection() {
       setResult(
         touched === 0
           ? r.failed > 0
-            ? `Google rejected ${r.failed} change(s). Try reconnecting.`
+            ? failureMessage(r.failed, r.failureReason)
             : "Nothing to sync — only confirmed gigs with a date go to your calendar."
           : `Synced: ${r.created} added, ${r.updated} updated, ${r.deleted} removed.`,
       );
@@ -151,6 +151,25 @@ const WINDOWS = [
 /** Home screen: money at a glance + drill-down into unpaid work
  * (feature spec 2026-08-08). Server-computed like reports — offline it
  * shows the last cached values or a connection note. */
+/**
+ * What to do about failed changes, which depends entirely on why.
+ *
+ * The generic "try reconnecting" was wrong for the case that actually
+ * bit: the Calendar API was disabled on the Cloud project, so every
+ * request 403'd while consent and the token mint reported success.
+ * Reconnecting could never have fixed it, and the advice sent the user
+ * round a loop.
+ */
+function failureMessage(failed: number, reason?: string): string {
+  if (reason === "api-disabled") {
+    return `Google is refusing all ${failed} change(s): the Calendar API isn't enabled for this app. That's a server-side setting — reconnecting won't help.`;
+  }
+  if (reason === "auth") {
+    return `Google refused ${failed} change(s) — the connection has lost permission. Disconnect and reconnect in Settings.`;
+  }
+  return `Google rejected ${failed} change(s). It may be temporary; the next scheduled sync will retry.`;
+}
+
 export function Dashboard() {
   const data = useData();
   const [windowKey, setWindowKey] = useState<(typeof WINDOWS)[number]["key"]>("90");
