@@ -91,6 +91,39 @@ function eventBody(event: CalendarEventInput) {
   };
 }
 
+/**
+ * Creates a calendar and returns its id, or "insufficient-scope" when
+ * the stored grant only covers events.
+ *
+ * Separate from CalendarClient because it is bound to no calendar — it
+ * makes one. The scope distinction matters: `calendar.events` is what
+ * connecting asks for, and creating a calendar needs the broader
+ * `calendar`. Reporting that as its own outcome lets the UI re-prompt
+ * for consent instead of showing "something went wrong".
+ */
+export async function createCalendar(
+  accessToken: string,
+  summary: string,
+  fetchFn: typeof fetch = fetch.bind(globalThis),
+): Promise<string | "insufficient-scope" | null> {
+  try {
+    const res = await fetchFn(CALENDAR_API, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ summary }),
+    });
+    if (res.status === 403 || res.status === 401) return "insufficient-scope";
+    if (!res.ok) return null;
+    const body = (await res.json()) as { id?: string };
+    return typeof body.id === "string" ? body.id : null;
+  } catch {
+    return null;
+  }
+}
+
 export class CalendarClient {
   private readonly eventsUrl: string;
 

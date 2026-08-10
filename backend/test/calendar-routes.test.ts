@@ -4,8 +4,9 @@ import { SELF, env } from "cloudflare:test";
 import { Hono } from "hono";
 import { applyMigrations, seedUser } from "./helpers/db.ts";
 import { issueAccessToken } from "../src/auth/tokens.ts";
-import { decryptString } from "../src/auth/crypto.ts";
+import { decryptString, encryptString } from "../src/auth/crypto.ts";
 import { UsersRepo } from "../src/repos/users.ts";
+import { GigsRepo } from "../src/repos/gigs.ts";
 import { api } from "./helpers/api.ts";
 import {
   makeCalendarRouter,
@@ -18,15 +19,21 @@ const U1 = "user-1";
 const GIG = "11111111-aaaa-4aaa-8aaa-111111111111";
 
 function recordingClient() {
-  const calls: { op: string; event?: CalendarEventInput }[] = [];
+  const calls: { op: string; event?: CalendarEventInput; eventId?: string }[] = [];
   return {
     calls,
     createEvent: async (event: CalendarEventInput) => {
       calls.push({ op: "create", event });
       return "evt-1";
     },
-    patchEvent: async () => true,
-    deleteEvent: async () => true,
+    patchEvent: async (eventId: string) => {
+      calls.push({ op: "patch", eventId });
+      return true;
+    },
+    deleteEvent: async (eventId: string) => {
+      calls.push({ op: "delete", eventId });
+      return true;
+    },
   };
 }
 
@@ -36,6 +43,7 @@ function appWith(overrides: Partial<CalendarDeps> = {}) {
     exchangeCode: vi.fn(async () => ({ refreshToken: "google-rt" })),
     mintAccessToken: vi.fn(async () => ({ accessToken: "google-at" })),
     makeClient: () => client,
+    createCalendar: vi.fn(async () => "gigsy-cal@group.calendar.google.com"),
     ...overrides,
   };
   const app = new Hono().route("/api/calendar", makeCalendarRouter(deps));
@@ -214,5 +222,106 @@ describe("connecting resets the sync watermark", () => {
     await call(app, "POST", "/api/calendar/connect", { authCode: "code" });
 
     expect((await repo.get(U1))?.lastCalendarSyncAt).toBe(0);
+  });
+});
+
+describe("POST /api/calendar/resync", () => {
+  it("clears the watermark so the next run reconsiders every gig", async () => {
+    const { app } = appWith();
+    const usersRepo = UsersRepo.for(env.DB);
+    await usersRepo.setLastCalendarSyncAt(U1, 1_700_000_000_000);
+
+    const res = await call(app, "POST", "/api/calendar/resync");
+
+    expect(res.status).toBe(200);
+    expect((await usersRepo.get(U1))?.lastCalendarSyncAt).toBe(0);
+  });
+
+  it("does not sync, so it cannot half-fail", async () => {
+    const { app, client } = appWith();
+
+    await call(app, "POST", "/api/calendar/resync");
+
+    // Making the next sync exhaustive is a different thing from syncing.
+    expect(client.calls).toEqual([]);
+  });
+});
+
+describe("POST /api/calendar/dedicated", () => {
+  async function connect(): Promise<void> {
+    await UsersRepo.for(env.DB).setGoogleRefreshTokenEnc(
+      U1,
+      await encryptString("google-rt", env.REFRESH_TOKEN_ENC_KEY),
+      Date.now(),
+    );
+  }
+
+  it("creates the calendar and points settings at it", async () => {
+    await connect();
+    const { app } = appWith();
+
+    const res = await call(app, "POST", "/api/calendar/dedicated");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      calendarId: "gigsy-cal@group.calendar.google.com",
+    });
+    const settings = await UsersRepo.for(env.DB).getSettings(U1);
+    expect(settings.calendarTargetId).toBe("gigsy-cal@group.calendar.google.com");
+  });
+
+  it("removes existing events from the calendar they actually live on", async () => {
+    await connect();
+    await api(U1, "PUT", `/api/gigs/${GIG}`, {
+      status: "confirmed",
+      dateTime: 1757500000000,
+    });
+    const gigsRepo = GigsRepo.for(env.DB);
+    await gigsRepo.setCalendarEventId(U1, GIG, "old-event-1");
+
+    const { app, client } = appWith();
+    const res = await call(app, "POST", "/api/calendar/dedicated");
+
+    expect(await res.json()).toMatchObject({ removed: 1, failed: 0 });
+    expect(client.calls.some((c) => c.op === "delete")).toBe(true);
+    // Ids are forgotten, so the next run re-creates them on the new
+    // calendar rather than patching ids that live somewhere else.
+    expect(await gigsRepo.listWithCalendarEvent(U1)).toEqual([]);
+  });
+
+  it("forces a full re-push onto the new calendar", async () => {
+    await connect();
+    await UsersRepo.for(env.DB).setLastCalendarSyncAt(U1, 1_700_000_000_000);
+    const { app } = appWith();
+
+    await call(app, "POST", "/api/calendar/dedicated");
+
+    expect((await UsersRepo.for(env.DB).get(U1))?.lastCalendarSyncAt).toBe(0);
+  });
+
+  it("asks for re-consent when the grant only covers events", async () => {
+    await connect();
+    const { app } = appWith({
+      createCalendar: vi.fn(async () => "insufficient-scope" as const),
+    });
+
+    const res = await call(app, "POST", "/api/calendar/dedicated");
+
+    // Its own code, so the UI can re-prompt for consent rather than
+    // saying "something went wrong".
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "reconnect-required" });
+    // Nothing was switched.
+    expect((await UsersRepo.for(env.DB).getSettings(U1)).calendarTargetId).toBe(
+      "primary",
+    );
+  });
+
+  it("409s when no calendar is connected", async () => {
+    const { app } = appWith();
+
+    const res = await call(app, "POST", "/api/calendar/dedicated");
+
+    expect(res.status).toBe(409);
   });
 });

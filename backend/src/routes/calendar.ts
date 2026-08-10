@@ -14,9 +14,11 @@ import { resolveRefreshToken } from "../calendar/token.ts";
 import { exchangeAuthCode } from "../auth/google.ts";
 import {
   CalendarClient,
+  createCalendar,
   mintAccessToken,
   type MintOptions,
 } from "../calendar/google-calendar.ts";
+import { GigsRepo } from "../repos/gigs.ts";
 import {
   syncUserGigs,
   type CalendarClientLike,
@@ -26,13 +28,17 @@ import { log } from "../logger.ts";
 export interface CalendarDeps {
   exchangeCode: typeof exchangeAuthCode;
   mintAccessToken: (options: MintOptions) => ReturnType<typeof mintAccessToken>;
-  makeClient: (accessToken: string) => CalendarClientLike;
+  /** Bound to a calendar id, because Phase 11 lets that be a choice. */
+  makeClient: (accessToken: string, calendarId: string) => CalendarClientLike;
+  createCalendar: typeof createCalendar;
 }
 
 export const defaultCalendarDeps: CalendarDeps = {
   exchangeCode: exchangeAuthCode,
   mintAccessToken,
-  makeClient: (accessToken) => new CalendarClient(accessToken),
+  makeClient: (accessToken, calendarId) =>
+    new CalendarClient(accessToken, undefined, calendarId),
+  createCalendar,
 };
 
 const Connect = z.object({ authCode: z.string().min(1) });
@@ -121,10 +127,11 @@ export function makeCalendarRouter(deps: CalendarDeps = defaultCalendarDeps) {
         return c.json({ error: "could not reach Google — try again" }, 502);
       }
 
+      const settings = await usersRepo.getSettings(userId);
       const result = await syncUserGigs(
         c.env.DB,
         userId,
-        deps.makeClient(minted.accessToken),
+        deps.makeClient(minted.accessToken, settings.calendarTargetId),
         Date.now(),
       );
       // Always logged, including a run that did nothing: a manual sync
@@ -133,5 +140,100 @@ export function makeCalendarRouter(deps: CalendarDeps = defaultCalendarDeps) {
       // the hidden console.
       log.info("calendar sync-now", { userId, ...result });
       return c.json(result);
+    })
+    /**
+     * Force a full reconciliation. Clearing the watermark makes the next
+     * run reconsider every gig rather than only those touched since the
+     * last one — the repair tool for "my calendar looks wrong".
+     *
+     * It does not sync; it makes the next sync exhaustive. Keeping those
+     * separate means this stays instant and cannot half-fail.
+     */
+    .post("/resync", async (c) => {
+      const userId = c.get("userId");
+      await UsersRepo.for(c.env.DB).setLastCalendarSyncAt(userId, 0);
+      log.info("calendar resync requested", { userId });
+      return c.json({ queued: true });
+    })
+    /**
+     * Create a dedicated "Gigsy" calendar and move future events to it.
+     *
+     * Events already on the previous calendar are deleted here, inline,
+     * rather than queued: the cleanup queue has no column for *which*
+     * calendar an orphan lives on, and a user-initiated switch can
+     * report its own outcome — unlike the cron, which has to be
+     * resumable. Anything Google refuses is counted and reported rather
+     * than silently left behind.
+     */
+    .post("/dedicated", async (c) => {
+      const userId = c.get("userId");
+      const usersRepo = UsersRepo.for(c.env.DB);
+      const user = await usersRepo.get(userId);
+      if (user?.googleRefreshTokenEnc == null) {
+        return c.json({ error: "calendar not connected" }, 409);
+      }
+
+      const refreshToken = await resolveRefreshToken(
+        usersRepo,
+        user,
+        c.env.REFRESH_TOKEN_ENC_KEY,
+      );
+      if (refreshToken === null) {
+        return c.json({ error: "stored token unreadable — reconnect" }, 409);
+      }
+
+      const minted = await deps.mintAccessToken({
+        refreshToken,
+        clientId: c.env.GOOGLE_CLIENT_ID,
+        clientSecret: c.env.GOOGLE_CLIENT_SECRET,
+      });
+      if (minted === "revoked") {
+        await usersRepo.setGoogleRefreshTokenEnc(userId, null, Date.now());
+        return c.json({ error: "calendar access revoked — reconnect" }, 409);
+      }
+      if (minted === null) {
+        return c.json({ error: "could not reach Google — try again" }, 502);
+      }
+
+      const created = await deps.createCalendar(minted.accessToken, "Gigsy");
+      if (created === "insufficient-scope") {
+        // Connecting only asks for calendar.events; making a calendar
+        // needs the broader scope. Its own code, so the UI can re-prompt
+        // for consent rather than say "something went wrong".
+        return c.json({ error: "reconnect-required", scope: "calendar" }, 409);
+      }
+      if (created === null) {
+        return c.json({ error: "could not create the calendar" }, 502);
+      }
+
+      const settings = await usersRepo.getSettings(userId);
+      const previousId = settings.calendarTargetId;
+      const gigsRepo = GigsRepo.for(c.env.DB);
+
+      // Remove the old events from the calendar they actually live on.
+      let removed = 0;
+      let failed = 0;
+      const previous = deps.makeClient(minted.accessToken, previousId);
+      for (const gig of await gigsRepo.listWithCalendarEvent(userId)) {
+        if (await previous.deleteEvent(gig.calendarEventId)) removed++;
+        else failed++;
+      }
+
+      await gigsRepo.clearAllCalendarEventIds(userId);
+      await usersRepo.updateSettings(
+        userId,
+        { calendarTargetId: created },
+        Date.now(),
+      );
+      // Everything has to be re-created on the new calendar.
+      await usersRepo.setLastCalendarSyncAt(userId, 0);
+
+      log.info("calendar switched to dedicated", {
+        userId,
+        calendarId: created,
+        removed,
+        failed,
+      });
+      return c.json({ calendarId: created, removed, failed });
     });
 }

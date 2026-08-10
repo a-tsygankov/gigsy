@@ -1,5 +1,5 @@
 /** User-scoped data access for `gigs`. Same contract as ClientsRepo. */
-import { and, desc, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import { calendarCleanup, gigs, type GigStatus } from "../db/schema.ts";
 import type { UpsertResult, WriteStamps } from "./clients.ts";
@@ -124,6 +124,29 @@ export class GigsRepo {
   /** Calendar bookkeeping — deliberately no modified_at bump, so the
    * sync run doesn't re-trigger itself (and offline clients aren't
    * churned by server-side-only state). */
+  /** Gigs that currently hold a Google event id. Used when switching
+   *  calendars: their events live on the OLD calendar and have to be
+   *  removed there before the ids are cleared. */
+  async listWithCalendarEvent(
+    userId: string,
+  ): Promise<{ id: string; calendarEventId: string }[]> {
+    const rows = await this.db
+      .select({ id: gigs.id, calendarEventId: gigs.calendarEventId })
+      .from(gigs)
+      .where(and(eq(gigs.userId, userId), isNotNull(gigs.calendarEventId)));
+    return rows as { id: string; calendarEventId: string }[];
+  }
+
+  /** Forget every event id, so the next sync re-creates them. Does not
+   *  touch serverModifiedAt: this is bookkeeping, not a user edit, and
+   *  the caller resets the watermark to force the re-push. */
+  async clearAllCalendarEventIds(userId: string): Promise<void> {
+    await this.db
+      .update(gigs)
+      .set({ calendarEventId: null })
+      .where(and(eq(gigs.userId, userId), isNotNull(gigs.calendarEventId)));
+  }
+
   async setCalendarEventId(
     userId: string,
     id: string,

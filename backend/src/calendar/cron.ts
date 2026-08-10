@@ -16,12 +16,14 @@ import { log } from "../logger.ts";
 
 export interface CronDeps {
   mintAccessToken: (options: MintOptions) => ReturnType<typeof mintAccessToken>;
-  makeClient: (accessToken: string) => CalendarClientLike;
+  /** Bound to a calendar id: Phase 11 lets that be a per-user choice. */
+  makeClient: (accessToken: string, calendarId: string) => CalendarClientLike;
 }
 
 const defaultDeps: CronDeps = {
   mintAccessToken,
-  makeClient: (accessToken) => new CalendarClient(accessToken),
+  makeClient: (accessToken, calendarId) =>
+    new CalendarClient(accessToken, undefined, calendarId),
 };
 
 export interface CronSummary {
@@ -66,10 +68,11 @@ export async function runCalendarCron(
         summary.usersFailed++;
         continue;
       }
+      const settings = await usersRepo.getSettings(user.id);
       const result = await syncUserGigs(
         env.DB,
         user.id,
-        deps.makeClient(minted.accessToken),
+        deps.makeClient(minted.accessToken, settings.calendarTargetId),
         Date.now(),
       );
       summary.usersSynced++;
