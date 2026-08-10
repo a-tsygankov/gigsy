@@ -23,6 +23,7 @@ import {
 } from "../src/calendar/google-calendar.ts";
 import { syncUserGigs } from "../src/calendar/sync-service.ts";
 import { UsersRepo } from "../src/repos/users.ts";
+import type { SettingsPatch } from "../src/domain/settings.ts";
 
 const U1 = "user-1";
 const ACME = "22222222-cccc-4ccc-8ccc-222222222222";
@@ -47,6 +48,12 @@ async function uploadGig(
   const res = await api(U1, "POST", "/api/sync", {
     ops: [{ op: "upsert", entity: "gig", id, modifiedAt, payload }],
   });
+  expect(res.status).toBe(200);
+}
+
+/** Save settings the way the Settings screen does. */
+async function setSettings(patch: SettingsPatch): Promise<void> {
+  const res = await api(U1, "PATCH", "/api/settings", patch);
   expect(res.status).toBe(200);
 }
 
@@ -349,6 +356,97 @@ describe("CalendarClient against a Google-shaped server", () => {
 
     expect(result.created).toBe(1);
     expect(google.onlyEvent().location).toBe("Backstage");
+  });
+
+  it("prefixes event titles when the user asks for it", async () => {
+    const google = fakeGoogleCalendar();
+    await setSettings({ calendarTitlePrefix: true });
+    await uploadGig(newGigId(), {
+      clientId: ACME,
+      status: "confirmed",
+      location: "Costco on 5th",
+      dateTime: WHEN,
+    });
+
+    await syncUserGigs(
+      env.DB,
+      U1,
+      new CalendarClient("test-access-token", google.fetch),
+      Date.now(),
+    );
+
+    expect(google.onlyEvent().summary).toBe("Gigsy: Acme — Costco on 5th");
+  });
+
+  it("uses the reminder time the user chose", async () => {
+    const google = fakeGoogleCalendar();
+    await setSettings({ calendarReminderMinutes: 180 });
+    await uploadGig(newGigId(), {
+      clientId: ACME,
+      status: "confirmed",
+      location: "Far Away",
+      dateTime: WHEN,
+    });
+
+    await syncUserGigs(
+      env.DB,
+      U1,
+      new CalendarClient("test-access-token", google.fetch),
+      Date.now(),
+    );
+
+    expect(google.onlyEvent().reminders).toEqual({
+      useDefault: false,
+      overrides: [{ method: "popup", minutes: 180 }],
+    });
+  });
+
+  it("defers to the calendar's own reminders when asked to", async () => {
+    const google = fakeGoogleCalendar();
+    await setSettings({ calendarUseDefaultReminder: true });
+    await uploadGig(newGigId(), {
+      clientId: ACME,
+      status: "confirmed",
+      location: "Curated Calendar",
+      dateTime: WHEN,
+    });
+
+    await syncUserGigs(
+      env.DB,
+      U1,
+      new CalendarClient("test-access-token", google.fetch),
+      Date.now(),
+    );
+
+    // Someone who curates their own defaults should not get ours
+    // stacked on top — no overrides at all, not an override of zero.
+    expect(google.onlyEvent().reminders).toEqual({ useDefault: true });
+  });
+
+  it("writes to a dedicated calendar when one is configured", async () => {
+    const google = fakeGoogleCalendar({ calendarId: "gigsy-cal@group.calendar.google.com" });
+    await uploadGig(newGigId(), {
+      clientId: ACME,
+      status: "confirmed",
+      location: "Dedicated",
+      dateTime: WHEN,
+    });
+
+    await syncUserGigs(
+      env.DB,
+      U1,
+      new CalendarClient(
+        "test-access-token",
+        google.fetch,
+        "gigsy-cal@group.calendar.google.com",
+      ),
+      Date.now(),
+    );
+
+    // The id is email-shaped, so it must arrive URL-encoded.
+    const post = google.requests.find((r) => r.method === "POST");
+    expect(post?.url).toContain("gigsy-cal%40group.calendar.google.com");
+    expect(google.events.size).toBe(1);
   });
 
   it("never puts a lead on the calendar", async () => {

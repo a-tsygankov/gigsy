@@ -62,6 +62,7 @@ function gigEvent(overrides: Partial<CalendarEventInput> = {}): CalendarEventInp
     location: "1600 Amphitheatre Parkway, Mountain View, CA",
     startMs: start,
     endMs: start + 90 * 60 * 1000,
+    reminderMinutes: 60,
     ...overrides,
   };
 }

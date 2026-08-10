@@ -7,8 +7,14 @@
  */
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
-const PRIMARY_EVENTS_URL =
-  "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+const CALENDAR_API = "https://www.googleapis.com/calendar/v3/calendars";
+
+/** Events URL for a calendar id. "primary" is the user's main one; a
+ *  dedicated Gigsy calendar supplies its own id (Phase 11). The id is
+ *  URL-encoded because a calendar id is an email-shaped string. */
+function eventsUrl(calendarId: string): string {
+  return `${CALENDAR_API}/${encodeURIComponent(calendarId)}/events`;
+}
 
 export interface MintOptions {
   refreshToken: string;
@@ -53,13 +59,12 @@ export interface CalendarEventInput {
   location: string | null;
   startMs: number;
   endMs: number;
+  /** Minutes before the start to remind, or null to inherit whatever
+   *  the user's calendar already does. Phase 11 made this a setting:
+   *  someone who curates their own defaults should be able to opt out
+   *  rather than have ours stacked on top. */
+  reminderMinutes: number | null;
 }
-
-/** Gigs are paid work with travel attached, so an event always carries
- * a reminder rather than inheriting the calendar's default — which may
- * well be "none". The Phase 7 decision to skip push notifications
- * assumed the calendar would remind you; this is what makes that true. */
-const REMINDER_MINUTES_BEFORE = 60;
 
 function eventBody(event: CalendarEventInput) {
   return {
@@ -72,18 +77,30 @@ function eventBody(event: CalendarEventInput) {
       : {}),
     start: { dateTime: new Date(event.startMs).toISOString() },
     end: { dateTime: new Date(event.endMs).toISOString() },
-    reminders: {
-      useDefault: false,
-      overrides: [{ method: "popup", minutes: REMINDER_MINUTES_BEFORE }],
-    },
+    // Gigs are paid work with travel attached, so by default an event
+    // carries its own reminder rather than inheriting a calendar whose
+    // default may well be "none" — the Phase 7 decision to skip push
+    // for gigs assumed the calendar would remind you.
+    reminders:
+      event.reminderMinutes === null
+        ? { useDefault: true }
+        : {
+            useDefault: false,
+            overrides: [{ method: "popup", minutes: event.reminderMinutes }],
+          },
   };
 }
 
 export class CalendarClient {
+  private readonly eventsUrl: string;
+
   constructor(
     private readonly accessToken: string,
     private readonly fetchFn: typeof fetch = fetch.bind(globalThis),
-  ) {}
+    calendarId = "primary",
+  ) {
+    this.eventsUrl = eventsUrl(calendarId);
+  }
 
   private headers(): Record<string, string> {
     return {
@@ -95,7 +112,7 @@ export class CalendarClient {
   /** Returns the created event id, null on failure. */
   async createEvent(event: CalendarEventInput): Promise<string | null> {
     try {
-      const res = await this.fetchFn(PRIMARY_EVENTS_URL, {
+      const res = await this.fetchFn(this.eventsUrl, {
         method: "POST",
         headers: this.headers(),
         body: JSON.stringify(eventBody(event)),
@@ -110,7 +127,7 @@ export class CalendarClient {
 
   async patchEvent(eventId: string, event: CalendarEventInput): Promise<boolean> {
     try {
-      const res = await this.fetchFn(`${PRIMARY_EVENTS_URL}/${eventId}`, {
+      const res = await this.fetchFn(`${this.eventsUrl}/${eventId}`, {
         method: "PATCH",
         headers: this.headers(),
         body: JSON.stringify(eventBody(event)),
@@ -124,7 +141,7 @@ export class CalendarClient {
   /** Already-gone events (404/410) count as deleted. */
   async deleteEvent(eventId: string): Promise<boolean> {
     try {
-      const res = await this.fetchFn(`${PRIMARY_EVENTS_URL}/${eventId}`, {
+      const res = await this.fetchFn(`${this.eventsUrl}/${eventId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${this.accessToken}` },
       });
