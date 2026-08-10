@@ -53,6 +53,7 @@ export class AuthManager {
   private tokenIssuedAt = 0;
   private user: SessionUser | null = null;
   private listeners = new Set<() => void>();
+  private inFlightRefresh: Promise<"ok" | "rejected" | "unreachable"> | null = null;
 
   constructor(
     private readonly api: AuthApi,
@@ -140,15 +141,9 @@ export class AuthManager {
       this.notify();
     }
 
-    const result = await this.api.refreshSession(stored);
-    if (result.ok) {
-      await this.setSession(result.tokens, result.user ?? cached);
-      return "live";
-    }
-    if (result.reason === "rejected") {
-      await this.clearSession();
-      return "signed-out";
-    }
+    const outcome = await this.refreshOnce();
+    if (outcome === "ok") return "live";
+    if (outcome === "rejected") return "signed-out";
     // Unreachable: keep the token and the identity. ApiClient will
     // retry on the next call, and the sync engine retries on reconnect.
     return cached === null ? "signed-out" : "offline";
@@ -168,16 +163,43 @@ export class AuthManager {
   }
 
   async refresh(): Promise<boolean> {
+    return (await this.refreshOnce()) === "ok";
+  }
+
+  /**
+   * Refreshes are single-flighted, and that is a correctness
+   * requirement rather than an optimisation: refresh tokens rotate and
+   * are consumed on use, so two concurrent attempts spend the same
+   * one-shot token and the loser gets a 401 — indistinguishable from a
+   * genuinely dead session, which would sign the user out.
+   *
+   * Startup makes this easy to hit: the app restores its identity from
+   * cache and starts the sync engine, whose first request 401s (no
+   * access token yet) and triggers a refresh at the same moment
+   * bootstrap is running its own.
+   */
+  private refreshOnce(): Promise<"ok" | "rejected" | "unreachable"> {
+    this.inFlightRefresh ??= this.runRefresh().finally(() => {
+      this.inFlightRefresh = null;
+    });
+    return this.inFlightRefresh;
+  }
+
+  private async runRefresh(): Promise<"ok" | "rejected" | "unreachable"> {
     const stored = await this.storage.get(REFRESH_KEY);
-    if (stored === null) return false;
+    // Nothing to refresh with: the session is over, not merely stale.
+    if (stored === null) {
+      await this.clearSession();
+      return "rejected";
+    }
     const result = await this.api.refreshSession(stored);
     if (result.ok) {
       await this.setSession(result.tokens, result.user ?? null);
-      return true;
+      return "ok";
     }
     // Only a rejection ends the session; an unreachable server leaves
     // it intact so the next attempt can recover it.
     if (result.reason === "rejected") await this.clearSession();
-    return false;
+    return result.reason;
   }
 }

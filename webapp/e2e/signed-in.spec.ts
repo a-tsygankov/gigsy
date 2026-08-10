@@ -1,26 +1,12 @@
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import { test, expect } from "@playwright/test";
+import { requireTestAuth } from "./helpers/test-auth.ts";
 
 // Signed-in flows via the test-auth bypass (POST /api/auth/test-login,
-// which only exists outside production). Against deployments where
-// it's disabled — e.g. PR previews proxying to the production worker —
-// every spec here skips itself.
-
-async function testAuthAvailable(request: APIRequestContext, baseURL: string) {
-  try {
-    const res = await request.get(`${baseURL}/api/auth/config`);
-    if (!res.ok()) return false;
-    const body = (await res.json()) as { testAuthEnabled?: boolean };
-    return body.testAuthEnabled === true;
-  } catch {
-    return false;
-  }
-}
+// which only exists outside production). Where it's disabled these
+// skip, unless the job set E2E_REQUIRE_AUTH — see helpers/test-auth.ts.
 
 test.beforeEach(async ({ page, request, baseURL }) => {
-  test.skip(
-    !(await testAuthAvailable(request, baseURL!)),
-    "test auth disabled on this deployment",
-  );
+  await requireTestAuth(request, baseURL!);
   await page.goto("/login");
   await page.getByTestId("test-signin").click();
   await expect(page.getByTestId("tab-bar")).toBeVisible();

@@ -1,30 +1,19 @@
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import { test, expect } from "@playwright/test";
+import { requireTestAuth } from "./helpers/test-auth.ts";
 
 // The Phase 5 signature journey: photo capture → AI draft → review →
 // confirm → real gig. Runs against the deterministic stub extractor
-// (AI_PROVIDER=stub, non-production only) — self-skips where either
-// test auth or the stub is unavailable (e.g. PR previews → prod).
+// (AI_PROVIDER=stub, non-production only) — see helpers/test-auth.ts
+// for when these skip versus fail.
 
 const TINY_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
   "base64",
 );
 
-async function testAuthAvailable(request: APIRequestContext, baseURL: string) {
-  try {
-    const res = await request.get(`${baseURL}/api/auth/config`);
-    if (!res.ok()) return false;
-    return ((await res.json()) as { testAuthEnabled?: boolean }).testAuthEnabled === true;
-  } catch {
-    return false;
-  }
-}
 
 test.beforeEach(async ({ page, request, baseURL }) => {
-  test.skip(
-    !(await testAuthAvailable(request, baseURL!)),
-    "test auth disabled on this deployment",
-  );
+  await requireTestAuth(request, baseURL!);
   await page.goto("/login");
   await page.getByTestId("test-signin").click();
   await expect(page.getByTestId("tab-bar")).toBeVisible();

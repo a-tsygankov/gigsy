@@ -1,25 +1,11 @@
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import { test, expect } from "@playwright/test";
+import { requireTestAuth } from "./helpers/test-auth.ts";
 
-// Reports + CSV export (Phase 7). Uses the test-auth bypass, so every
-// spec self-skips where it's disabled (e.g. PR previews proxying to
-// the production worker).
-
-async function testAuthAvailable(request: APIRequestContext, baseURL: string) {
-  try {
-    const res = await request.get(`${baseURL}/api/auth/config`);
-    if (!res.ok()) return false;
-    const body = (await res.json()) as { testAuthEnabled?: boolean };
-    return body.testAuthEnabled === true;
-  } catch {
-    return false;
-  }
-}
+// Reports + CSV export (Phase 7). Uses the test-auth bypass — see
+// helpers/test-auth.ts for when these skip versus fail.
 
 test.beforeEach(async ({ page, request, baseURL }) => {
-  test.skip(
-    !(await testAuthAvailable(request, baseURL!)),
-    "test auth disabled on this deployment",
-  );
+  await requireTestAuth(request, baseURL!);
   await page.goto("/login");
   await page.getByTestId("test-signin").click();
   await expect(page.getByTestId("tab-bar")).toBeVisible();
