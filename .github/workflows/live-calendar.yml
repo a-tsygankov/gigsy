@@ -1,0 +1,58 @@
+# The one test that talks to Google for real.
+#
+# Deliberately NOT on push, PR, or a schedule. While the OAuth app is in
+# Testing status, Google expires refresh tokens for sensitive scopes
+# after 7 days, so a scheduled run would go red every week for reasons
+# unrelated to the code. Run it when it matters: before a release, or
+# when a calendar change needs proving against the real API.
+#
+# The hermetic contract tests (backend/test/calendar-contract.test.ts)
+# gate every PR and cover the request shape. This job answers the one
+# question they cannot: does Google actually accept it.
+name: Live calendar
+
+on:
+  workflow_dispatch:
+
+jobs:
+  live-calendar:
+    name: Live Google Calendar round trip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fail here, loudly, rather than letting the suite "pass" with
+      # every meaningful spec skipped. That exact failure mode already
+      # hid a broken E2E job in this repo once.
+      - name: Require the credentials
+        env:
+          REFRESH_TOKEN: ${{ secrets.E2E_GOOGLE_REFRESH_TOKEN }}
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          missing=""
+          [ -z "$REFRESH_TOKEN" ] && missing="$missing E2E_GOOGLE_REFRESH_TOKEN"
+          [ -z "$CLIENT_ID" ] && missing="$missing GOOGLE_CLIENT_ID"
+          [ -z "$CLIENT_SECRET" ] && missing="$missing GOOGLE_CLIENT_SECRET"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secrets:$missing"
+            echo "Mint one with scripts/mint-e2e-token.ps1, then:"
+            echo "  gh secret set E2E_GOOGLE_REFRESH_TOKEN --repo a-tsygankov/gigsy"
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Round trip against Google
+        working-directory: backend
+        env:
+          E2E_GOOGLE_REFRESH_TOKEN: ${{ secrets.E2E_GOOGLE_REFRESH_TOKEN }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: pnpm test:live
