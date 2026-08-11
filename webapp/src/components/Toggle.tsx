@@ -9,6 +9,18 @@
  *
  * 44px of tap target at minimum, because phones are the primary
  * surface and a 20px switch is a miss waiting to happen.
+ *
+ * The wrapper is a `<label>`, and that is the whole reason this works.
+ * The input is `sr-only` — 1×1px — and the switch you can see is a
+ * sibling `<span>`. Without the label association, tapping the switch
+ * hit nothing at all: every toggle in the app could only be operated
+ * by tapping its separate text label, which on the settings rows was
+ * big enough to hide the bug and on the working-hours rows was a
+ * three-letter day name. Reported as "why can't I switch Sun".
+ *
+ * Wrapping rather than `htmlFor` because `id` is optional here, and a
+ * control whose tappability depends on the caller remembering to pass
+ * one is the same bug waiting to come back.
  */
 export function Toggle({
   id,
@@ -28,7 +40,11 @@ export function Toggle({
   "data-testid"?: string;
 }) {
   return (
-    <span className="inline-flex h-11 items-center">
+    <label
+      className={`inline-flex h-11 items-center ${
+        disabled ? "cursor-not-allowed" : "cursor-pointer"
+      }`}
+    >
       <input
         id={id}
         type="checkbox"
@@ -60,6 +76,6 @@ export function Toggle({
           ].join(" ")}
         />
       </span>
-    </span>
+    </label>
   );
 }

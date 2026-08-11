@@ -53,3 +53,47 @@ test("signing out from settings returns to login", async ({ page }) => {
 
   await expect(page).toHaveURL(/\/login$/);
 });
+
+/**
+ * Tapping the switch itself has to work.
+ *
+ * The input is `sr-only` (1x1px) and the switch you see is a sibling
+ * span. Without a label around them, tapping the switch hit nothing:
+ * every toggle in the app could only be operated via its separate text
+ * label. On the settings rows that label is the whole setting name, big
+ * enough to hide the bug for months. On the working-hours rows it is a
+ * three-letter day, which is how it finally surfaced — "why can't I
+ * switch Sun".
+ *
+ * So these click the PAINTED switch, never the testid (which resolves
+ * to the hidden input and would pass either way).
+ */
+function paintedSwitch(page: import("@playwright/test").Page, testId: string) {
+  return page.locator(`label:has([data-testid="${testId}"]) span[aria-hidden="true"]`).first();
+}
+
+test("tapping the switch itself toggles it, on a settings row", async ({ page }) => {
+  await page.goto("/settings");
+
+  const input = page.getByTestId("toggle-prefix");
+  await expect(input).toBeAttached();
+  const before = await input.isChecked();
+
+  await paintedSwitch(page, "toggle-prefix").click();
+
+  await expect(input).toBeChecked({ checked: !before });
+});
+
+test("tapping the switch itself toggles a working-hours day", async ({ page }) => {
+  await page.goto("/settings");
+
+  // Sunday: the row that surfaced this, and the one whose text label is
+  // only three characters wide.
+  const sunday = page.getByTestId("toggle-day-0");
+  await expect(sunday).toBeAttached();
+  const before = await sunday.isChecked();
+
+  await paintedSwitch(page, "toggle-day-0").click();
+
+  await expect(sunday).toBeChecked({ checked: !before });
+});
