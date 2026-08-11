@@ -23,6 +23,7 @@ export { SyncBadge } from "./SyncBadge.tsx";
 export { EmptyState } from "./EmptyState.tsx";
 export { ListSkeleton } from "./ListSkeleton.tsx";
 export { Splash } from "./Splash.tsx";
+export { UpdateBar } from "./UpdateBar.tsx";
 export { AppHeader } from "./AppHeader.tsx";
 export { TabBar } from "./TabBar.tsx";
 export { Fab } from "./Fab.tsx";

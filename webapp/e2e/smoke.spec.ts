@@ -32,3 +32,37 @@ test("tab bar is hidden while signed out", async ({ page }) => {
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByTestId("tab-bar")).toHaveCount(0);
 });
+
+/**
+ * The update bar must stay out of the way until there is genuinely a
+ * newer build waiting.
+ *
+ * A false "update available" is worse than no bar at all: it trains
+ * people to dismiss it, and then the real one gets dismissed too. The
+ * first-ever service worker install is the case that would trip it —
+ * a worker reaching "installed" with nothing controlling the page yet
+ * is not an update, it is the app arriving.
+ */
+test("no update bar on an ordinary load", async ({ page }) => {
+  await page.goto("/login");
+  await expect(page.getByTestId("login-actions")).toBeVisible();
+
+  // Give registration and any install a moment to settle before
+  // asserting absence, or this passes for the wrong reason.
+  await page.waitForTimeout(2000);
+  await expect(page.getByTestId("update-bar")).toHaveCount(0);
+});
+
+test("no update bar after a reload, when the worker is already current", async ({
+  page,
+}) => {
+  // The second load is the interesting one: a worker now controls the
+  // page, so the controller check that suppresses the first-install
+  // case is no longer doing the work.
+  await page.goto("/login");
+  await page.reload();
+  await expect(page.getByTestId("login-actions")).toBeVisible();
+
+  await page.waitForTimeout(2000);
+  await expect(page.getByTestId("update-bar")).toHaveCount(0);
+});

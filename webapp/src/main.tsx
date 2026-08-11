@@ -6,12 +6,16 @@ import { App } from "./App.tsx";
 import { AppProvider, createAppServices } from "./lib/app-context.tsx";
 import { appLog, installGlobalErrorCapture } from "./lib/logger.ts";
 import { CLIENT_VERSION } from "./lib/versions.ts";
+import { startUpdateWatch } from "./lib/pwa-update-browser.ts";
 import "./styles.css";
 
 // Route uncaught errors into the hidden console's client-log feed —
 // on a phone there are no devtools to see them otherwise.
 installGlobalErrorCapture(appLog, window);
 appLog.info("app started", { version: CLIENT_VERSION });
+
+// Registers the service worker and watches for a newer build.
+startUpdateWatch();
 
 const services = createAppServices();
 const queryClient = new QueryClient({
