@@ -236,6 +236,11 @@ export function GigEdit() {
             <Field label="Date & time">
               <Input
                 type="datetime-local"
+                // Quarter hours only. A gig starts at :00/:15/:30/:45,
+                // not 10:07 — but a time extracted from an email might,
+                // and `step` does not rewrite a value already in the
+                // field, so captured times survive untouched.
+                step={900}
                 value={form.dateTime}
                 onChange={(e) => set("dateTime", e.target.value)}
               />

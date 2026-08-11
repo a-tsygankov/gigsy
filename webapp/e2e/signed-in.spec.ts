@@ -194,3 +194,24 @@ test("reopening a just-edited gig shows the new values", async ({ page }) => {
   await page.getByText(marker).click();
   await expect(page.getByTestId("gig-duration")).toHaveValue("300");
 });
+
+test("the time field offers quarter hours but preserves captured minutes", async ({
+  page,
+}) => {
+  await page.getByRole("link", { name: "Gigs" }).click();
+  await page.getByRole("link", { name: "Add gig" }).click();
+
+  // The picker steps in 15-minute increments.
+  await expect(page.getByLabel("Date & time")).toHaveAttribute("step", "900");
+
+  // …but a value that did not come from the picker survives a save.
+  // This is what an email/photo capture produces.
+  const marker = `odd-minutes-${Date.now()}`;
+  await page.getByLabel("Location").fill(marker);
+  await page.getByLabel("Date & time").fill("2027-03-04T10:07");
+  await page.getByRole("button", { name: "Save gig" }).click();
+  await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
+
+  await page.getByText(marker).click();
+  await expect(page.getByLabel("Date & time")).toHaveValue("2027-03-04T10:07");
+});
