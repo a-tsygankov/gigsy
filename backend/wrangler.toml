@@ -39,6 +39,14 @@ AI_PROVIDER = "gemini"
 AI_MODEL = "gemini-2.5-flash"
 # Cost control (docs/plan.md §8): AI captures per user per UTC day.
 AI_DAILY_CAP = "50"
+# Who may sign in, comma-separated. EMPTY MEANS ANYONE with a Google
+# account — safe only while the OAuth consent screen is in Testing mode,
+# where Google's own test-user list is the real gate. Fill this in before
+# publishing the OAuth app, and add testers here as you invite them:
+#   ALLOWED_EMAILS = "you@example.com,tester@example.com"
+# Set it to the address you actually sign in with — an empty list is
+# open, but a list without you in it locks you out of your own app.
+ALLOWED_EMAILS = ""
 
 # Web Push (Phase 10). The PUBLIC half of the VAPID pair — public by
 # definition, since the browser needs it to subscribe. Mint the pair

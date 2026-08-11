@@ -19,6 +19,7 @@ import {
   type JwksFetcher,
 } from "../auth/google.ts";
 import { RefreshTokenStore } from "../auth/refresh-store.ts";
+import { isAllowedEmail, parseAllowlist } from "../auth/allowlist.ts";
 import { UsersRepo } from "../repos/users.ts";
 import { log } from "../logger.ts";
 
@@ -81,11 +82,20 @@ export function makeAuthRouter(deps: AuthDeps = defaultAuthDeps) {
       c.json({
         googleClientId: c.env.GOOGLE_CLIENT_ID,
         testAuthEnabled: testAuthEnabled(c.env),
+        // Whether this deployment is invite-only — never WHO is
+        // invited. The login screen uses it to explain a refusal
+        // instead of showing a bare error.
+        inviteOnly: parseAllowlist(c.env.ALLOWED_EMAILS).length > 0,
       }),
     )
     .post("/test-login", zValidator("json", TestLogin), async (c) => {
       if (!testAuthEnabled(c.env)) return c.json({ error: "not found" }, 404);
       const { email } = c.req.valid("json");
+      // The same gate as the Google path: who may use a deployment
+      // should not depend on which door they came through.
+      if (!isAllowedEmail(email, c.env.ALLOWED_EMAILS)) {
+        return c.json({ error: "not_invited" }, 403);
+      }
       const now = Date.now();
       const user = await UsersRepo.for(c.env.DB).upsertByEmail(email, now);
       const session = await issueSession(c.env, user.id, now);
@@ -100,6 +110,14 @@ export function makeAuthRouter(deps: AuthDeps = defaultAuthDeps) {
         fetchJwks: deps.fetchJwks,
       });
       if (claims === null) return c.json({ error: "unauthorized" }, 401);
+
+      // Checked BEFORE upsertByEmail: a refused sign-in must not leave
+      // a row behind, or the allowlist would quietly populate the users
+      // table with everyone who ever tried.
+      if (!isAllowedEmail(claims.email, c.env.ALLOWED_EMAILS)) {
+        log.warn("sign-in refused: not on the allowlist", { email: claims.email });
+        return c.json({ error: "not_invited" }, 403);
+      }
 
       const now = Date.now();
       const usersRepo = UsersRepo.for(c.env.DB);

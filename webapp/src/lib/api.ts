@@ -432,12 +432,19 @@ export class AuthApiClient implements AuthApi {
     this.fetchFn = fetchFn ?? fetch.bind(globalThis);
   }
 
-  async getConfig(): Promise<{ googleClientId: string; testAuthEnabled: boolean }> {
+  async getConfig(): Promise<{
+    googleClientId: string;
+    testAuthEnabled: boolean;
+    /** Whether an allowlist is in force — never who is on it. Lets the
+     *  login screen explain a refusal instead of just failing. */
+    inviteOnly: boolean;
+  }> {
     const res = await this.fetchFn("/api/auth/config");
     if (!res.ok) throw new ApiError(res.status, "config unavailable");
     return (await res.json()) as {
       googleClientId: string;
       testAuthEnabled: boolean;
+      inviteOnly: boolean;
     };
   }
 

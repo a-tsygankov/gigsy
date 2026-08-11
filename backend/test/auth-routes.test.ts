@@ -128,9 +128,13 @@ describe("GET /api/auth/config", () => {
     const app = appWith();
     const res = await app.request("/api/auth/config", {}, testEnv());
     expect(res.status).toBe(200);
+    // An exact shape on purpose: this endpoint is public, so a field
+    // added here is a field served to anyone who asks. `inviteOnly`
+    // had to pass through this assertion to get in, which is the point.
     expect(await res.json()).toEqual({
       googleClientId: CLIENT_ID,
       testAuthEnabled: true,
+      inviteOnly: false,
     });
   });
 
@@ -234,5 +238,124 @@ describe("POST /api/auth/refresh", () => {
       refreshToken: "never-issued",
     });
     expect(res.status).toBe(401);
+  });
+});
+
+/**
+ * Who may sign in at all.
+ *
+ * Before this, the only thing keeping strangers out was the Google
+ * consent screen being in Testing mode — a setting in a console, not a
+ * property of the app. Publishing the OAuth app would have opened
+ * Gigsy to every Google account with no code change and no warning.
+ */
+describe("the sign-in allowlist", () => {
+  /** Same harness, but with a list in force. */
+  async function postWithAllowlist(
+    app: Hono,
+    path: string,
+    body: unknown,
+    allowed: string,
+  ): Promise<Response> {
+    return app.request(
+      path,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      { ...testEnv(), ALLOWED_EMAILS: allowed },
+    );
+  }
+
+  it("lets a listed address in", async () => {
+    const app = appWith();
+    const idToken = await google.makeIdToken(googlePayload(CLIENT_ID));
+
+    const res = await postWithAllowlist(
+      app,
+      "/api/auth/google",
+      { idToken },
+      "someone@else.test,gig.worker@example.com",
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  it("refuses an address that is not listed", async () => {
+    const app = appWith();
+    const idToken = await google.makeIdToken(googlePayload(CLIENT_ID));
+
+    const res = await postWithAllowlist(
+      app,
+      "/api/auth/google",
+      { idToken },
+      "someone@else.test",
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "not_invited" });
+  });
+
+  it("creates no user row for a refused sign-in", async () => {
+    // Otherwise the allowlist quietly populates the users table with
+    // everyone who ever tried the door.
+    const app = appWith();
+    const idToken = await google.makeIdToken(
+      googlePayload(CLIENT_ID, { email: "stranger@example.com" }),
+    );
+
+    await postWithAllowlist(
+      app,
+      "/api/auth/google",
+      { idToken },
+      "someone@else.test",
+    );
+
+    const rows = await env.DB.prepare("SELECT id FROM users WHERE email = ?")
+      .bind("stranger@example.com")
+      .all();
+    expect(rows.results).toHaveLength(0);
+  });
+
+  it("still lets everyone in when no list is set", async () => {
+    // The behaviour that already shipped; the control is opt-in so a
+    // forgotten value cannot lock the owner out.
+    const app = appWith();
+    const idToken = await google.makeIdToken(googlePayload(CLIENT_ID));
+
+    expect((await postWithAllowlist(app, "/api/auth/google", { idToken }, "")).status).toBe(
+      200,
+    );
+  });
+
+  it("gates the dev sign-in the same way", async () => {
+    // Which door someone came through should not decide whether they
+    // may use the deployment.
+    const app = appWith();
+
+    const res = await postWithAllowlist(
+      app,
+      "/api/auth/test-login",
+      { email: "dev@test.local" },
+      "someone@else.test",
+    );
+
+    expect(res.status).toBe(403);
+  });
+
+  it("reports THAT a list is in force, never who is on it", async () => {
+    const app = appWith();
+
+    const on = await app.request("/api/auth/config", {}, {
+      ...testEnv(),
+      ALLOWED_EMAILS: "her@example.com",
+    });
+    const off = await app.request("/api/auth/config", {}, testEnv());
+
+    const onBody = (await on.json()) as { inviteOnly: boolean };
+    expect(onBody.inviteOnly).toBe(true);
+    expect(JSON.stringify(onBody)).not.toContain("her@example.com");
+    expect(((await off.json()) as { inviteOnly: boolean }).inviteOnly).toBe(false);
   });
 });

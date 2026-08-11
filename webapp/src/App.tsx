@@ -17,12 +17,16 @@ import { Capture } from "./screens/Capture.tsx";
 import { Drafts } from "./screens/Drafts.tsx";
 import { DraftReview } from "./screens/DraftReview.tsx";
 import { PublicAvailability } from "./screens/PublicAvailability.tsx";
+import { Privacy } from "./screens/Privacy.tsx";
 
 export function App() {
   return (
     <ConsoleProvider>
       <Routes>
         <Route path="/login" element={<Login />} />
+        {/* Public and outside AuthGate: Google's OAuth verification
+            needs the policy reachable without an account. */}
+        <Route path="/privacy" element={<Privacy />} />
         {/* Outside AuthGate, and the only route that is (Phase 12).
             The token in the path is the whole access control; an
             agency opening this has no account and must never be
