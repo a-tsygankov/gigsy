@@ -19,6 +19,7 @@ import { Drafts } from "./screens/Drafts.tsx";
 import { DraftReview } from "./screens/DraftReview.tsx";
 import { PublicAvailability } from "./screens/PublicAvailability.tsx";
 import { Privacy } from "./screens/Privacy.tsx";
+import { Landing } from "./screens/Landing.tsx";
 
 export function App() {
   return (
@@ -36,8 +37,15 @@ export function App() {
             agency opening this has no account and must never be
             asked for one. */}
         <Route path="/a/:token" element={<PublicAvailability />} />
-        <Route element={<AuthGate />}>
+        {/* "/" answers twice: the dashboard once you are signed in, the
+            public landing page when you are not. Google's OAuth
+            verification needs a home page that describes the app without
+            an account, and the bare domain is where a reviewer — and
+            anyone handed a link — actually starts. */}
+        <Route element={<AuthGate signedOut={<Landing />} />}>
           <Route path="/" element={<Dashboard />} />
+        </Route>
+        <Route element={<AuthGate />}>
           <Route path="/gigs" element={<Gigs />} />
           {/* "…/new" rides the :id route — edit screens treat the
               literal id "new" as create mode. */}
