@@ -28,6 +28,7 @@ export const GIG_SOURCES = ["manual", "email", "photo"] as const;
 // value would wipe/forge the Google event link.
 export const GigInput = z.object({
   clientId: entityId.nullish(),
+  title: z.string().max(200).nullish(),
   status: z.enum(GIG_STATUSES).default("lead"),
   location: z.string().max(500).nullish(),
   dateTime: z.number().int().nullish(),

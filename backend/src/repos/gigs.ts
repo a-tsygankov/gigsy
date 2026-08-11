@@ -11,6 +11,7 @@ export type GigRecord = typeof gigs.$inferSelect;
 // bookkeeping (setCalendarEventId below); upserts must never touch it.
 export interface GigData {
   clientId: string | null;
+  title: string | null;
   status: GigStatus;
   location: string | null;
   dateTime: number | null;

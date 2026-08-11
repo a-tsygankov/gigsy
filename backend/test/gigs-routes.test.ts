@@ -109,3 +109,35 @@ describe("gig duration", () => {
     }
   });
 });
+
+describe("gig title", () => {
+  it("stores and returns an optional title", async () => {
+    const id = "77777777-aaaa-4aaa-8aaa-777777777777";
+    const put = await api(U1, "PUT", `/api/gigs/${id}`, {
+      status: "lead",
+      title: "Costco tasting",
+    });
+    expect(put.status).toBe(201);
+
+    const got = await (await api(U1, "GET", `/api/gigs/${id}`)).json();
+    expect((got as { title: string }).title).toBe("Costco tasting");
+  });
+
+  it("treats an absent title as null rather than rejecting it", async () => {
+    const id = "77777777-bbbb-4bbb-8bbb-777777777777";
+    const put = await api(U1, "PUT", `/api/gigs/${id}`, { status: "lead" });
+
+    expect(put.status).toBe(201);
+    expect(((await put.json()) as { title: string | null }).title).toBeNull();
+  });
+
+  it("refuses a title long enough to be a note", async () => {
+    const id = "77777777-cccc-4ccc-8ccc-777777777777";
+    const res = await api(U1, "PUT", `/api/gigs/${id}`, {
+      status: "lead",
+      title: "x".repeat(201),
+    });
+
+    expect(res.status).toBe(400);
+  });
+});

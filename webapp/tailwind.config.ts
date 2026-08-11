@@ -33,7 +33,7 @@ const config: Config = {
         slate: scale("slate", [50, 100, 200, 300, 400, 500, 600, 700, 800, 900]),
         emerald: scale("emerald", [50, 100, 200, 500, 600, 700]),
         sky: scale("sky", [50, 100, 200, 700]),
-        amber: scale("amber", [50, 100, 700, 800]),
+        amber: scale("amber", [50, 100, 500, 700, 800]),
         red: scale("red", [50, 200, 500, 600]),
 
         /** Text on the accent. Stays near-white in both themes, which

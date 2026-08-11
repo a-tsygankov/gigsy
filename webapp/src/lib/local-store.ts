@@ -67,6 +67,7 @@ export class LocalStore {
     const record: Gig = {
       id,
       clientId: input.clientId ?? null,
+      title: input.title ?? null,
       status: input.status ?? "lead",
       location: input.location ?? null,
       dateTime: input.dateTime ?? null,
@@ -81,6 +82,7 @@ export class LocalStore {
     };
     const payload: OutboxPayload<GigInput> = {
       clientId: record.clientId,
+      title: record.title,
       status: record.status,
       location: record.location,
       dateTime: record.dateTime,
@@ -274,6 +276,16 @@ export class LocalStore {
 
   async hasPendingOp(entity: SyncEntityName, id: string): Promise<boolean> {
     return (await this.db.pendingOps.get(opKeyOf(entity, id))) !== undefined;
+  }
+
+  /** Every record of this entity with unsent changes. The outbox holds
+   *  at most one op per record and is drained continuously, so it is
+   *  small enough to scan rather than index. */
+  async pendingIds(entity: SyncEntityName): Promise<Set<string>> {
+    const ops = await this.db.pendingOps.toArray();
+    return new Set(
+      ops.filter((op) => op.entity === entity).map((op) => op.entityId),
+    );
   }
 
   /** Write a server-authoritative record locally, bypassing the
