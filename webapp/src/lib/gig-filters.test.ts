@@ -17,11 +17,15 @@ import {
   DEFAULT_FILTERS,
   applyGigFilters,
   dateInputToMs,
+  filtersFromSettings,
+  hasFilterParams,
   isFiltered,
   msToDateInput,
   parseGigFilters,
+  settingsPatchFromFilters,
   toSearchParams,
   type GigFilters,
+  type SettingsView,
 } from "./gig-filters.ts";
 
 const NOW = new Date(2026, 7, 10, 14, 30).getTime();
@@ -402,5 +406,159 @@ describe("date input bounds", () => {
     expect(msToDateInput(START_OF_TODAY)).toBe("2026-08-10");
     expect(msToDateInput(END_OF_TODAY)).toBe("2026-08-10");
     expect(msToDateInput(null)).toBe("");
+  });
+});
+
+/**
+ * Persisting the view (settings round-trip).
+ *
+ * Two rules carry the weight here:
+ *
+ *   - The search text is never persisted. A query that outlives the
+ *     session shows an empty list on open with nothing on screen
+ *     explaining why, and it is the one filter quicker to retype than
+ *     to diagnose.
+ *   - A saved range whose END has passed is dropped on read. Saving
+ *     "1-7 Aug" and opening the app in September should not mean an
+ *     empty list every time. An OPEN-ended range (from, no to) never
+ *     expires: "everything from March onwards" stays true.
+ */
+describe("settings round-trip", () => {
+  const SAVED: SettingsView = {
+    gigListStatuses: ["lead", "confirmed"],
+    gigListSort: "amount",
+    gigListHidePast: true,
+    gigListClientId: "client-7",
+    gigListFrom: null,
+    gigListTo: null,
+  };
+
+  it("restores everything it stores", () => {
+    const restored = filtersFromSettings(SAVED, NOW);
+    expect(restored.statuses).toEqual(["lead", "confirmed"]);
+    expect(restored.sort).toBe("amount");
+    expect(restored.hidePast).toBe(true);
+    expect(restored.clientId).toBe("client-7");
+  });
+
+  it("never restores a search — it is not stored in the first place", () => {
+    const patch = settingsPatchFromFilters({
+      ...DEFAULT_FILTERS,
+      search: "wedding",
+    });
+    expect(Object.values(patch)).not.toContain("wedding");
+    expect(filtersFromSettings(SAVED, NOW).search).toBe("");
+  });
+
+  it("survives a full round-trip unchanged", () => {
+    const filters: GigFilters = {
+      search: "",
+      statuses: ["paid"],
+      clientId: "client-3",
+      from: START_OF_TODAY,
+      to: END_OF_TODAY,
+      hidePast: false,
+      sort: "client",
+    };
+    expect(filtersFromSettings(settingsPatchFromFilters(filters), NOW)).toEqual(
+      filters,
+    );
+  });
+
+  it("keeps a range that has not finished yet", () => {
+    const restored = filtersFromSettings(
+      { ...SAVED, gigListFrom: YESTERDAY, gigListTo: END_OF_TODAY },
+      NOW,
+    );
+    expect(restored.from).toBe(YESTERDAY);
+    expect(restored.to).toBe(END_OF_TODAY);
+  });
+
+  it("drops a range that has fully passed, and only the range", () => {
+    const lastWeekStart = new Date(2026, 7, 1).getTime();
+    const lastWeekEnd = new Date(2026, 7, 7, 23, 59, 59, 999).getTime();
+    const restored = filtersFromSettings(
+      { ...SAVED, gigListFrom: lastWeekStart, gigListTo: lastWeekEnd },
+      NOW,
+    );
+    expect(restored.from).toBeNull();
+    expect(restored.to).toBeNull();
+    // The rest of the saved view is untouched — expiry is about the
+    // dates, not a reset.
+    expect(restored.statuses).toEqual(["lead", "confirmed"]);
+    expect(restored.hidePast).toBe(true);
+    expect(restored.clientId).toBe("client-7");
+  });
+
+  it("keeps an open-ended range however old its start", () => {
+    const march = new Date(2026, 2, 1).getTime();
+    const restored = filtersFromSettings(
+      { ...SAVED, gigListFrom: march, gigListTo: null },
+      NOW,
+    );
+    expect(restored.from).toBe(march);
+    expect(restored.to).toBeNull();
+  });
+
+  it("treats a range ending today as live, not passed", () => {
+    // The boundary case: END_OF_TODAY is 23:59:59.999 and NOW is 14:30.
+    // Expiring this would delete a range while the user is inside it.
+    const restored = filtersFromSettings(
+      { ...SAVED, gigListFrom: START_OF_TODAY, gigListTo: END_OF_TODAY },
+      NOW,
+    );
+    expect(restored.to).toBe(END_OF_TODAY);
+  });
+
+  it("reads a cleared view back as the defaults", () => {
+    const patch = settingsPatchFromFilters(DEFAULT_FILTERS);
+    expect(filtersFromSettings(patch, NOW)).toEqual(DEFAULT_FILTERS);
+  });
+});
+
+describe("hasFilterParams", () => {
+  it("is false for a bare list URL", () => {
+    expect(hasFilterParams(new URLSearchParams(""))).toBe(false);
+  });
+
+  it("is true for any filter key, including ones left empty", () => {
+    for (const query of [
+      "q=wedding",
+      "status=lead",
+      "client=c1",
+      "from=1",
+      "to=2",
+      "hidePast=1",
+      "sort=amount",
+      // An empty value still counts: the link said "no client filter",
+      // and the saved view must not overrule that.
+      "client=",
+    ]) {
+      expect(hasFilterParams(new URLSearchParams(query))).toBe(true);
+    }
+  });
+
+  it("ignores keys that are not ours", () => {
+    expect(hasFilterParams(new URLSearchParams("utm_source=email&ref=x"))).toBe(
+      false,
+    );
+  });
+
+  it("covers every key toSearchParams can emit", () => {
+    // The guard on the two lists drifting apart. If a new filter gains a
+    // param, this fails until hasFilterParams learns about it — without
+    // which a saved view would silently override a shared link.
+    const everything = toSearchParams({
+      search: "x",
+      statuses: ["lead"],
+      clientId: "c1",
+      from: 1,
+      to: 2,
+      hidePast: true,
+      sort: "amount",
+    });
+    for (const key of everything.keys()) {
+      expect(hasFilterParams(new URLSearchParams([[key, "v"]]))).toBe(true);
+    }
   });
 });

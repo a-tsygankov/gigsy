@@ -10,6 +10,9 @@
  * The theme is NOT here. It belongs to the device and its surroundings,
  * not the person, so it lives in localStorage.
  */
+import type { GigSort } from "./gig-filters.ts";
+import type { GigStatus } from "./types.ts";
+
 export interface Settings {
   calendarTitlePrefix: boolean;
   calendarUseDefaultReminder: boolean;
@@ -22,6 +25,17 @@ export interface Settings {
   nudgeUnpaidEnabled: boolean;
   nudgeStaleLeadDays: number;
   nudgeUnpaidDays: number;
+
+  /** How the user last left the gig list. The search text is
+   *  deliberately not among them — see gig-filters.ts. */
+  gigListStatuses: GigStatus[];
+  gigListSort: GigSort;
+  gigListHidePast: boolean;
+  gigListClientId: string | null;
+  /** Epoch ms, stored absolute. Read back through
+   *  `filtersFromSettings`, which drops a range that has fully passed. */
+  gigListFrom: number | null;
+  gigListTo: number | null;
 
   // Availability (Phase 12). The only settings that shape what an
   // unauthenticated stranger sees, so the Settings screen has to be

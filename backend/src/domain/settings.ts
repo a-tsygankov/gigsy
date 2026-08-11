@@ -19,6 +19,16 @@
  */
 import { z } from "zod";
 import { isSupportedTimeZone } from "./timezone.ts";
+import { GIG_STATUSES } from "../db/schema.ts";
+
+/**
+ * Orderings the gig list offers. Mirrors `GIG_SORTS` in
+ * webapp/src/lib/gig-filters.ts, which is where the comparators live —
+ * the server only has to know which names are real, so that a client
+ * sending a sort it invented gets a 400 rather than a stored value no
+ * screen can honour.
+ */
+export const GIG_SORTS = ["newest", "oldest", "amount", "client"] as const;
 
 /** Minutes before a gig that its calendar reminder fires. */
 const REMINDER_MIN = 0;
@@ -78,6 +88,37 @@ export const SettingsSchema = z.object({
   /** ISO 4217. `formatMoney` hardcoded USD; a gig tracker that can only
    *  speak dollars is a real limit. */
   currency: z.string().regex(/^[A-Z]{3}$/).default("USD"),
+
+  // --- Gig list view ---
+  // How the user last left their list, so it survives closing the app
+  // and follows them to another device. The URL is still the working
+  // state within a session; these are the seed when arriving with no
+  // query string.
+  //
+  // The search text is deliberately absent. A query that outlives the
+  // session produces an empty list on open with no visible cause, and
+  // it is the one filter that is quicker to retype than to explain.
+  /** Empty means every status, which is also what the list shows
+   *  unfiltered — so the default needs no special case. */
+  gigListStatuses: z.array(z.enum(GIG_STATUSES)).max(GIG_STATUSES.length).default([]),
+  gigListSort: z.enum(GIG_SORTS).default("newest"),
+  gigListHidePast: z.boolean().default(false),
+  /** Not checked against the clients table: a filter naming a client
+   *  that has since been deleted should quietly match nothing, not fail
+   *  the whole settings write. */
+  gigListClientId: z.string().min(1).max(64).nullable().default(null),
+  /**
+   * Saved date range, epoch ms.
+   *
+   * Stored absolute and unexpired. A range whose end is behind us is no
+   * longer a preference — it is a list that silently shows nothing — so
+   * it gets dropped when read, by `filtersFromSettings` in
+   * webapp/src/lib/gig-filters.ts. That happens on the client because
+   * "already past" is a question about the user's local day, which is
+   * theirs to answer and not the server's to guess.
+   */
+  gigListFrom: z.number().int().nullable().default(null),
+  gigListTo: z.number().int().nullable().default(null),
 
   // --- Notifications ---
   /** Master switch. Off means no nudge is ever sent, whatever the

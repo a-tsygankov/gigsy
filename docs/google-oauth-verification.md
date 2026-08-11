@@ -45,8 +45,44 @@ calendar sync dies weekly and everyone has to reconnect. Production
 issues long-lived refresh tokens.
 
 **So: switch to Production now; verify only when you outgrow 100 users
-or the warning screen starts costing you.** Pair it with `ALLOWED_EMAILS`
-— Google's cap limits how many can connect, the allowlist decides who.
+or the warning screen starts costing you.**
+
+### Order matters here
+
+Google's Testing mode is doing real work today: its test-user list is
+the only thing keeping strangers out, because an unset `ALLOWED_EMAILS`
+admits everyone. Switching to Production removes that gate. So:
+
+1. **Set `ALLOWED_EMAILS` first**, and confirm it took effect —
+   `GET /api/auth/config` reports `inviteOnly: true` once a list is in
+   force.
+2. **Then** switch the publishing status to Production.
+
+Doing it the other way round leaves a window in which any Google account
+on earth can sign in. The window may be short, but it is the kind of
+thing that is only noticed afterwards.
+
+`ALLOWED_EMAILS` is a **secret**, set with:
+
+```
+wrangler secret put ALLOWED_EMAILS
+```
+
+Paste the whole comma-separated list — it replaces rather than appends,
+so adding a tester means re-entering everyone, and dropping yourself
+locks you out of your own deployment.
+
+It must never be added to wrangler.toml `[vars]`. The repo is public, so
+a var would publish the addresses; and the two cannot coexist anyway —
+Cloudflare rejects the secret while a var of that name is bound:
+
+```
+Binding name 'ALLOWED_EMAILS' already in use  [code: 10053]
+```
+
+Which means the ordering is forced: the `[vars]` entry has to be gone
+from the **deployed** Worker before the secret can be set at all.
+`backend/test/allowlist-config.test.ts` fails if anyone re-adds it.
 
 ---
 
@@ -134,7 +170,7 @@ reviewer is actually asking, which is not "what does your app do" but
 | 7 | App name, logo, support email on the consent screen | ❌ | Must match the live app — reviewers compare them |
 | 8 | Demo video (unlisted YouTube) | ❌ | Shot list below |
 | 9 | Scope justifications | ✅ | Above |
-| 10 | `ALLOWED_EMAILS` set | ❌ | Independent of Google, but do it before inviting anyone |
+| 10 | `ALLOWED_EMAILS` set | ❌ | A **Worker secret**, never a `[vars]` entry — the repo is public and the list is other people's addresses. Set it **before** switching to Production |
 
 Items 4–8 are the real work, and 4 gates 5 and 6. Buying the domain also
 unblocks the email-capture work, which was waiting on a domain for the
@@ -171,6 +207,8 @@ Reviewers reject videos that show the app but not the grant.
 
 ## Submission order
 
+0. **Set `ALLOWED_EMAILS` and confirm `inviteOnly: true`.** Everything
+   below opens the door wider; this is what decides who walks through.
 1. Buy the domain; point Cloudflare Pages at it.
 2. Verify it in Search Console, using the Google account that owns the
    Cloud project.

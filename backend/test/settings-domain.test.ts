@@ -37,6 +37,16 @@ describe("parseSettings", () => {
       nudgeUnpaidEnabled: true,
       nudgeStaleLeadDays: 7,
       nudgeUnpaidDays: 14,
+      // An unfiltered list, newest first — what a user who has never
+      // touched the controls already sees. The saved view has to start
+      // as the unsaved one, or the first visit looks like a filter
+      // nobody set.
+      gigListStatuses: [],
+      gigListSort: "newest",
+      gigListHidePast: false,
+      gigListClientId: null,
+      gigListFrom: null,
+      gigListTo: null,
       availabilityDisplayName: null,
       availabilityTimeZone: "UTC",
       availabilityWorkingWeek: [
@@ -250,5 +260,83 @@ describe("mergeSettings", () => {
     const merged = mergeSettings(current, { currency: "JPY" });
 
     expect(merged.currency).toBe("JPY");
+  });
+});
+
+/**
+ * The saved gig-list view.
+ *
+ * The server's whole job for these is to refuse values no screen could
+ * honour. A stored sort the client has never heard of is not a
+ * preference, it is a list that renders in an order nobody chose — and
+ * a settings blob that can hold one is a bug waiting for a redeploy.
+ */
+describe("gig list view", () => {
+  it("accepts a complete saved view", () => {
+    const parsed = SettingsPatchSchema.safeParse({
+      gigListStatuses: ["lead", "paid"],
+      gigListSort: "amount",
+      gigListHidePast: true,
+      gigListClientId: "abc123",
+      gigListFrom: 1_754_784_000_000,
+      gigListTo: 1_755_388_799_999,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects a sort no client implements", () => {
+    expect(SettingsPatchSchema.safeParse({ gigListSort: "sideways" }).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects a status that is not one of ours", () => {
+    expect(
+      SettingsPatchSchema.safeParse({ gigListStatuses: ["invoiced"] }).success,
+    ).toBe(false);
+  });
+
+  it("allows the empty status list — it means no filter, not no answer", () => {
+    expect(SettingsPatchSchema.safeParse({ gigListStatuses: [] }).success).toBe(
+      true,
+    );
+  });
+
+  it("allows a null client and null bounds — every filter must be clearable", () => {
+    const parsed = SettingsPatchSchema.safeParse({
+      gigListClientId: null,
+      gigListFrom: null,
+      gigListTo: null,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("keeps a client id that no longer exists", () => {
+    // Deliberately not checked against the clients table. A filter
+    // naming a deleted client should quietly match nothing; failing the
+    // whole settings write would strand every OTHER preference in the
+    // same patch.
+    expect(
+      SettingsPatchSchema.safeParse({ gigListClientId: "deleted-long-ago" })
+        .success,
+    ).toBe(true);
+  });
+
+  it("does not store the search text", () => {
+    // The one field of the view that is deliberately transient. If it
+    // ever becomes storable, this test should be the thing that argues
+    // about it.
+    expect(DEFAULT_SETTINGS).not.toHaveProperty("gigListSearch");
+    const parsed = SettingsPatchSchema.safeParse({ gigListSearch: "wedding" });
+    expect(parsed.success && "gigListSearch" in parsed.data).toBe(false);
+  });
+
+  it("survives a row written before the view existed", () => {
+    const old = JSON.stringify({ currency: "GBP", nudgeUnpaidDays: 30 });
+    const settings = parseSettings(old);
+    expect(settings.currency).toBe("GBP");
+    expect(settings.gigListSort).toBe("newest");
+    expect(settings.gigListStatuses).toEqual([]);
+    expect(settings.gigListFrom).toBeNull();
   });
 });

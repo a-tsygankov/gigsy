@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { requireTestAuth } from "./helpers/test-auth.ts";
+import { requireTestAuth, resetGigListView } from "./helpers/test-auth.ts";
 
 /**
  * The gig list's own controls (search, status chips, clear).
@@ -15,6 +15,11 @@ import { requireTestAuth } from "./helpers/test-auth.ts";
 
 test.beforeEach(async ({ page, request, baseURL }) => {
   await requireTestAuth(request, baseURL!);
+  // The saved view outlives the browser context, so every test here
+  // starts from an unfiltered list rather than from whatever the last
+  // one left behind. Without it the order of this file changes its
+  // results — a chip click toggles OFF when the filter is already on.
+  await resetGigListView(request, baseURL!);
   await page.goto("/login");
   await page.getByTestId("test-signin").click();
   await expect(page.getByTestId("tab-bar")).toBeVisible();
@@ -119,4 +124,99 @@ test("the gig list does not scroll sideways on a phone", async ({ page }) => {
   // The tab bar must stay clickable, which is what the overflow broke.
   await page.getByRole("link", { name: "Clients" }).click();
   await expect(page.getByRole("heading", { name: "Clients" })).toBeVisible();
+});
+
+/**
+ * The saved view (settings-backed).
+ *
+ * These cross the API on purpose — the unit tests already pin the
+ * conversion rules, but only a round trip proves the preference
+ * actually left the browser and came back.
+ *
+ * The panel's open/closed state is local to the component, so it shuts
+ * again after every navigation, and the status chips live inside it.
+ * Anything asserting on a chip has to open the panel first, or it is
+ * asserting on an element that was never rendered — which is a pass
+ * that means nothing and a failure that misleads.
+ */
+async function openFilters(page: Page) {
+  await page.getByTestId("gig-filters-toggle").click();
+  await expect(page.getByTestId("gig-status-filter")).toBeVisible();
+}
+
+// Other spec files share this dev user and list gigs too, so the reset
+// runs on the way out as well as on the way in.
+test.afterEach(async ({ request, baseURL }) => {
+  await resetGigListView(request, baseURL!);
+});
+
+test("a status filter survives a reload, without a URL to carry it", async ({
+  page,
+}) => {
+  await addGig(page, `persist-status-${Date.now()}`);
+
+  await page.getByTestId("gig-filters-toggle").click();
+  await page.getByTestId("gig-status-lead").click();
+  await expect(page).toHaveURL(/status=lead/);
+  await page.waitForTimeout(1000);
+
+  // A bare URL: nothing in the address bar could restore this, so the
+  // filter can only come back from the server.
+  await page.goto("/gigs");
+  await expect(page).toHaveURL(/status=lead/);
+  await openFilters(page);
+  await expect(page.getByTestId("gig-status-lead")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+});
+
+test("a shared link beats the saved view", async ({ page }) => {
+  await addGig(page, `link-wins-${Date.now()}`);
+
+  await page.getByTestId("gig-filters-toggle").click();
+  await page.getByTestId("gig-status-lead").click();
+  await expect(page).toHaveURL(/status=lead/);
+  await page.waitForTimeout(1000);
+
+  // Someone sends you a link to their paid gigs. It must mean that,
+  // whatever you last left on screen.
+  await page.goto("/gigs?status=paid");
+  await expect(page).toHaveURL(/status=paid/);
+  await expect(page).not.toHaveURL(/status=lead/);
+  await openFilters(page);
+  await expect(page.getByTestId("gig-status-lead")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await expect(page.getByTestId("gig-status-paid")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+});
+
+test("Clear filters stays cleared after a reload", async ({ page }) => {
+  // The regression this guards: seeding from settings on every empty
+  // URL would put the filter straight back, so Clear would appear to do
+  // nothing at all.
+  await addGig(page, `clear-sticks-${Date.now()}`);
+
+  await page.getByTestId("gig-filters-toggle").click();
+  await page.getByTestId("gig-status-lead").click();
+  await expect(page).toHaveURL(/status=lead/);
+  await page.waitForTimeout(1000);
+
+  await page.getByTestId("gig-filters-clear").click();
+  await expect(page).not.toHaveURL(/status=/);
+  await page.waitForTimeout(1000);
+
+  await page.goto("/gigs");
+  await expect(page).not.toHaveURL(/status=/);
+  await openFilters(page);
+  await expect(page.getByTestId("gig-status-lead")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
 });
