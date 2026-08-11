@@ -42,3 +42,40 @@ export async function requireTestAuth(
   }
   test.skip(true, "test auth disabled on this deployment");
 }
+
+/**
+ * Put the shared dev user's saved gig-list view back to defaults.
+ *
+ * The view is persisted server-side, so a test that leaves a status
+ * filter behind narrows the list for every test that follows — and,
+ * worse, silently inverts the ones that toggle a chip, because clicking
+ * an already-active filter turns it OFF. That is a failure in a test
+ * that did nothing wrong, which is the expensive kind.
+ *
+ * Driven through the API rather than the UI on purpose. The filter
+ * panel is closed after every navigation and its controls are not in
+ * the DOM until it is opened, so a UI-based reset quietly does nothing
+ * — which is exactly how the contamination got in.
+ */
+export async function resetGigListView(
+  request: APIRequestContext,
+  baseURL: string,
+): Promise<void> {
+  const login = await request.post(`${baseURL}/api/auth/test-login`, {
+    data: { email: "dev@test.local" },
+  });
+  if (!login.ok()) return; // No test auth here; the spec skips anyway.
+  const { accessToken } = (await login.json()) as { accessToken: string };
+
+  await request.patch(`${baseURL}/api/settings`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+    data: {
+      gigListStatuses: [],
+      gigListSort: "newest",
+      gigListHidePast: false,
+      gigListClientId: null,
+      gigListFrom: null,
+      gigListTo: null,
+    },
+  });
+}

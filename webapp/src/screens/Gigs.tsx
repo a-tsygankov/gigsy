@@ -1,12 +1,16 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData, useSyncState } from "../lib/app-context.tsx";
 import { formatMoney } from "../lib/format.ts";
 import { gigDisplayTitle } from "../lib/gig-title.ts";
+import { useSettings } from "./settings/useSettings.ts";
 import {
   applyGigFilters,
+  filtersFromSettings,
+  hasFilterParams,
   parseGigFilters,
+  settingsPatchFromFilters,
   toSearchParams,
   type GigFilters as Filters,
 } from "../lib/gig-filters.ts";
@@ -61,8 +65,58 @@ export function Gigs() {
   // open a gig and come back is not worth setting in the first place.
   const [params, setParams] = useSearchParams();
   const filters = parseGigFilters(params);
+
+  // ...and in settings, so it also survives closing the app and follows
+  // the user to another device. The URL stays the working state; these
+  // are only the seed.
+  const { settings, update } = useSettings();
+
+  /**
+   * Restore the saved view — once, and only into an empty URL.
+   *
+   * "Once" is not an optimisation. Without the guard, clearing every
+   * filter empties the URL, the effect sees an empty URL, and it puts
+   * the saved view straight back: the Clear button would visibly fail.
+   * After the first pass the URL is authoritative for this session.
+   *
+   * "Only into an empty URL" is what keeps a shared link meaning what
+   * it says. Someone opening ?status=lead asked for leads, whatever
+   * this user last left on screen.
+   */
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || settings === undefined) return;
+    seeded.current = true;
+    if (hasFilterParams(params)) return;
+    const saved = toSearchParams(filtersFromSettings(settings, Date.now()));
+    // Nothing worth restoring is not the same as restoring nothing —
+    // skip rather than push an identical empty URL.
+    if (saved.toString() !== "") setParams(saved, { replace: true });
+  }, [settings, params, setParams]);
+
+  /**
+   * The last view actually written, so typing does not flood the sync.
+   *
+   * Every keystroke in the search box calls setFilters, but search is
+   * not persisted — so each one would post an identical patch. Skipping
+   * writes that change nothing solves that at source.
+   *
+   * Deliberately not a debounce, which was the first attempt: a timer
+   * has to be cancelled on unmount, and cancelling it drops the save
+   * when someone changes a filter and immediately opens a gig — the
+   * exact moment the setting was worth keeping.
+   */
+  const lastWritten = useRef<string | null>(null);
+
   function setFilters(next: Filters) {
     setParams(toSearchParams(next), { replace: true });
+    // Every field, not only the changed one: a cleared filter has to
+    // persist as cleared rather than leave the old value behind.
+    const patch = settingsPatchFromFilters(next);
+    const fingerprint = JSON.stringify(patch);
+    if (fingerprint === lastWritten.current) return;
+    lastWritten.current = fingerprint;
+    update(patch);
   }
 
   const all = gigs.data ?? [];

@@ -161,6 +161,75 @@ export function msToDateInput(ms: number | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/**
+ * The saved half of a view — the settings fields this module owns.
+ *
+ * Structurally a subset of `Settings`, declared here rather than
+ * imported so that the pure filter logic does not depend on the whole
+ * settings surface. `settings-schema.ts` is the mirror that has to
+ * match; a drift shows up as a type error at the call site.
+ */
+export interface SettingsView {
+  gigListStatuses: GigStatus[];
+  gigListSort: GigSort;
+  gigListHidePast: boolean;
+  gigListClientId: string | null;
+  gigListFrom: number | null;
+  gigListTo: number | null;
+}
+
+/**
+ * A saved range is spent once its end is behind us.
+ *
+ * Without this, saving "1-7 Aug" and coming back in September means an
+ * empty list on every open, with nothing on screen saying why — which
+ * reads as lost data rather than as a filter. Dropping BOTH bounds
+ * matters: keeping `from` alone would silently widen the range into
+ * something the user never chose.
+ *
+ * An open-ended range (a `from` with no `to`) never expires — "March
+ * onwards" is still true in December — and a range ending today is
+ * live, because the user is inside it.
+ */
+function expirePastRange(
+  from: number | null,
+  to: number | null,
+  now: number,
+): { from: number | null; to: number | null } {
+  if (to !== null && to < startOfDay(now)) return { from: null, to: null };
+  return { from, to };
+}
+
+/** Seed a view from what was saved. `now` is a parameter for the same
+ *  reason it is everywhere else here: local midnight is the boundary. */
+export function filtersFromSettings(saved: SettingsView, now: number): GigFilters {
+  const { from, to } = expirePastRange(saved.gigListFrom, saved.gigListTo, now);
+  return {
+    // Never persisted, so never restored — always the empty box.
+    search: DEFAULT_FILTERS.search,
+    statuses: saved.gigListStatuses,
+    clientId: saved.gigListClientId,
+    from,
+    to,
+    hidePast: saved.gigListHidePast,
+    sort: saved.gigListSort,
+  };
+}
+
+/** The inverse, minus the search. Returns every field rather than only
+ *  the changed ones, so clearing a filter persists as cleared instead of
+ *  leaving the old value behind. */
+export function settingsPatchFromFilters(filters: GigFilters): SettingsView {
+  return {
+    gigListStatuses: [...filters.statuses],
+    gigListSort: filters.sort,
+    gigListHidePast: filters.hidePast,
+    gigListClientId: filters.clientId,
+    gigListFrom: filters.from,
+    gigListTo: filters.to,
+  };
+}
+
 function isGigStatus(value: string): value is GigStatus {
   return (GIG_STATUSES as readonly string[]).includes(value);
 }
@@ -173,6 +242,30 @@ function parseMs(value: string | null): number | null {
   if (value === null || value === "") return null;
   const ms = Number(value);
   return Number.isFinite(ms) ? ms : null;
+}
+
+/** Every key `toSearchParams` can emit. Kept next to it deliberately —
+ *  the two drift apart silently otherwise, and the cost is a saved view
+ *  quietly overriding a shared link. */
+const FILTER_PARAM_KEYS = [
+  "q",
+  "status",
+  "client",
+  "from",
+  "to",
+  "hidePast",
+  "sort",
+] as const;
+
+/**
+ * Whether the URL is already expressing a view.
+ *
+ * The question behind it is "did someone ask for this list, or just
+ * open it" — a link with `?status=lead` must win over whatever was
+ * saved, or shared links stop meaning what they say.
+ */
+export function hasFilterParams(params: URLSearchParams): boolean {
+  return FILTER_PARAM_KEYS.some((key) => params.has(key));
 }
 
 export function parseGigFilters(params: URLSearchParams): GigFilters {
