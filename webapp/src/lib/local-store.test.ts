@@ -88,6 +88,7 @@ describe("LocalStore CRUD + outbox", () => {
     await store.applyServerRecord("gig", {
       id: G1,
       clientId: null,
+      title: null,
       status: "paid",
       location: null,
       dateTime: null,
@@ -229,6 +230,7 @@ describe("the outbox payload carries everything the server accepts", () => {
       "notes",
       "source",
       "status",
+      "title",
     ]);
   });
 

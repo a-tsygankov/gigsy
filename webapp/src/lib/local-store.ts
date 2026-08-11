@@ -67,6 +67,7 @@ export class LocalStore {
     const record: Gig = {
       id,
       clientId: input.clientId ?? null,
+      title: input.title ?? null,
       status: input.status ?? "lead",
       location: input.location ?? null,
       dateTime: input.dateTime ?? null,
@@ -81,6 +82,7 @@ export class LocalStore {
     };
     const payload: OutboxPayload<GigInput> = {
       clientId: record.clientId,
+      title: record.title,
       status: record.status,
       location: record.location,
       dateTime: record.dateTime,

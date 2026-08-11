@@ -28,6 +28,7 @@ function gig(over: Partial<Gig> = {}): Gig {
   return {
     id: "g1",
     clientId: "c1",
+    title: null,
     status: "paid",
     location: "Costco on 5th",
     dateTime: SEP,

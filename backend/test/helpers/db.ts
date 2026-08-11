@@ -10,6 +10,7 @@ import pushSubscriptionsSql from "../../migrations/0007_push_subscriptions.sql?r
 import serverModifiedAtSql from "../../migrations/0008_server_modified_at.sql?raw";
 import userSettingsSql from "../../migrations/0009_user_settings.sql?raw";
 import availabilityTokensSql from "../../migrations/0010_availability_tokens.sql?raw";
+import gigTitleSql from "../../migrations/0011_gig_title.sql?raw";
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
@@ -25,6 +26,7 @@ const MIGRATIONS = [
   serverModifiedAtSql,
   userSettingsSql,
   availabilityTokensSql,
+  gigTitleSql,
 ];
 
 /**

@@ -9,6 +9,8 @@ export const GIG_STATUSES: GigStatus[] = ["lead", "confirmed", "completed", "pai
 export interface Gig {
   id: string;
   clientId: string | null;
+  /** Optional name; the UI falls back to the first line of notes. */
+  title: string | null;
   status: GigStatus;
   location: string | null;
   dateTime: number | null;
@@ -25,6 +27,7 @@ export interface Gig {
 
 export interface GigInput {
   clientId?: string | null;
+  title?: string | null;
   status?: GigStatus;
   location?: string | null;
   dateTime?: number | null;

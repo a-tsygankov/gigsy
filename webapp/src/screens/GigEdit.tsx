@@ -30,6 +30,7 @@ function formatDuration(minutes: number): string {
 
 interface FormState {
   clientId: string; // "" = none
+  title: string;
   status: GigStatus;
   dateTime: string; // datetime-local value
   durationMinutes: string; // "" = not set
@@ -41,6 +42,7 @@ interface FormState {
 
 const BLANK: FormState = {
   clientId: "",
+  title: "",
   status: "lead",
   dateTime: "",
   durationMinutes: "",
@@ -75,6 +77,7 @@ export function GigEdit() {
     if (gig.data === undefined) return;
     setForm({
       clientId: gig.data.clientId ?? "",
+      title: gig.data.title ?? "",
       status: gig.data.status,
       dateTime: msToLocalInput(gig.data.dateTime),
       durationMinutes:
@@ -187,6 +190,7 @@ export function GigEdit() {
     setMoneyError(null);
     save.mutate({
       clientId: form.clientId === "" ? null : form.clientId,
+      title: form.title.trim() === "" ? null : form.title.trim(),
       status: form.status,
       dateTime: localInputToMs(form.dateTime),
       durationMinutes:
@@ -206,6 +210,16 @@ export function GigEdit() {
           <p className="text-sm text-slate-500">Loading…</p>
         ) : (
           <>
+            <Field label="Title (optional)">
+              <Input
+                data-testid="gig-title"
+                maxLength={200}
+                placeholder="Leave empty to use the first line of notes"
+                value={form.title}
+                onChange={(e) => set("title", e.target.value)}
+              />
+            </Field>
+
             <Field label="Client">
               <Select
                 value={form.clientId}

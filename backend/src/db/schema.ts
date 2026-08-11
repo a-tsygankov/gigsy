@@ -110,6 +110,9 @@ export const gigs = sqliteTable(
       .notNull()
       .references(() => users.id),
     clientId: text("client_id").references(() => clients.id),
+    /** Optional name. Most gigs are identified by their client; this
+     *  is for when that is not enough. */
+    title: text("title"),
     status: text("status").$type<GigStatus>().notNull().default("lead"),
     location: text("location"),
     dateTime: integer("date_time"),

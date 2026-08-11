@@ -195,6 +195,37 @@ test("reopening a just-edited gig shows the new values", async ({ page }) => {
   await expect(page.getByTestId("gig-duration")).toHaveValue("300");
 });
 
+/**
+ * A gig's optional title, proven past Dexie. The same trap as the
+ * duration: saving and reading straight back only shows the local copy
+ * kept it, so this drains the outbox and reloads, forcing the pull that
+ * replaces the local gig with the server's.
+ *
+ * The list heading still shows the client, not gigDisplayTitle — that
+ * wiring comes later — so the list assertion here is only that the gig
+ * survived; the title itself is checked where it is actually rendered.
+ */
+test("a gig title survives a server round-trip", async ({ page }) => {
+  const marker = `title-booth-${Date.now()}`;
+  const title = `Costco tasting ${Date.now()}`;
+
+  await page.getByRole("link", { name: "Gigs" }).click();
+  await page.getByRole("link", { name: "Add gig" }).click();
+  await page.getByLabel("Location").fill(marker);
+  await page.getByTestId("gig-title").fill(title);
+  await page.getByRole("button", { name: "Save gig" }).click();
+
+  // Let the save land before reloading — click() returns on dispatch.
+  await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+  await page.reload();
+
+  // The list is now populated from the server copy.
+  await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
+  await page.getByText(marker).click();
+  await expect(page.getByTestId("gig-title")).toHaveValue(title);
+});
+
 test("the time field offers quarter hours but preserves captured minutes", async ({
   page,
 }) => {
