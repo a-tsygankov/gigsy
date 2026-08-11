@@ -367,6 +367,8 @@ export class ApiClient {
     updated: number;
     deleted: number;
     failed: number;
+    /** Present only when failures share an actionable cause. */
+    failureReason?: "api-disabled" | "auth" | "other";
   }> {
     return this.request("POST", "/api/calendar/sync-now");
   }

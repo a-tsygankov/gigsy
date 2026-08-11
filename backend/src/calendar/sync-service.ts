@@ -21,6 +21,10 @@ import type { Settings } from "../domain/settings.ts";
 import { gigOccupies } from "../domain/gig-time.ts";
 
 export interface CalendarClientLike {
+  /** Optional: why the last call failed, when knowing changes the
+   *  advice given. Absent on the test stubs, which never fail for a
+   *  reason worth explaining. */
+  lastFailureReason?(): "api-disabled" | "auth" | "other" | null;
   createEvent(event: CalendarEventInput): Promise<string | null>;
   patchEvent(eventId: string, event: CalendarEventInput): Promise<boolean>;
   deleteEvent(eventId: string): Promise<boolean>;
@@ -31,6 +35,10 @@ export interface CalendarSyncResult {
   updated: number;
   deleted: number;
   failed: number;
+  /** Set when failures share a cause the user can act on. "api-disabled"
+   *  means the Calendar API is off in the Cloud project — reconnecting
+   *  cannot fix that, and telling someone to try is worse than silence. */
+  failureReason?: "api-disabled" | "auth" | "other";
   /** Orphaned events removed from the deleted-gig queue. Counted
    * apart from `failed` so a stuck cleanup never stalls the gig
    * watermark — the queued row is its own retry. */
@@ -152,6 +160,9 @@ export async function syncUserGigs(
 
   if (result.failed === 0) {
     await usersRepo.setLastCalendarSyncAt(userId, now);
+  } else {
+    const reason = client.lastFailureReason?.() ?? null;
+    if (reason !== null) result.failureReason = reason;
   }
   return result;
 }
