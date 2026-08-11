@@ -82,3 +82,41 @@ test("a status filter reaches the URL and Clear filters removes it", async ({ pa
   );
   await expect(page.getByTestId("gig-filters-clear")).toHaveCount(0);
 });
+
+/**
+ * The filter row overflowed a phone screen: Input and Select bake
+ * `w-full` into their shell class, so the `w-36` passed to the sort
+ * select lost to it in the stylesheet and the select refused to shrink.
+ *
+ * It broke more than looks. A horizontally scrollable page moves the
+ * hit target for the fixed tab bar, so clicking "Clients" from the gig
+ * list timed out — which is how CI found it, in a pre-existing
+ * navigation test rather than any of the new ones.
+ */
+test("the gig list does not scroll sideways on a phone", async ({ page }) => {
+  // Self-contained: the filter bar only renders once there is at least
+  // one gig, and CI starts from an empty database.
+  const marker = `overflow-${Date.now()}`;
+  await page.getByRole("link", { name: "Gigs" }).click();
+  await page.getByRole("link", { name: "Add gig" }).click();
+  await page.getByLabel("Location").fill(marker);
+  await page.getByRole("button", { name: "Save gig" }).click();
+  await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("gig-filters")).toBeVisible({ timeout: 15_000 });
+
+  const overflows = () =>
+    page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    );
+
+  expect(await overflows()).toBe(false);
+
+  // …and with the panel open, where the date inputs live.
+  await page.getByTestId("gig-filters-toggle").click();
+  await expect(page.getByTestId("gig-from")).toBeVisible();
+  expect(await overflows()).toBe(false);
+
+  // The tab bar must stay clickable, which is what the overflow broke.
+  await page.getByRole("link", { name: "Clients" }).click();
+  await expect(page.getByRole("heading", { name: "Clients" })).toBeVisible();
+});
