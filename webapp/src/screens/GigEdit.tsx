@@ -109,8 +109,12 @@ export function GigEdit() {
   const save = useMutation({
     mutationFn: (input: GigInput) =>
       api.putGig(isNew ? crypto.randomUUID() : id, input),
-    onSuccess: async () => {
+    // The list AND this gig's own cache entry. Invalidating only the
+    // list left ["gig", id] stale for its 30s window, so reopening a
+    // gig you had just edited showed the values you replaced.
+    onSuccess: async (saved) => {
       await queryClient.invalidateQueries({ queryKey: ["gigs"] });
+      await queryClient.invalidateQueries({ queryKey: ["gig", saved.id] });
       navigate("/gigs");
     },
   });

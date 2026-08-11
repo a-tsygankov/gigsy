@@ -172,3 +172,25 @@ test("a gig duration and a billable expense survive a server round-trip", async 
   await page.getByText(marker).first().click();
   await expect(page.getByTestId("expense-reimbursable")).toBeChecked();
 });
+
+// Editing a gig then reopening it used to show the pre-edit values:
+// save invalidated the LIST query but not the single-gig one, and the
+// 30s staleTime happily served the old copy.
+test("reopening a just-edited gig shows the new values", async ({ page }) => {
+  const marker = `stale-check-${Date.now()}`;
+
+  await page.getByRole("link", { name: "Gigs" }).click();
+  await page.getByRole("link", { name: "Add gig" }).click();
+  await page.getByLabel("Location").fill(marker);
+  await page.getByRole("button", { name: "Save gig" }).click();
+  await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
+
+  // Edit it: change the duration, save, reopen immediately.
+  await page.getByText(marker).click();
+  await page.getByTestId("gig-duration").selectOption("300");
+  await page.getByRole("button", { name: "Save gig" }).click();
+  await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
+
+  await page.getByText(marker).click();
+  await expect(page.getByTestId("gig-duration")).toHaveValue("300");
+});
