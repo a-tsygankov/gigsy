@@ -54,41 +54,33 @@ export function GigFilters({
 
   return (
     <section data-testid="gig-filters" className="space-y-2">
-      {/* Sizing lives on these wrappers, not on the controls. Input and
-          Select both bake `w-full` into their shell class and prepend
-          it, so a `w-36` passed in loses to it in the stylesheet — the
-          select stayed full-width, refused to shrink, and pushed the
-          row off a 412px screen. A page that scrolls sideways also
-          breaks clicks on the fixed tab bar. */}
       <div className="flex gap-2">
-        <div className="min-w-0 flex-1">
-          <Input
-            type="search"
-            data-testid="gig-search"
-            aria-label="Search gigs"
-            placeholder="Search gigs"
-            value={filters.search}
-            onChange={(e) => onChange({ ...filters, search: e.target.value })}
-          />
-        </div>
-        <div className="w-36 shrink-0">
-          <Select
-            data-testid="gig-sort"
-            aria-label="Sort gigs"
-            value={filters.sort}
-            onChange={(e) => {
-              const sort = e.target.value;
-              const known = GIG_SORTS.find((s) => s === sort);
-              onChange({ ...filters, sort: known ?? DEFAULT_FILTERS.sort });
-            }}
-          >
-            {GIG_SORTS.map((sort) => (
-              <option key={sort} value={sort}>
-                {SORT_LABELS[sort]}
-              </option>
-            ))}
-          </Select>
-        </div>
+        <Input
+          type="search"
+          data-testid="gig-search"
+          aria-label="Search gigs"
+          placeholder="Search gigs"
+          className="min-w-0 flex-1"
+          value={filters.search}
+          onChange={(e) => onChange({ ...filters, search: e.target.value })}
+        />
+        <Select
+          data-testid="gig-sort"
+          aria-label="Sort gigs"
+          className="w-36 shrink-0"
+          value={filters.sort}
+          onChange={(e) => {
+            const sort = e.target.value;
+            const known = GIG_SORTS.find((s) => s === sort);
+            onChange({ ...filters, sort: known ?? DEFAULT_FILTERS.sort });
+          }}
+        >
+          {GIG_SORTS.map((sort) => (
+            <option key={sort} value={sort}>
+              {SORT_LABELS[sort]}
+            </option>
+          ))}
+        </Select>
       </div>
 
       <div className="flex items-center justify-between gap-2">
