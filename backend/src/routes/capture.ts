@@ -6,14 +6,10 @@ import { serializeDraft } from "./drafts.ts";
 import { providerFromEnv } from "../capture/providers.ts";
 import type { ExtractionProvider } from "../capture/extraction.ts";
 import { createDraftFromCapture, toBase64 } from "../capture/capture-service.ts";
+import { hasCaptureBudget } from "../capture/limits.ts";
+import { captureAddressFor } from "../capture/address.ts";
 
 export type ProviderFactory = (env: Bindings) => ExtractionProvider;
-
-function startOfUtcDayMs(): number {
-  const now = new Date();
-  now.setUTCHours(0, 0, 0, 0);
-  return now.getTime();
-}
 
 /** Photo capture (docs/plan.md §8). DI'd provider factory so tests
  * can inject failures; production uses the configured provider. */
@@ -22,16 +18,26 @@ export function makeCaptureRouter(
 ) {
   return new Hono<{ Bindings: Bindings; Variables: AuthVars }>()
     .use("*", requireAuth)
+    /**
+     * Where to forward a booking email.
+     *
+     * null means the deployment has no capture domain configured, and
+     * the screen says capture is off — an address that would bounce is
+     * worse than none, because someone will type it into a mail client
+     * and trust it.
+     */
+    .get("/address", (c) =>
+      c.json({
+        address: captureAddressFor(c.get("userId"), c.env.CAPTURE_EMAIL_DOMAIN),
+      }),
+    )
     .post("/photo", async (c) => {
       const userId = c.get("userId");
 
-      // Cost control: captures per user per UTC day.
-      const cap = Number(c.env.AI_DAILY_CAP ?? "50");
-      const used = await DraftsRepo.for(c.env.DB).countSince(
-        userId,
-        startOfUtcDayMs(),
-      );
-      if (used >= cap) {
+      // Cost control: captures per user per UTC day. Shared with the
+      // email handler so the two cannot drift — they spend the same
+      // provider key.
+      if (!(await hasCaptureBudget(c.env, userId))) {
         return c.json({ error: "daily capture limit reached" }, 429);
       }
 

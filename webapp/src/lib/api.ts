@@ -323,6 +323,14 @@ export class ApiClient {
     return this.request("GET", "/api/calendar/freebusy-check");
   }
 
+  /**
+   * Where this user forwards booking emails, or null when the
+   * deployment has no capture domain configured.
+   */
+  getCaptureAddress(): Promise<{ address: string | null }> {
+    return this.request("GET", "/api/capture/address");
+  }
+
   // ── availability link (Phase 12) ─────────────────────────────────
   /** Whether a link is live and when it was made — never the token
    *  itself, which only exists in the response to createAvailabilityLink. */

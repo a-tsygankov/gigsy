@@ -97,3 +97,31 @@ test("tapping the switch itself toggles a working-hours day", async ({ page }) =
 
   await expect(sunday).toBeChecked({ checked: !before });
 });
+
+/**
+ * The forwarding address for email capture.
+ *
+ * Both outcomes are legitimate: an address when CAPTURE_EMAIL_DOMAIN
+ * is configured, and a plain "not switched on" line when it is not.
+ * Asserting the pair — rather than one of them — is what keeps this
+ * honest on a deployment that has not enabled capture yet.
+ */
+test("capture either offers a forwarding address or says it is off", async ({
+  page,
+}) => {
+  await page.goto("/settings");
+
+  const section = page.getByTestId("settings-capture");
+  await expect(section).toBeVisible();
+
+  await expect(
+    page.getByTestId("capture-address").or(page.getByTestId("capture-unconfigured")),
+  ).toBeVisible({ timeout: 15_000 });
+
+  // When there IS an address it must be this user's, in the form the
+  // inbound handler parses.
+  const value = page.getByTestId("capture-address-value");
+  if (await value.isVisible().catch(() => false)) {
+    await expect(value).toHaveText(/^u-[\w-]+@\S+$/);
+  }
+});

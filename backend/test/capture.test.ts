@@ -144,3 +144,59 @@ describe("capture router (unit — injected provider)", () => {
     expect((await post(app, callEnv)).status).toBe(429);
   });
 });
+
+/**
+ * Where to forward a booking email.
+ *
+ * The handler has worked since Phase 5, but nothing ever told a user
+ * their address — a working inbox nobody can find is not a feature.
+ */
+describe("GET /api/capture/address", () => {
+  async function getAddress(
+    userId: string,
+    domain: string | undefined,
+  ): Promise<{ address: string | null }> {
+    const token = await issueAccessToken({
+      userId,
+      secret: env.AUTH_SECRET,
+      ttlSeconds: 900,
+    });
+    const app = new Hono().route("/api/capture", makeCaptureRouter());
+    const res = await app.request(
+      "/api/capture/address",
+      { headers: { Authorization: `Bearer ${token}` } },
+      { ...env, CAPTURE_EMAIL_DOMAIN: domain } as unknown as Bindings,
+    );
+    expect(res.status).toBe(200);
+    return (await res.json()) as { address: string | null };
+  }
+
+  it("gives the user their own address when a domain is configured", async () => {
+    expect(await getAddress(U1, "gigsy.app")).toEqual({
+      address: `u-${U1}@gigsy.app`,
+    });
+  });
+
+  it("answers null when capture is not configured for this deployment", async () => {
+    // The screen then says capture is off, rather than showing an
+    // address that would bounce.
+    expect(await getAddress(U1, undefined)).toEqual({ address: null });
+    expect(await getAddress(U1, "")).toEqual({ address: null });
+  });
+
+  it("gives each user a different address", async () => {
+    const other = "capture-address-other";
+    await seedUser(env.DB, other, "capture-address-other@example.com");
+
+    const mine = await getAddress(U1, "gigsy.app");
+    const theirs = await getAddress(other, "gigsy.app");
+
+    expect(mine.address).not.toBe(theirs.address);
+  });
+
+  it("refuses an unauthenticated request", async () => {
+    const res = await SELF.fetch("https://localhost/api/capture/address");
+
+    expect(res.status).toBe(401);
+  });
+});

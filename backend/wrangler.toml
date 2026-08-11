@@ -39,6 +39,12 @@ AI_PROVIDER = "gemini"
 AI_MODEL = "gemini-2.5-flash"
 # Cost control (docs/plan.md §8): AI captures per user per UTC day.
 AI_DAILY_CAP = "50"
+# Domain for per-user capture addresses (u-<userId>@<domain>). Empty
+# disables email capture, and the Settings screen says so rather than
+# showing an address that would bounce. Turning it on also needs
+# Cloudflare Email Routing on this domain with a catch-all rule
+# pointing at this Worker — see the Phase plan.
+CAPTURE_EMAIL_DOMAIN = ""
 # Who may sign in, comma-separated. EMPTY MEANS ANYONE with a Google
 # account — safe only while the OAuth consent screen is in Testing mode,
 # where Google's own test-user list is the real gate. Fill this in before
