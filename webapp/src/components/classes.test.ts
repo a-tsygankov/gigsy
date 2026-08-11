@@ -7,7 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { buttonClasses } from "./Button.tsx";
 import { cardClasses } from "./Card.tsx";
-import { inputShellClasses, textareaClasses } from "./Input.tsx";
+import { inputShellClasses, shellWith, textareaClasses } from "./Input.tsx";
 import { STATUS_PILL_CLASSES } from "./StatusPill.tsx";
 import { TILE_TONE_CLASSES } from "./Tile.tsx";
 
@@ -110,6 +110,65 @@ describe("input shells", () => {
     expect(textareaClasses()).toContain("min-h-24");
     expect(textareaClasses("min-h-20")).toContain("min-h-20");
     expect(textareaClasses("min-h-20")).not.toContain("min-h-24");
+  });
+});
+
+/**
+ * A caller's width has to actually win.
+ *
+ * Tailwind resolves two utilities of the same property by stylesheet
+ * order, not by attribute order, so the shell's `w-full` silently beat
+ * anything passed in. That shipped: the gig list's sort select stayed
+ * full-width, refused to shrink, pushed the page wider than the
+ * viewport, and broke clicks on the fixed tab bar — a layout bug that
+ * presented as a navigation failure.
+ */
+describe("shellWith — the caller's width wins", () => {
+  it("defaults to full width when the caller asks for nothing", () => {
+    expect(shellWith("")).toContain("w-full");
+  });
+
+  it("drops the default when the caller sets a width", () => {
+    const cls = shellWith("w-36");
+    expect(cls).toContain("w-36");
+    expect(cls).not.toContain("w-full");
+  });
+
+  it("keeps the default for a width that only applies from sm up", () => {
+    // `sm:w-48` means "full width on a phone, 48 above it". Dropping
+    // w-full would silently break the phone case.
+    const cls = shellWith("sm:w-48");
+    expect(cls).toContain("w-full");
+    expect(cls).toContain("sm:w-48");
+  });
+
+  it("is not fooled by a class that merely starts with w", () => {
+    expect(shellWith("whitespace-nowrap")).toContain("w-full");
+  });
+
+  it("leaves non-width classes alone", () => {
+    // min-w-0 and flex-1 are not widths; the shell's own width still
+    // applies, which is what a flex child usually wants.
+    const cls = shellWith("min-w-0 flex-1");
+    expect(cls).toContain("w-full");
+    expect(cls).toContain("min-w-0");
+    expect(cls).toContain("flex-1");
+  });
+
+  it("still carries the rest of the shell", () => {
+    const cls = shellWith("w-28");
+    expect(cls).toContain("rounded-xl");
+    expect(cls).toContain("text-base");
+    expect(cls).toContain("focus-visible:ring-emerald-500");
+  });
+
+  it("keeps inputShellClasses full-width for anyone still using it", () => {
+    expect(inputShellClasses).toContain("w-full");
+  });
+
+  it("applies to textareas too", () => {
+    expect(textareaClasses("w-32")).not.toContain("w-full");
+    expect(textareaClasses("w-32")).toContain("w-32");
   });
 });
 

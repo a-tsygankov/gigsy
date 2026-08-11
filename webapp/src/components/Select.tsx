@@ -3,8 +3,8 @@
  * components/core/Select) — Gigsy never uses a custom dropdown.
  */
 import type { ComponentPropsWithoutRef } from "react";
-import { inputShellClasses } from "./Input.tsx";
+import { shellWith } from "./Input.tsx";
 
 export function Select({ className = "", ...rest }: ComponentPropsWithoutRef<"select">) {
-  return <select className={`${inputShellClasses} ${className}`.trim()} {...rest} />;
+  return <select className={shellWith(className)} {...rest} />;
 }
