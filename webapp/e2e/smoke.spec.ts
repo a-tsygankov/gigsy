@@ -1,14 +1,27 @@
 import { test, expect } from "@playwright/test";
 
-// Phase 3 shell: unauthenticated visitors land on the login screen.
-// The spec stays valid whether or not GOOGLE_CLIENT_ID is configured
-// on the target deployment (button vs. explanatory notice).
+// Phase 3 shell. Unauthenticated visitors used to be redirected from
+// "/" to the login screen; they now get the public landing page there
+// instead (see landing.spec.ts for why). Sign-in still lives at
+// /login, and this spec stays valid whether or not GOOGLE_CLIENT_ID is
+// configured on the target deployment (button vs. explanatory notice).
 
-test("unauthenticated visit redirects to the login screen", async ({ page }) => {
+test("unauthenticated visit is answered, not redirected", async ({ page }) => {
   await page.goto("/");
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/$/);
   await expect(page).toHaveTitle(/Gigsy/);
-  await expect(page.getByRole("heading", { name: "Gigsy" })).toBeVisible();
+  // exact: the landing page also has a "How Gigsy uses your Google
+  // Calendar" heading, and the default substring match catches both.
+  await expect(
+    page.getByRole("heading", { name: "Gigsy", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("landing")).toBeVisible();
+});
+
+test("the landing page leads to sign-in", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("landing-signin").click();
+  await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByTestId("login-actions")).toBeVisible();
 });
 
@@ -28,8 +41,14 @@ test("login screen shows a sign-in path (button or config notice)", async ({
 });
 
 test("tab bar is hidden while signed out", async ({ page }) => {
+  // Both signed-out surfaces: the landing page renders through AuthGate
+  // now, so it is the one that could plausibly grow a tab bar by
+  // accident.
   await page.goto("/");
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByTestId("landing")).toBeVisible();
+  await expect(page.getByTestId("tab-bar")).toHaveCount(0);
+
+  await page.goto("/login");
   await expect(page.getByTestId("tab-bar")).toHaveCount(0);
 });
 
