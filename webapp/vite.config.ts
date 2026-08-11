@@ -6,7 +6,15 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: "autoUpdate",
+      // "prompt", not "autoUpdate": the app offers an update bar rather
+      // than reloading under someone. Gig and expense forms hold their
+      // state in React until Save, so a silent reload loses what is
+      // being typed — which gets reported as "the app lost my data".
+      registerType: "prompt",
+      // Registration moves into src/lib/pwa-update-browser.ts, which
+      // also needs the registration object to poll for updates on
+      // focus. The generated script only registers and then forgets.
+      injectRegister: null,
       // injectManifest, not generateSW: the worker hosts a `push`
       // handler (Phase 10), which generated workers cannot. The cost
       // is that precaching becomes src/sw.ts's job — that file is what

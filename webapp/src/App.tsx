@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import { ConsoleProvider } from "./components/ConsoleProvider.tsx";
+import { UpdateBar } from "./components/UpdateBar.tsx";
 import { AuthGate } from "./components/AuthGate.tsx";
 import { Login } from "./screens/Login.tsx";
 import { Dashboard } from "./screens/Dashboard.tsx";
@@ -22,6 +23,9 @@ import { Privacy } from "./screens/Privacy.tsx";
 export function App() {
   return (
     <ConsoleProvider>
+      {/* Above the routes: a stale bundle is stale on every
+          screen, including login and the public page. */}
+      <UpdateBar />
       <Routes>
         <Route path="/login" element={<Login />} />
         {/* Public and outside AuthGate: Google's OAuth verification

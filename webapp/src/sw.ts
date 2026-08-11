@@ -24,10 +24,26 @@ declare const self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: Array<{ url: string; revision: string | null }>;
 };
 
-// Matches the previous `registerType: "autoUpdate"` behaviour: a new
-// worker takes over immediately rather than waiting for every tab to
-// close, so a fix ships on next launch instead of eventually.
-self.skipWaiting();
+/**
+ * A new worker waits until it is asked.
+ *
+ * This used to call `skipWaiting()` at install, so a new worker seized
+ * control the moment the browser found one — while the open page kept
+ * running the OLD JS bundle until a reload. That is worse than it
+ * sounds: the new worker serves the new precache to a page that may
+ * still request a lazy chunk the new build dropped, which 404s
+ * mid-session.
+ *
+ * Now the page decides, via the update bar, and asks here.
+ */
+self.addEventListener("message", (event) => {
+  if ((event.data as { type?: string } | undefined)?.type === "SKIP_WAITING") {
+    void self.skipWaiting();
+  }
+});
+
+// Still immediate once activated: a worker that has taken over should
+// control every open page, not only ones opened after it.
 clientsClaim();
 
 cleanupOutdatedCaches();
