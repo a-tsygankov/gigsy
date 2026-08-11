@@ -70,10 +70,19 @@ wrangler secret put ALLOWED_EMAILS
 
 Paste the whole comma-separated list — it replaces rather than appends,
 so adding a tester means re-entering everyone, and dropping yourself
-locks you out of your own deployment. It must never be added to
-wrangler.toml `[vars]`: the repo is public, and a var overrides the
-secret on deploy, which would empty the list silently.
-`backend/test/allowlist-config.test.ts` fails if anyone tries.
+locks you out of your own deployment.
+
+It must never be added to wrangler.toml `[vars]`. The repo is public, so
+a var would publish the addresses; and the two cannot coexist anyway —
+Cloudflare rejects the secret while a var of that name is bound:
+
+```
+Binding name 'ALLOWED_EMAILS' already in use  [code: 10053]
+```
+
+Which means the ordering is forced: the `[vars]` entry has to be gone
+from the **deployed** Worker before the secret can be set at all.
+`backend/test/allowlist-config.test.ts` fails if anyone re-adds it.
 
 ---
 

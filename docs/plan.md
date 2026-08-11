@@ -196,7 +196,7 @@ expenses. Plus CSV export (open item in handoff, planned here).
 | Worker secret | `GEMINI_API_KEY` | yes | Primary extraction provider |
 | Worker secret | `ANTHROPIC_API_KEY` | yes (optional) | Fallback/alt extraction provider |
 | Worker secret | `VAPID_PRIVATE_KEY` | yes (optional) | Web Push signing (`GENERATE_VAPID`); rotating it invalidates every subscription |
-| Worker secret | `ALLOWED_EMAILS` | yes | Comma-separated list of who may sign in. A secret because the repo is public and these are other people's addresses — not because the values are confidential. Unset means **anyone** with a Google account. Never add it to `[vars]`: a var overrides the secret on deploy and would silently open the app |
+| Worker secret | `ALLOWED_EMAILS` | yes | Comma-separated list of who may sign in. A secret because the repo is public and these are other people's addresses — not because the values are confidential. Unset means **anyone** with a Google account. Never add it to `[vars]`: the two cannot coexist, and Cloudflare rejects `wrangler secret put` while the var is bound (`already in use`, code 10053) |
 | wrangler.toml `[vars]` | `GOOGLE_CLIENT_ID` | no | Public OAuth client ID |
 | wrangler.toml `[vars]` | `AI_PROVIDER`, `AI_MODEL` | no | Extraction provider selection |
 | wrangler.toml `[vars]` | `VAPID_PUBLIC_KEY` | no | Web Push public key — the browser needs it to subscribe; empty disables push |

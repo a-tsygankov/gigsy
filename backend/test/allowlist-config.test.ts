@@ -10,11 +10,14 @@ import { isAllowedEmail } from "../src/auth/allowlist.ts";
  *
  * 1. This repository is public, and the list is other people's email
  *    addresses. A var publishes them, and git history does not forget.
- * 2. A var of the same name overrides the secret on deploy. So putting
- *    it back does not merely duplicate the setting — it silently
- *    replaces a real allowlist with whatever the var says, and
+ * 2. A var and a secret of the same name cannot coexist. Cloudflare
+ *    rejects `wrangler secret put` outright while the var is bound —
+ *    "Binding name 'ALLOWED_EMAILS' already in use", code 10053 — so
+ *    re-adding the var does not merely duplicate the setting, it makes
+ *    the allowlist impossible to set until someone removes the line and
+ *    redeploys. Until then the var's value is what applies, and
  *    `ALLOWED_EMAILS = ""` means ANYONE with a Google account may sign
- *    in. The app would open with no code change and no error.
+ *    in.
  *
  * The workers test pool loads wrangler.toml through `configPath`, so
  * `env` here sees exactly the vars production would receive — which
