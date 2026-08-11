@@ -103,6 +103,10 @@ export class OfflineDataService {
     await this.store.removeGig(id);
     this.nudge();
   }
+  /** Gig ids whose changes have not reached the server yet. */
+  pendingGigIds(): Promise<Set<string>> {
+    return this.store.pendingIds("gig");
+  }
 
   // ── clients ──────────────────────────────────────────────────────
   listClients(): Promise<Client[]> {

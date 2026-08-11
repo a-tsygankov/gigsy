@@ -175,6 +175,43 @@ describe("LocalStore CRUD + outbox", () => {
   });
 });
 
+describe("pendingIds", () => {
+  it("names the records with unsent changes", async () => {
+    const { store } = makeStore();
+    await store.putGig(G1, { status: "lead" });
+    await store.putGig(G2, { status: "lead" });
+
+    expect(await store.pendingIds("gig")).toEqual(new Set([G1, G2]));
+  });
+
+  it("is empty once the ops are drained", async () => {
+    const { store } = makeStore();
+    await store.putGig(G1, { status: "lead" });
+    for (const op of await store.pendingOps()) await store.deleteOp(op.opKey);
+
+    expect(await store.pendingIds("gig")).toEqual(new Set());
+  });
+
+  it("does not mix entities", async () => {
+    const { store } = makeStore();
+    await store.putGig(G1, { status: "lead" });
+    await store.putClient(C1, { name: "Acme" });
+
+    expect(await store.pendingIds("gig")).toEqual(new Set([G1]));
+    expect(await store.pendingIds("client")).toEqual(new Set([C1]));
+  });
+
+  it("includes a record queued for deletion", async () => {
+    // It still differs from the server until the delete is sent.
+    const { store } = makeStore();
+    await store.putGig(G1, { status: "lead" });
+    for (const op of await store.pendingOps()) await store.deleteOp(op.opKey);
+    await store.removeGig(G1);
+
+    expect(await store.pendingIds("gig")).toEqual(new Set([G1]));
+  });
+});
+
 /**
  * The outbox payload is what the server actually receives. It is built
  * by hand, field by field, and a field left out of it is a field the

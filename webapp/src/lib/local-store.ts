@@ -278,6 +278,16 @@ export class LocalStore {
     return (await this.db.pendingOps.get(opKeyOf(entity, id))) !== undefined;
   }
 
+  /** Every record of this entity with unsent changes. The outbox holds
+   *  at most one op per record and is drained continuously, so it is
+   *  small enough to scan rather than index. */
+  async pendingIds(entity: SyncEntityName): Promise<Set<string>> {
+    const ops = await this.db.pendingOps.toArray();
+    return new Set(
+      ops.filter((op) => op.entity === entity).map((op) => op.entityId),
+    );
+  }
+
   /** Write a server-authoritative record locally, bypassing the
    * outbox (pull-merge and stale-skip refresh both land here). */
   async applyServerRecord(

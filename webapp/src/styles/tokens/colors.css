@@ -38,6 +38,7 @@
 
   --c-amber-50: 255 251 235;
   --c-amber-100: 254 243 199;
+  --c-amber-500: 245 158 11;
   --c-amber-700: 180 83 9;
   --c-amber-800: 146 64 14;
 
@@ -103,6 +104,9 @@
 
   --c-amber-50: 48 32 8;
   --c-amber-100: 69 44 8;
+  /* Same one-step lighter-shift as emerald-500/red-500: those resolve
+     to their own amber-400 in dark mode, not a made-up value. */
+  --c-amber-500: 251 191 36;
   --c-amber-700: 252 211 77;
   --c-amber-800: 253 230 138;
 

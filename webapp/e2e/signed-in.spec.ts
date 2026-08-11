@@ -246,3 +246,25 @@ test("the time field offers quarter hours but preserves captured minutes", async
   await page.getByText(marker).click();
   await expect(page.getByLabel("Date & time")).toHaveValue("2027-03-04T10:07");
 });
+
+test("a gig with unsent changes is marked, and the mark clears on sync", async ({
+  page,
+  context,
+}) => {
+  const marker = `dot-check-${Date.now()}`;
+
+  await page.getByRole("link", { name: "Gigs" }).click();
+  await context.setOffline(true);
+  await page.getByRole("link", { name: "Add gig" }).click();
+  await page.getByLabel("Location").fill(marker);
+  await page.getByRole("button", { name: "Save gig" }).click();
+
+  await expect(page.getByText(marker)).toBeVisible();
+  await expect(page.getByTestId("gig-unsynced").first()).toBeVisible();
+
+  await context.setOffline(false);
+  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+  await expect(page.getByTestId("gig-unsynced")).toHaveCount(0, {
+    timeout: 20_000,
+  });
+});

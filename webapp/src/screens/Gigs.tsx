@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useData } from "../lib/app-context.tsx";
+import { useData, useSyncState } from "../lib/app-context.tsx";
 import { formatMoney } from "../lib/format.ts";
 import {
   AppHeader,
@@ -29,6 +29,11 @@ export function Gigs() {
     queryFn: () => api.listClients(),
   });
   const clientName = new Map(clients.data?.map((c) => [c.id, c.name]) ?? []);
+  const sync = useSyncState();
+  const pending = useQuery({
+    queryKey: ["pending-gig-ids", sync?.pendingCount ?? 0],
+    queryFn: () => api.pendingGigIds(),
+  });
 
   return (
     <>
@@ -52,6 +57,16 @@ export function Gigs() {
           return (
             <CardLink key={gig.id} to={`/gigs/${gig.id}`}>
               <div className="flex items-start justify-between gap-3">
+                {pending.data?.has(gig.id) === true && (
+                  <span
+                    data-testid="gig-unsynced"
+                    // Not colour alone: the label is what a screen
+                    // reader and a colour-blind user actually get.
+                    title="Not synced yet"
+                    aria-label="Not synced yet"
+                    className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-amber-500"
+                  />
+                )}
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-slate-900">
                     {gig.clientId !== null
