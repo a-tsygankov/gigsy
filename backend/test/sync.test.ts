@@ -237,6 +237,29 @@ describe("POST /api/sync", () => {
     expect((await api(U1, "GET", `/api/clients/${CID}`)).status).toBe(404);
   });
 
+  // The webapp never calls PUT /api/gigs/:id — it queues an outbox op
+  // and posts here, through a hand-written upsert object that has to
+  // list every column by name. Dropping a field from that list is how
+  // this repo lost every gig duration for months.
+  it("carries a gig title through the upsert", async () => {
+    const TITLED = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const body = await sync(U1, [
+      {
+        entity: "gig",
+        op: "upsert",
+        id: TITLED,
+        modifiedAt: 5000,
+        payload: { title: "Costco tasting", status: "lead" },
+      },
+    ]);
+    expect(body.results[0]?.status).toBe("applied");
+
+    const gig = (await (await api(U1, "GET", `/api/gigs/${TITLED}`)).json()) as {
+      title: string | null;
+    };
+    expect(gig.title).toBe("Costco tasting");
+  });
+
   it("400s on a malformed batch", async () => {
     const res = await api(U1, "POST", "/api/sync", { ops: [{ entity: "cat" }] });
     expect(res.status).toBe(400);

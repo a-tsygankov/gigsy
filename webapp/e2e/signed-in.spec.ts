@@ -246,20 +246,46 @@ test("the time field offers quarter hours but preserves captured minutes", async
   await expect(page.getByLabel("Date & time")).toHaveValue("2027-03-04T10:07");
 });
 
+/**
+ * The dot has to be on the RIGHT row. An earlier version of this test
+ * asserted only that some dot existed somewhere on the list, which is
+ * why it stayed green while the query cached the pending id set under
+ * the pending COUNT: after a drain, a second offline edit reused the
+ * id set from the first one and marked a gig that had already synced.
+ * Hence the second half — two rows, two counts of 1, different gigs.
+ */
 test("a gig with unsent changes is marked, and the mark clears on sync", async ({
   page,
   context,
 }) => {
-  const marker = `dot-check-${Date.now()}`;
+  const first = `dot-check-a-${Date.now()}`;
+  const second = `dot-check-b-${Date.now()}`;
+  const rowFor = (marker: string) => page.locator("a", { hasText: marker });
 
   await page.getByRole("link", { name: "Gigs" }).click();
   await context.setOffline(true);
   await page.getByRole("link", { name: "Add gig" }).click();
-  await page.getByLabel("Location").fill(marker);
+  await page.getByLabel("Location").fill(first);
   await page.getByRole("button", { name: "Save gig" }).click();
 
-  await expect(page.getByText(marker)).toBeVisible();
-  await expect(page.getByTestId("gig-unsynced").first()).toBeVisible();
+  await expect(page.getByText(first)).toBeVisible();
+  await expect(rowFor(first).getByTestId("gig-unsynced")).toBeVisible();
+
+  await context.setOffline(false);
+  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+  await expect(page.getByTestId("gig-unsynced")).toHaveCount(0, {
+    timeout: 20_000,
+  });
+
+  // Second offline edit, different gig, same pending count as before.
+  await context.setOffline(true);
+  await page.getByRole("link", { name: "Add gig" }).click();
+  await page.getByLabel("Location").fill(second);
+  await page.getByRole("button", { name: "Save gig" }).click();
+
+  await expect(page.getByText(second)).toBeVisible();
+  await expect(rowFor(second).getByTestId("gig-unsynced")).toBeVisible();
+  await expect(rowFor(first).getByTestId("gig-unsynced")).toHaveCount(0);
 
   await context.setOffline(false);
   await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });

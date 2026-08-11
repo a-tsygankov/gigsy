@@ -1,5 +1,6 @@
+import { useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData, useSyncState } from "../lib/app-context.tsx";
 import { formatMoney } from "../lib/format.ts";
 import { gigDisplayTitle } from "../lib/gig-title.ts";
@@ -39,10 +40,22 @@ export function Gigs() {
   });
   const clientName = new Map(clients.data?.map((c) => [c.id, c.name]) ?? []);
   const sync = useSyncState();
+  const queryClient = useQueryClient();
   const pending = useQuery({
-    queryKey: ["pending-gig-ids", sync?.pendingCount ?? 0],
+    queryKey: ["pending-gig-ids"],
     queryFn: () => api.pendingGigIds(),
+    // The outbox is local and cheap to read, and a stale answer here
+    // marks the wrong gig.
+    staleTime: 0,
   });
+
+  // The count is a size, not a revision — 1 means "one op pending",
+  // not "the first op". Keying the query on it re-served a cached id
+  // set whenever the count returned to a value it had held before, so
+  // the dot could sit on a gig that had already synced.
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["pending-gig-ids"] });
+  }, [sync?.pendingCount, queryClient]);
 
   // In the URL, not in state: a filter that evaporates the moment you
   // open a gig and come back is not worth setting in the first place.
@@ -112,8 +125,12 @@ export function Gigs() {
                 {pending.data?.has(gig.id) === true && (
                   <span
                     data-testid="gig-unsynced"
-                    // Not colour alone: the label is what a screen
-                    // reader and a colour-blind user actually get.
+                    // Not colour alone. role="img" is what makes the
+                    // label legal: ARIA forbids naming a bare span
+                    // (role generic), so without it the label is
+                    // dropped from the accessibility tree and the
+                    // marker really is colour-only.
+                    role="img"
                     title="Not synced yet"
                     aria-label="Not synced yet"
                     className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-amber-500"
