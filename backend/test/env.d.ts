@@ -18,5 +18,10 @@ declare module "cloudflare:test" {
     GEMINI_API_KEY: string;
     AI_PROVIDER: string;
     AI_MODEL: string;
+    CAPTURE_EMAIL_DOMAIN: string;
+    // Optional on purpose, and the type is the assertion: this one is a
+    // secret that wrangler.toml must NOT declare, so `undefined` is the
+    // correct production shape. See test/allowlist-config.test.ts.
+    ALLOWED_EMAILS?: string;
   }
 }

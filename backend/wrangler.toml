@@ -45,14 +45,16 @@ AI_DAILY_CAP = "50"
 # Cloudflare Email Routing on this domain with a catch-all rule
 # pointing at this Worker — see the Phase plan.
 CAPTURE_EMAIL_DOMAIN = ""
-# Who may sign in, comma-separated. EMPTY MEANS ANYONE with a Google
-# account — safe only while the OAuth consent screen is in Testing mode,
-# where Google's own test-user list is the real gate. Fill this in before
-# publishing the OAuth app, and add testers here as you invite them:
-#   ALLOWED_EMAILS = "you@example.com,tester@example.com"
-# Set it to the address you actually sign in with — an empty list is
-# open, but a list without you in it locks you out of your own app.
-ALLOWED_EMAILS = ""
+# ALLOWED_EMAILS deliberately does NOT live here. It is a secret — see
+# the secrets block below — because this repository is public and the
+# list is other people's email addresses. A var would publish them, and
+# git history does not forget.
+#
+# It used to be `ALLOWED_EMAILS = ""` in this block, which is why the
+# line is called out rather than simply deleted: putting it back would
+# not merely be redundant. A var overrides the secret of the same name
+# on deploy, so re-adding it here silently empties the allowlist, and an
+# empty allowlist means ANYONE with a Google account can sign in.
 
 # Web Push (Phase 10). The PUBLIC half of the VAPID pair — public by
 # definition, since the browser needs it to subscribe. Mint the pair
@@ -70,6 +72,17 @@ PUSH_SUBJECT = "mailto:noreply@gigsy.app"
 #   GOOGLE_CLIENT_SECRET    — OAuth code -> refresh token exchange
 #   GEMINI_API_KEY          — primary extraction provider
 #   ANTHROPIC_API_KEY       — optional fallback provider
+#   ALLOWED_EMAILS          — comma-separated list of who may sign in.
+#                             A secret not because it is confidential but
+#                             because it is personal data in a public
+#                             repo. Unset or empty means ANYONE with a
+#                             Google account, which is only safe while
+#                             the OAuth consent screen sits in Testing
+#                             mode. Add a tester with:
+#                               wrangler secret put ALLOWED_EMAILS
+#                             and paste the whole list — it replaces
+#                             rather than appends. Keep your own address
+#                             in it; a list without you locks you out.
 
 [observability]
 enabled = true
