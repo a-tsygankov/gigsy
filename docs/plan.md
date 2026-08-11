@@ -215,8 +215,17 @@ Bootstrap: `scripts/setup-secrets.ps1` (placeholders → `gh secret set`
 - `version-check.yml`: PR fails if webapp/worker/schema touched without
   a patch bump (`scripts/check_version_bump.py`, firmware check
   removed). Runs the version-tooling unit tests first.
-- `pr-mermaid-diagrams.yml`: consumer stub of
-  `a-tsygankov/tools` reusable workflow.
+- ~~`pr-mermaid-diagrams.yml`~~ **removed 2026-08-11.** It posted
+  Claude-generated architecture diagrams as a sticky PR comment on every
+  push, which registered as review activity and asked for a response
+  each time — six PRs, six false alarms, never anything to act on. The
+  diagrams themselves were good; the delivery was the problem.
+  Re-enabling is a four-line consumer stub calling
+  `a-tsygankov/tools/.github/workflows/pr-mermaid-diagrams.yml`
+  (see git history for the exact file). Its inputs are `model` and the
+  diff-size caps only — **nothing controls where it posts**, so making
+  it quieter means changing the reusable workflow in that repo, not
+  this one.
 
 ## 12.1 Per-tier versioning (automatic)
 
