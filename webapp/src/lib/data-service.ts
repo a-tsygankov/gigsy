@@ -52,6 +52,7 @@ export class OfflineDataService {
       | "calendarResync"
       | "createDedicatedCalendar"
       | "checkCalendarFreeBusy"
+      | "getCaptureAddress"
       | "getAvailabilityLink"
       | "createAvailabilityLink"
       | "revokeAvailabilityLink"
@@ -244,6 +245,11 @@ export class OfflineDataService {
   /** Phase 12: whether the stored grant can read busy time at all. */
   checkCalendarFreeBusy() {
     return this.reportsApi.checkCalendarFreeBusy();
+  }
+  /** Where this user forwards booking emails, or null when the
+   *  deployment has no capture domain configured. */
+  getCaptureAddress() {
+    return this.reportsApi.getCaptureAddress();
   }
   getAvailabilityLink() {
     return this.reportsApi.getAvailabilityLink();

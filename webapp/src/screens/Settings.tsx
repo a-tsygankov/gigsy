@@ -14,6 +14,7 @@ import { AppearanceSection } from "./settings/AppearanceSection.tsx";
 import { AvailabilitySection } from "./settings/AvailabilitySection.tsx";
 import { AvailabilityLinkSection } from "./settings/AvailabilityLinkSection.tsx";
 import { CalendarSection } from "./settings/CalendarSection.tsx";
+import { CaptureSection } from "./settings/CaptureSection.tsx";
 import { GigDefaultsSection } from "./settings/GigDefaultsSection.tsx";
 import { NudgeSection } from "./settings/NudgeSection.tsx";
 import { useSettings } from "./settings/useSettings.ts";
@@ -226,6 +227,9 @@ export function Settings() {
         <SectionHeading>Sharing your availability</SectionHeading>
         {loadError === null && !isLoading && <AvailabilitySection />}
         <AvailabilityLinkSection />
+
+        <SectionHeading>Capture</SectionHeading>
+        <CaptureSection />
 
         <SectionHeading>Notifications on this device</SectionHeading>
         <NotificationsSection />

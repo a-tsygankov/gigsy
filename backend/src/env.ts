@@ -14,6 +14,14 @@ export type Bindings = {
   AI_MODEL: string;
   /** Max AI captures per user per UTC day (default 50). */
   AI_DAILY_CAP?: string;
+  /**
+   * Domain for per-user capture addresses (`u-<userId>@<domain>`).
+   * Unset or empty disables email capture: the Settings screen says so
+   * rather than showing an address that would bounce. Requires
+   * Cloudflare Email Routing on this domain with a catch-all to this
+   * Worker.
+   */
+  CAPTURE_EMAIL_DOMAIN?: string;
   /** VAPID public key (base64url P-256 point). Public by definition —
    * the browser needs it to subscribe. Empty disables push. */
   VAPID_PUBLIC_KEY?: string;
