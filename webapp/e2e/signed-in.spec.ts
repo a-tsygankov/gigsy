@@ -201,9 +201,8 @@ test("reopening a just-edited gig shows the new values", async ({ page }) => {
  * kept it, so this drains the outbox and reloads, forcing the pull that
  * replaces the local gig with the server's.
  *
- * The list heading still shows the client, not gigDisplayTitle — that
- * wiring comes later — so the list assertion here is only that the gig
- * survived; the title itself is checked where it is actually rendered.
+ * The list assertion here is only that the gig survived the round-trip;
+ * that the heading is the title is covered by gig-list.spec.ts.
  */
 test("a gig title survives a server round-trip", async ({ page }) => {
   const marker = `title-booth-${Date.now()}`;
