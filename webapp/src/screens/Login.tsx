@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthState, useServices } from "../lib/app-context.tsx";
 import { renderGoogleButton } from "../lib/google-signin.ts";
@@ -88,6 +88,24 @@ export function Login() {
           )}
           {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
         </div>
+
+        {config.data?.inviteOnly === true && (
+          // Without this, a refused sign-in is an unexplained failure —
+          // and "it's broken" is the wrong conclusion to leave someone
+          // with when the truth is "you weren't invited yet".
+          <p className="mt-4 text-xs text-slate-500" data-testid="login-invite-only">
+            This deployment is invite-only. If your Google account hasn't been
+            added, sign-in will be refused — ask whoever sent you here.
+          </p>
+        )}
+
+        {/* Google's OAuth verification requires the policy to be linked
+            from the page a reviewer lands on. */}
+        <p className="mt-6 text-xs text-slate-400">
+          <Link to="/privacy" className="underline" data-testid="login-privacy-link">
+            Privacy policy
+          </Link>
+        </p>
       </div>
     </main>
   );

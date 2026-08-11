@@ -17,6 +17,13 @@ export type Bindings = {
   /** VAPID public key (base64url P-256 point). Public by definition —
    * the browser needs it to subscribe. Empty disables push. */
   VAPID_PUBLIC_KEY?: string;
+  /**
+   * Comma-separated addresses allowed to sign in. Unset or empty means
+   * anyone with a Google account can — which is only safe while the
+   * OAuth consent screen is in Testing mode and its own test-user list
+   * is doing the gatekeeping.
+   */
+  ALLOWED_EMAILS?: string;
   /** Reverse-geocoder selection: unset = OpenStreetMap Nominatim,
    * "stub" = canned (non-production), "off" = disabled, so no position
    * ever leaves the worker and the client falls back to coordinates. */
