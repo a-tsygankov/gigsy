@@ -23,7 +23,7 @@ interface Summary {
   totals: {
     offeredCents: number;
     paidCents: number;
-    varianceCents: number;
+    owedCents: number;
     expensesCents: number;
     reimbursableCents: number;
     netCents: number;
@@ -104,13 +104,16 @@ describe("GET /api/reports/summary", () => {
     expect(res.status).toBe(401);
   });
 
-  it("computes totals: offered, paid, variance, expenses, net", async () => {
+  it("computes totals: offered, paid, owed, expenses, net", async () => {
     const s = await summary(U1);
     // Gig money (36000/29000) plus the service on G1 (3000/1000).
     expect(s.totals).toEqual({
       offeredCents: 39000,
       paidCents: 30000,
-      varianceCents: 9000,
+      // Only G3 — the one `completed` gig — at 5000 offered and nothing
+      // paid. Not 9000 (offered − paid over everything), which counted
+      // shortfalls on gigs already marked `paid` as debts.
+      owedCents: 5000,
       expensesCents: 3000,
       reimbursableCents: 0,
       netCents: 27000,
@@ -174,7 +177,11 @@ describe("GET /api/reports/summary", () => {
     expect(s.totals).toEqual({
       offeredCents: 33000,
       paidCents: 29000,
-      varianceCents: 4000,
+      // Zero, where the old figure was 4000. Both of Acme's gigs are
+      // marked `paid`; the 4000 gap between offered and paid on them is
+      // a discount or a write-off, not an outstanding invoice. The
+      // status is what settles that question, not the arithmetic.
+      owedCents: 0,
       expensesCents: 2000,
       reimbursableCents: 0,
       netCents: 27000,
@@ -221,5 +228,87 @@ describe("reimbursable expenses in the summary", () => {
     expect(after.totals.expensesCents).toBe(before.totals.expensesCents + 1500);
     // Net drops by the full amount: the money has not arrived.
     expect(after.totals.netCents).toBe(before.totals.netCents - 1500);
+  });
+});
+
+/**
+ * "Still owed" — the tile people read to decide who to chase.
+ *
+ * It used to be Σoffered − Σpaid over every gig in the period, which
+ * got two things wrong at once. These tests pin both, because both are
+ * the kind of mistake that reappears the moment someone "simplifies"
+ * the query back into a sum over the monthly rows.
+ */
+describe("owedCents", () => {
+  // 6-prefixed: 5… is already taken by S1 at the top of the file.
+  const GL = "61111111-1111-4111-8111-111111111111";
+  const GC = "62222222-2222-4222-8222-222222222222";
+  const GD = "63333333-3333-4333-8333-333333333333";
+  const SD = "64444444-4444-4444-8444-444444444444";
+
+  it("ignores leads and confirmed gigs — those are expected, not owed", async () => {
+    const before = await summary(U1);
+
+    await api(U1, "PUT", `/api/gigs/${GL}`, {
+      status: "lead",
+      dateTime: OCT,
+      amountOfferedCents: 500_000,
+    });
+    await api(U1, "PUT", `/api/gigs/${GC}`, {
+      status: "confirmed",
+      dateTime: OCT,
+      amountOfferedCents: 500_000,
+    });
+
+    const after = await summary(U1);
+    // A million cents of speculative work must not read as debt…
+    expect(after.totals.owedCents).toBe(before.totals.owedCents);
+    // …but it is still money offered, which is a different question and
+    // one the report is right to answer. Asserting the exact increase,
+    // because "greater than zero" would pass even if the gigs had been
+    // dropped from the report altogether.
+    expect(after.totals.offeredCents).toBe(before.totals.offeredCents + 1_000_000);
+  });
+
+  it("clamps per gig, so an overpayment cannot cancel someone else's debt", async () => {
+    const before = (await summary(U1)).totals.owedCents;
+
+    // Completed and generously overpaid — a tip, a rounded-up invoice.
+    await api(U1, "PUT", `/api/gigs/${GD}`, {
+      status: "completed",
+      dateTime: OCT,
+      amountOfferedCents: 1000,
+      amountPaidCents: 9000,
+    });
+
+    // Unclamped this would subtract 8000 from what other clients owe,
+    // and a big enough tip would show zero outstanding while invoices
+    // went unpaid.
+    expect((await summary(U1)).totals.owedCents).toBe(before);
+  });
+
+  it("counts unpaid services on a completed gig", async () => {
+    const before = (await summary(U1)).totals.owedCents;
+
+    await api(U1, "PUT", `/api/services/${SD}`, {
+      gigId: G3, // the completed Bravo gig
+      description: "Extra hour",
+      amountOfferedCents: 2500,
+      amountPaidCents: 500,
+    });
+
+    expect((await summary(U1)).totals.owedCents).toBe(before + 2000);
+  });
+
+  it("respects the report's own filters", async () => {
+    // G3 is the only completed gig, and it belongs to Bravo in October.
+    const bravo = await summary(U1, `?clientId=${BRAVO}`);
+    expect(bravo.totals.owedCents).toBeGreaterThan(0);
+
+    const september = await summary(
+      U1,
+      `?from=${Date.UTC(2026, 8, 1)}&to=${Date.UTC(2026, 8, 30)}`,
+    );
+    expect(september.totals.owedCents).toBe(0);
   });
 });

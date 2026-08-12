@@ -176,7 +176,7 @@ export interface ReportSummary {
   totals: {
     offeredCents: number;
     paidCents: number;
-    varianceCents: number;
+    owedCents: number;
     expensesCents: number;
     /** Portion of expensesCents the client should cover. Reported
      * beside net, never removed from it. */

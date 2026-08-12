@@ -5,7 +5,11 @@ import { useData } from "../lib/app-context.tsx";
 import { GIG_STATUSES, type GigInput, type GigStatus } from "../lib/types.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { formatMoney } from "../lib/format.ts";
-import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
+import {
+  localInputToMs,
+  msToLocalInput,
+  snapToQuarterHour,
+} from "../lib/datetime.ts";
 import {
   AppHeader,
   Button,
@@ -250,13 +254,29 @@ export function GigEdit() {
             <Field label="Date & time">
               <Input
                 type="datetime-local"
+                data-testid="gig-datetime"
                 // Quarter hours only. A gig starts at :00/:15/:30/:45,
-                // not 10:07 — but a time extracted from an email might,
-                // and `step` does not rewrite a value already in the
-                // field, so captured times survive untouched.
+                // not 10:07.
+                //
+                // `step` alone did not achieve that, which is the bug
+                // this replaced: it sets the picker's granularity and
+                // marks an off-grid value `stepMismatch`, but the value
+                // is still whatever was typed and nothing here runs
+                // native form validation before saving. So the snap
+                // below is the actual rule; step only makes the
+                // picker's own increments match it.
                 step={900}
                 value={form.dateTime}
                 onChange={(e) => set("dateTime", e.target.value)}
+                // On blur, not on change: change fires as each segment
+                // is completed, so snapping there rewrites the minutes
+                // out from under someone still typing them.
+                //
+                // A field nobody touches is never snapped, which is
+                // deliberate — a time extracted from an email may be
+                // 10:07, and quietly moving it would misreport what the
+                // client actually said.
+                onBlur={(e) => set("dateTime", snapToQuarterHour(e.target.value))}
               />
             </Field>
 

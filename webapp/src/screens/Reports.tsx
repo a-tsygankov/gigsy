@@ -238,11 +238,15 @@ export function Reports() {
                   tone="neutral"
                   testId="tile-paid"
                 />
+                {/* Completed-but-unpaid work only — the same question
+                    the dashboard's "Unpaid" tile answers, so the two
+                    screens agree. Leads and confirmed gigs are money
+                    expected, not money owed. */}
                 <Tile
                   label="Still owed"
-                  value={formatMoney(summary.data.totals.varianceCents)}
+                  value={formatMoney(summary.data.totals.owedCents)}
                   tone="warn"
-                  testId="tile-variance"
+                  testId="tile-owed"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">

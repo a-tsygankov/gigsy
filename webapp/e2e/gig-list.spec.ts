@@ -220,3 +220,38 @@ test("Clear filters stays cleared after a reload", async ({ page }) => {
     "false",
   );
 });
+
+/**
+ * Quarter-hour times.
+ *
+ * `step={900}` on the input was the original attempt and did not hold:
+ * it drives the picker's increments and marks an off-grid value
+ * `stepMismatch`, but the value stays whatever was entered and nothing
+ * runs native form validation before saving. So this drives the field
+ * the way a person would and checks the value that results, rather than
+ * trusting the attribute to mean what it looks like it means.
+ */
+test("a gig time off the quarter-hour grid snaps when you leave the field", async ({
+  page,
+}) => {
+  await page.getByRole("link", { name: "Gigs" }).click();
+  await page.getByRole("link", { name: "Add gig" }).click();
+
+  const when = page.getByTestId("gig-datetime");
+  await when.fill("2026-09-14T10:07");
+  // Still exactly what was entered — the attribute alone changes nothing.
+  await expect(when).toHaveValue("2026-09-14T10:07");
+
+  await when.blur();
+  await expect(when).toHaveValue("2026-09-14T10:00");
+
+  // Nearest, not down: 10:53 must become 11:00, not 10:45.
+  await when.fill("2026-09-14T10:53");
+  await when.blur();
+  await expect(when).toHaveValue("2026-09-14T11:00");
+
+  // And a value already on the grid is left alone.
+  await when.fill("2026-09-14T14:30");
+  await when.blur();
+  await expect(when).toHaveValue("2026-09-14T14:30");
+});
