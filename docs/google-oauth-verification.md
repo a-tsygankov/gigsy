@@ -19,7 +19,7 @@ section are both wrong until updated.
 | --- | --- | --- |
 | `openid`, `email`, `profile` (via Google Identity Services) | Non-sensitive | Signing in |
 | `https://www.googleapis.com/auth/calendar.events` | **Sensitive** | Connecting Calendar in Settings — never at sign-in |
-| `https://www.googleapis.com/auth/calendar.readonly` | **Sensitive** | Only when switching on "use my Google Calendar" for the availability page |
+| `https://www.googleapis.com/auth/calendar.readonly` | **Sensitive** | Only when switching on "use my Google Calendar" for the availability page. **Should be `calendar.freebusy`** — far narrower and sufficient; see [google-oauth-scopes.md](google-oauth-scopes.md) |
 
 Both Calendar scopes are **sensitive**, not **restricted**. That
 distinction is worth more than it looks: restricted scopes (Gmail,
@@ -111,7 +111,23 @@ reviewer is actually asking, which is not "what does your app do" but
 > when the user explicitly connects Calendar in Settings — never as part
 > of signing in. The app is fully functional without it.
 
-### `calendar.readonly`
+### `calendar.readonly` — do not submit this; switch the scope instead
+
+> [!WARNING]
+> **The justification below is wrong and must not be submitted as it
+> stands.** It argued that the `freeBusy` endpoint has no narrower
+> scope. It has two: the
+> [API reference](https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query)
+> lists `calendar.freebusy` and `calendar.events.freebusy` alongside
+> `calendar.readonly` and `calendar`.
+>
+> A reviewer reading the same page would refute this in one line, and
+> "we asked for more than we needed and said we had to" is a bad
+> position to be caught in. **Switch the app to `calendar.freebusy`**
+> — see [google-oauth-scopes.md](google-oauth-scopes.md) — and this
+> justification stops being needed at all. The paragraphs below are
+> kept only because their description of *what Gigsy does with the
+> data* is accurate and reusable for whichever scope replaces it.
 
 > Gigsy lets a user publish a single link showing an agency when they
 > are free to be booked, which replaces a back-and-forth of messages.
@@ -128,14 +144,12 @@ reviewer is actually asking, which is not "what does your app do" but
 > viewer sees only a gap, and a gap caused by a gig is indistinguishable
 > from one caused by a personal appointment.
 >
-> **On why a narrower scope is not possible:** the `freebusy` endpoint
-> is not covered by any narrower Calendar scope. `calendar.app.created`
-> only covers events our own app created, which is precisely the data we
-> do *not* need to read — the whole point is the commitments Gigsy does
-> not know about. There is no `calendar.freebusy` scope; Google requires
-> `calendar.readonly` (or broader) to call it. We therefore request the
-> narrowest scope that permits the call, and use only the single
-> endpoint that returns no event content.
+> **On why this is the narrowest scope available:** `calendar.freebusy`
+> is the narrowest of the four scopes `freebusy.query` accepts, and it
+> is the one Gigsy requests. `calendar.app.created` cannot serve this
+> feature at all — it covers only events our own app created, which is
+> precisely the data we do *not* need to read, since the whole point is
+> the commitments Gigsy does not know about.
 >
 > This scope is **off by default**, is never bundled into sign-in or
 > into connecting Calendar, and is requested only at the moment a user
