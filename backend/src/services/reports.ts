@@ -3,7 +3,12 @@
  * reporting engine. Money stays integer cents end-to-end.
  *
  * Semantics:
- * - varianceCents = offered − paid (what's still owed/lost).
+ * - owedCents = work done and unpaid: per `completed` gig (and its
+ *   services), max(0, offered − paid). This used to be offered − paid
+ *   over every gig in the period, which counted speculative leads as
+ *   debts and let an overpayment on one gig cancel a shortfall on
+ *   another. It now answers the same question as the dashboard's
+ *   "Unpaid — waiting on clients", within the report's filters.
  * - netCents = paid − expenses.
  * - Additional services are income too, so their offered/paid amounts
  *   are added to their gig's month and client (a service always hangs
@@ -41,7 +46,11 @@ export interface ReportSummary {
   totals: {
     offeredCents: number;
     paidCents: number;
-    varianceCents: number;
+    /** Work done and not (fully) paid for: per `completed` gig,
+     *  max(0, offered − paid), plus the same for its services. Matches
+     *  the dashboard's "Unpaid — waiting on clients", narrowed by the
+     *  report's filters. */
+    owedCents: number;
     expensesCents: number;
     /** Portion of expensesCents the client is expected to cover. Shown
      * beside net rather than removed from it: the flag records an
@@ -230,6 +239,53 @@ export async function reportSummary(
       : a.clientName.localeCompare(b.clientName),
   );
 
+  // ── still owed ─────────────────────────────────────────────────
+  // Its own query rather than a total over the rows above, because it
+  // asks a narrower question than they answer. Two differences, and
+  // both change the number:
+  //
+  //   - `completed` only. A lead is speculative and a confirmed gig has
+  //     not happened yet; neither is a debt. The dashboard calls that
+  //     money "Expected" and this now agrees with it. `paid` is out for
+  //     the same reason it is out there: the status says the matter is
+  //     closed.
+  //   - Clamped per gig. Σoffered − Σpaid lets an overpayment on one
+  //     gig cancel a shortfall on another, so the total could read
+  //     lower than what any client actually owes — and, with a generous
+  //     tip somewhere, could even read zero while invoices sat unpaid.
+  //
+  // The gig clauses are reused so the report's date and client filters
+  // still apply.
+  //
+  // Placeholders are positional `?` throughout this file, so the
+  // per-gig service subquery is written that way too rather than reused
+  // from dashboard.ts, which numbers them `?1`. Mixing the two styles
+  // does not error — SQLite just carries on numbering from the highest
+  // it has seen — it silently shifts every later parameter by one, and
+  // the report would filter by a date where it meant a user id. The
+  // subquery is bound first because it appears first in the statement,
+  // exactly as the services-by-month query above does.
+  const owedRow = await d1
+    .prepare(
+      `SELECT SUM(
+                MAX(0, COALESCE(g.amount_offered_cents, 0) - COALESCE(g.amount_paid_cents, 0))
+                + MAX(0, COALESCE(s.s_offered, 0) - COALESCE(s.s_paid, 0))
+              ) AS total
+       FROM gigs g
+       LEFT JOIN (
+         SELECT gig_id,
+                SUM(COALESCE(amount_offered_cents, 0)) AS s_offered,
+                SUM(COALESCE(amount_paid_cents, 0)) AS s_paid
+         FROM gig_services
+         WHERE user_id = ?
+         GROUP BY gig_id
+       ) s ON s.gig_id = g.id
+       WHERE ${gigWhere.join(" AND ")} AND g.status = 'completed'`,
+    )
+    .bind(userId, ...gigParams)
+    .first<{ total: number | null }>();
+  const owedCents = owedRow?.total ?? 0;
+
   // ── totals ─────────────────────────────────────────────────────
   const offeredCents = byMonth.reduce((sum, r) => sum + r.offeredCents, 0);
   const paidCents = byMonth.reduce((sum, r) => sum + r.paidCents, 0);
@@ -240,7 +296,7 @@ export async function reportSummary(
     totals: {
       offeredCents,
       paidCents,
-      varianceCents: offeredCents - paidCents,
+      owedCents,
       expensesCents,
       reimbursableCents,
       netCents: paidCents - expensesCents,
