@@ -7,6 +7,7 @@ import { msToLocalInput, localInputToMs } from "../lib/datetime.ts";
 import {
   AppHeader,
   Button,
+  DateTimeField,
   Field,
   Input,
   Select,
@@ -219,10 +220,20 @@ export function DraftReview() {
                   />
                 </Field>
                 <Field label="Date & time">
-                  <Input
-                    type="datetime-local"
+                  {/* The same quarter-hour control the gig form uses —
+                      this screen creates gigs too, so a raw
+                      datetime-local here would just reintroduce 14:18
+                      by another door.
+
+                      The extracted time is safe: DateTimeField keeps an
+                      off-grid value as an option rather than correcting
+                      it, which matters most here. What the email said
+                      is evidence, and this screen exists for the user
+                      to check it. */}
+                  <DateTimeField
+                    testId="draft-datetime"
                     value={dateTime}
-                    onChange={(e) => setDateTime(e.target.value)}
+                    onChange={setDateTime}
                   />
                 </Field>
                 <Field label="Offered ($)">

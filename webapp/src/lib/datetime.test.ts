@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { localInputToMs, msToLocalInput, snapToQuarterHour } from "./datetime.ts";
+import {
+  QUARTER_HOUR_OPTIONS,
+  joinLocalInput,
+  localInputToMs,
+  msToLocalInput,
+  splitLocalInput,
+  timeOptionsFor,
+} from "./datetime.ts";
 
 describe("datetime-local input conversion", () => {
   it("round-trips epoch ms through the input format", () => {
@@ -21,55 +28,75 @@ describe("datetime-local input conversion", () => {
   });
 });
 
-/**
- * Snapping gig times to the quarter-hour grid.
- *
- * `step={900}` on the input was the first attempt and is not a
- * constraint: it drives the picker's granularity and marks an odd value
- * `stepMismatch`, but nothing stops a typed 10:07 from being the
- * field's value, and nothing here runs native form validation before
- * saving. The rule has to live in code to be a rule.
- *
- * Rounding is to the NEAREST quarter, not down. Down would turn a
- * carefully typed 10:59 into 10:45, which is a bigger lie than 11:00.
- */
-describe("snapToQuarterHour", () => {
-  it("leaves a time already on the grid alone", () => {
-    for (const t of ["09:00", "09:15", "09:30", "09:45"]) {
-      expect(snapToQuarterHour(`2026-08-11T${t}`)).toBe(`2026-08-11T${t}`);
+describe("quarter-hour time options", () => {
+  it("covers the whole day on the quarter, and nothing else", () => {
+    expect(QUARTER_HOUR_OPTIONS).toHaveLength(96);
+    expect(QUARTER_HOUR_OPTIONS[0]).toBe("00:00");
+    expect(QUARTER_HOUR_OPTIONS.at(-1)).toBe("23:45");
+    for (const t of QUARTER_HOUR_OPTIONS) {
+      expect(t).toMatch(/^\d{2}:(00|15|30|45)$/);
     }
   });
 
-  it("rounds to the nearest quarter", () => {
-    expect(snapToQuarterHour("2026-08-11T10:07")).toBe("2026-08-11T10:00");
-    expect(snapToQuarterHour("2026-08-11T10:08")).toBe("2026-08-11T10:15");
-    expect(snapToQuarterHour("2026-08-11T10:23")).toBe("2026-08-11T10:30");
-    expect(snapToQuarterHour("2026-08-11T10:38")).toBe("2026-08-11T10:45");
+  it("is sorted, so the wheel reads as a clock", () => {
+    expect([...QUARTER_HOUR_OPTIONS].sort()).toEqual([...QUARTER_HOUR_OPTIONS]);
+  });
+});
+
+describe("splitLocalInput / joinLocalInput", () => {
+  it("splits a full value into its two halves", () => {
+    expect(splitLocalInput("2026-09-14T14:15")).toEqual({
+      date: "2026-09-14",
+      time: "14:15",
+    });
   });
 
-  it("carries into the next hour", () => {
-    expect(snapToQuarterHour("2026-08-11T10:53")).toBe("2026-08-11T11:00");
+  it("reads an empty value as two empty halves", () => {
+    expect(splitLocalInput("")).toEqual({ date: "", time: "" });
   });
 
-  it("carries into the next day, month and year", () => {
-    expect(snapToQuarterHour("2026-08-11T23:53")).toBe("2026-08-12T00:00");
-    expect(snapToQuarterHour("2026-08-31T23:53")).toBe("2026-09-01T00:00");
-    expect(snapToQuarterHour("2026-12-31T23:53")).toBe("2027-01-01T00:00");
+  it("tolerates a value with seconds, which some browsers emit", () => {
+    expect(splitLocalInput("2026-09-14T14:15:00")).toEqual({
+      date: "2026-09-14",
+      time: "14:15",
+    });
   });
 
-  it("keeps an empty field empty rather than inventing a time", () => {
-    expect(snapToQuarterHour("")).toBe("");
+  it("joins the halves back", () => {
+    expect(joinLocalInput("2026-09-14", "14:15")).toBe("2026-09-14T14:15");
   });
 
-  it("returns an unparseable value untouched", () => {
-    // Mid-edit states reach onChange in some browsers. Snapping garbage
-    // into a real date would be worse than leaving it for the user.
-    expect(snapToQuarterHour("not-a-date")).toBe("not-a-date");
-    expect(snapToQuarterHour("2026-08-11T")).toBe("2026-08-11T");
+  it("has no value at all without a date", () => {
+    // A time on its own is not a moment, and emitting one would store a
+    // gig at 14:15 on no particular day.
+    expect(joinLocalInput("", "14:15")).toBe("");
   });
 
-  it("is idempotent", () => {
-    const once = snapToQuarterHour("2026-08-11T10:07");
-    expect(snapToQuarterHour(once)).toBe(once);
+  it("round-trips", () => {
+    const v = "2026-12-31T23:45";
+    const { date, time } = splitLocalInput(v);
+    expect(joinLocalInput(date, time)).toBe(v);
+  });
+});
+
+describe("timeOptionsFor", () => {
+  it("is just the grid for a time already on it", () => {
+    expect(timeOptionsFor("09:30")).toEqual([...QUARTER_HOUR_OPTIONS]);
+    expect(timeOptionsFor("")).toEqual([...QUARTER_HOUR_OPTIONS]);
+  });
+
+  it("keeps an off-grid time that is already stored", () => {
+    // Capture extracts what the email said — 14:18 — and a <select>
+    // with no such option would render blank and destroy the value on
+    // the next save. It stays selectable until the user picks another.
+    const options = timeOptionsFor("14:18");
+    expect(options).toContain("14:18");
+    expect(options).toHaveLength(97);
+  });
+
+  it("puts the off-grid time in its right place in the day", () => {
+    const options = timeOptionsFor("14:18");
+    expect(options.indexOf("14:18")).toBe(options.indexOf("14:15") + 1);
+    expect(options.indexOf("14:30")).toBe(options.indexOf("14:18") + 1);
   });
 });
