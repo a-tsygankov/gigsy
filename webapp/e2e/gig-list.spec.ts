@@ -224,34 +224,64 @@ test("Clear filters stays cleared after a reload", async ({ page }) => {
 /**
  * Quarter-hour times.
  *
- * `step={900}` on the input was the original attempt and did not hold:
- * it drives the picker's increments and marks an off-grid value
- * `stepMismatch`, but the value stays whatever was entered and nothing
- * runs native form validation before saving. So this drives the field
- * the way a person would and checks the value that results, rather than
- * trusting the attribute to mean what it looks like it means.
+ * Two earlier attempts asserted the wrong thing. `step={900}` was
+ * checked as an attribute, which says nothing about what the control
+ * accepts — iOS ignores it and shows all sixty minutes. Snapping the
+ * value afterwards was then asserted by filling the field, which proved
+ * the value got corrected but not that the picker had stopped offering
+ * 14:18.
+ *
+ * So this asserts the containment directly: the control's own options
+ * are the whole claim, because a <select> cannot produce a value it
+ * does not contain, on any platform.
  */
-test("a gig time off the quarter-hour grid snaps when you leave the field", async ({
+test("the gig time control offers quarter hours and nothing else", async ({
   page,
 }) => {
   await page.getByRole("link", { name: "Gigs" }).click();
   await page.getByRole("link", { name: "Add gig" }).click();
 
-  const when = page.getByTestId("gig-datetime");
-  await when.fill("2026-09-14T10:07");
-  // Still exactly what was entered — the attribute alone changes nothing.
-  await expect(when).toHaveValue("2026-09-14T10:07");
+  const date = page.getByTestId("gig-datetime-date");
+  const time = page.getByTestId("gig-datetime-time");
 
-  await when.blur();
-  await expect(when).toHaveValue("2026-09-14T10:00");
+  // No date yet, so there is nothing for a time to belong to.
+  await expect(time).toBeDisabled();
 
-  // Nearest, not down: 10:53 must become 11:00, not 10:45.
-  await when.fill("2026-09-14T10:53");
-  await when.blur();
-  await expect(when).toHaveValue("2026-09-14T11:00");
+  await date.fill("2026-09-14");
+  await expect(time).toBeEnabled();
 
-  // And a value already on the grid is left alone.
-  await when.fill("2026-09-14T14:30");
-  await when.blur();
-  await expect(when).toHaveValue("2026-09-14T14:30");
+  const values = await time.locator("option").evaluateAll((options) =>
+    options.map((o) => (o as HTMLOptionElement).value),
+  );
+  expect(values).toHaveLength(96);
+  expect(values.slice(0, 5)).toEqual([
+    "00:00",
+    "00:15",
+    "00:30",
+    "00:45",
+    "01:00",
+  ]);
+  // The point of the whole change: no minute outside the grid exists.
+  expect(values.filter((v) => !/^\d{2}:(00|15|30|45)$/.test(v))).toEqual([]);
+
+  // Picking a date before a time fills one in rather than dropping the
+  // date on the floor.
+  await expect(time).toHaveValue("09:00");
+
+  await time.selectOption("14:15");
+  await expect(time).toHaveValue("14:15");
+
+  // Two controls where there was one, on a phone. The filter row was
+  // caught doing exactly this — a horizontally scrollable page also
+  // moves the fixed tab bar's hit target, so it breaks navigation, not
+  // just looks.
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    ),
+  ).toBe(false);
+
+  // Clearing the date clears the moment — a time alone is not one.
+  await date.fill("");
+  await expect(time).toBeDisabled();
 });

@@ -226,39 +226,34 @@ test("a gig title survives a server round-trip", async ({ page }) => {
 });
 
 /**
- * A gig time entered in this form reaches storage on the quarter-hour
- * grid.
+ * A gig time survives the round trip to the server.
  *
- * This test used to assert the opposite — that a typed 10:07 survived a
- * save — on the grounds that it stood in for an email or photo capture.
- * It was the wrong stand-in. Capture does not go through this form: it
- * lands in DraftReview, which has its own field, prefills it from the
- * extraction and creates the gig itself. Typing into the gig form is a
- * person choosing a time, and a person choosing 10:07 was the bug
- * being reported.
+ * The containment claim — that the control cannot express 14:18 — is
+ * asserted in gig-list.spec.ts against the options themselves. This is
+ * the other half: that the two controls actually compose into one
+ * stored moment, and come back as the same one.
  *
- * `step` is still asserted, but it is not the mechanism — it only makes
- * the native picker's own increments agree with the rule. The rule is
- * the snap, and this checks it survives the round trip to the server
- * rather than merely looking right in the field.
+ * The version before this asserted `step="900"` on a `datetime-local`
+ * input, which was never a constraint on any platform and was ignored
+ * outright by iOS.
  */
-test("a gig time entered here is stored on the quarter-hour grid", async ({
+test("a gig date and time are stored together and come back", async ({
   page,
 }) => {
   await page.getByRole("link", { name: "Gigs" }).click();
   await page.getByRole("link", { name: "Add gig" }).click();
 
-  await expect(page.getByLabel("Date & time")).toHaveAttribute("step", "900");
-
-  const marker = `odd-minutes-${Date.now()}`;
+  const marker = `gig-time-${Date.now()}`;
   await page.getByLabel("Location").fill(marker);
-  await page.getByLabel("Date & time").fill("2027-03-04T10:07");
+  await page.getByTestId("gig-datetime-date").fill("2027-03-04");
+  await page.getByTestId("gig-datetime-time").selectOption("10:45");
   await page.getByRole("button", { name: "Save gig" }).click();
   await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
 
   // Reopened from storage, not from the form state left behind.
   await page.getByText(marker).click();
-  await expect(page.getByLabel("Date & time")).toHaveValue("2027-03-04T10:00");
+  await expect(page.getByTestId("gig-datetime-date")).toHaveValue("2027-03-04");
+  await expect(page.getByTestId("gig-datetime-time")).toHaveValue("10:45");
 });
 
 /**
