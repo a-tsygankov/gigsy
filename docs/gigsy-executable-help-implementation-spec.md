@@ -151,6 +151,15 @@ sixth navigation element is not free.
 Hence: the help launcher is a section on the Settings screen (§7.2), and
 Driver.js must be restyled to design tokens (§7.4).
 
+**One correction to that document, found during implementation:** it
+claims no dark values exist in the codebase. They do —
+`webapp/src/styles/tokens/colors.css:70` defines `:root[data-theme="dark"]`,
+`index.html` stamps the theme before first paint, and
+`AppearanceSection.tsx` exposes the control. Any CSS this work adds must
+use the semantic tokens and be checked in both themes; hardcoded
+light-mode values render as a glaring white card in dark mode. Trust the
+code over the document here.
+
 ### 2.8 Vitest runs in Node, with no DOM
 
 `vitest.config.ts` sets `include: ["src/**/*.test.{ts,tsx}"]` and nothing
@@ -686,6 +695,25 @@ is help, not macro automation.
 Targets resolve through `resolveTarget` (§5.2) — never through a raw
 `data-testid` query, or the working-hours tour spotlights a 1×1 box.
 
+**Resolve each target when its step is entered, not all of them up
+front.** A step's target may not exist until an earlier step creates it:
+`AvailabilitySection.tsx` renders `start-day-N` only once day N is
+switched on, so resolving the whole scenario before `drive()` makes the
+working-hours tour unrunnable for exactly the person it is written for.
+
+**Advance a click step from the control, not from the paint.** For a
+`switch` target the resolved element is the aria-hidden span, but the
+same toggle can be operated by its separate day-name `<label htmlFor>`
+or by focusing the `sr-only` input and pressing Space — neither of which
+sends an event through the span. Listen where the state actually
+changes, or a keyboard user cannot complete a click step at all, and a
+mouse user gets stranded on a step whose data has already changed.
+
+**Gate the advance on the active step.** Highlighting a container makes
+everything inside it interactive (Driver.js sets `pointer-events: auto`
+on the active element's descendants), so a listener registered up front
+can be consumed by a click meant for a different step.
+
 **Failure is graceful.** A missing target ends the scenario with "This
 help step is currently unavailable" and a way back to the menu. It never
 throws into the app, and it logs enough to debug. Contrast with §8, where
@@ -705,9 +733,17 @@ unstyled Driver.js popover reads as another product's UI dropped into the
 screen.
 
 Restyle at minimum: popover surface and radius (match `Card`), button
-treatment (match `Button` variants), typography (system stack), and the
-spotlight outline. The library's default arrow may be kept if it inherits
-the surface colour.
+treatment (match `Button` variants), typography (system stack), the
+spotlight outline, **and the close button** — on a click step, which
+shows no Next, that × is the only exit, and Driver.js ships it as
+`all: unset; color: #d2d2d2`, well under the 3:1 contrast floor and with
+no focus ring.
+
+Use the semantic tokens from `src/styles/tokens/colors.css`, not hex
+literals, and check both themes (see §2.7). Leave the arrow alone: a rule
+on `.driver-popover-arrow` outweighs Driver.js's own side-classes, which
+set three borders transparent to form the triangle, and turns it into a
+solid block.
 
 ### 7.5 Accessibility
 
