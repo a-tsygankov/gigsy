@@ -492,6 +492,8 @@ suite and `help:validate` call it. Checks:
 
 - duplicate scenario id
 - scenario with neither steps nor variants
+- scenario with *both* steps and variants — the model treats them as
+  alternatives, and nothing downstream knows which to render
 - duplicate branch id within a scenario
 - branch with zero steps
 - a `BranchStep` nested inside a branch
