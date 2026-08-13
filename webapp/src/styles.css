@@ -10,6 +10,7 @@
 @import "./styles/tokens/elevation.css";
 @import "./styles/tokens/motion.css";
 @import "./styles/tokens/semantic.css";
+@import "./styles/help.css";
 
 @tailwind base;
 @tailwind components;

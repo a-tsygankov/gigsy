@@ -1,0 +1,58 @@
+/* Driver.js ships its own popover look. Gigsy has one surface style and
+   one button style (docs/design-system.md); an unrestyled popover reads
+   as another product's UI dropped onto the screen. Tokens mirror Card
+   and Button rather than repeating hex values by eye. */
+.gigsy-help-popover.driver-popover {
+  background-color: #ffffff;
+  border: 1px solid rgb(226 232 240); /* slate-200, as Card */
+  border-radius: 1rem; /* rounded-2xl */
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  color: rgb(15 23 42); /* slate-900 */
+  font-family: inherit; /* the system stack; Gigsy ships no webfont */
+  max-width: 20rem;
+}
+
+.gigsy-help-popover .driver-popover-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: rgb(15 23 42);
+}
+
+.gigsy-help-popover .driver-popover-description {
+  font-size: 0.75rem;
+  line-height: 1.625;
+  color: rgb(100 116 139); /* slate-500 */
+}
+
+.gigsy-help-popover .driver-popover-navigation-btns button {
+  background-color: rgb(236 253 245); /* emerald-50, as Button soft */
+  color: rgb(4 120 87); /* emerald-700 */
+  border: none;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-shadow: none;
+}
+
+.gigsy-help-popover .driver-popover-navigation-btns button:focus-visible {
+  outline: 2px solid rgb(16 185 129); /* emerald-500 */
+  outline-offset: 2px;
+}
+
+.gigsy-help-popover .driver-popover-progress-text {
+  font-size: 0.75rem;
+  color: rgb(148 163 184); /* slate-400 */
+}
+
+.gigsy-help-popover .driver-popover-arrow {
+  border-color: #ffffff;
+}
+
+/* The spotlight must not rely on colour alone: the cutout itself
+   carries the meaning, and the ring reinforces it. */
+.driver-active-element {
+  outline: 2px solid rgb(16 185 129);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
