@@ -39,6 +39,12 @@ export function validateHelpRegistry(scenarios: HelpScenario[]): HelpProblem[] {
     if (scenario.steps.length === 0 && variants.length === 0) {
       report("scenario has neither steps nor variants");
     }
+    if (scenario.steps.length > 0 && variants.length > 0) {
+      // The model treats these as alternatives: installation carries
+      // variants *instead of* steps, and nothing downstream is
+      // specified to know which to render if a scenario has both.
+      report("scenario has both steps and variants");
+    }
 
     const branchIds = new Set<string>();
     const checkExternal = (step: HelpStep, where: string): void => {

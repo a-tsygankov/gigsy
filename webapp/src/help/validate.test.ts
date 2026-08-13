@@ -34,6 +34,69 @@ describe("validateHelpRegistry", () => {
     );
   });
 
+  it("catches a scenario with both steps and variants", () => {
+    const scenario: HelpScenario = {
+      ...ok,
+      executable: false,
+      variants: [
+        {
+          environment: "fallback",
+          label: "Any browser",
+          steps: [
+            { action: "external", externalType: "os-ui", description: "Tap Share." },
+          ],
+        },
+      ],
+    };
+    expect(messages([scenario])).toContain(
+      "scenario has both steps and variants",
+    );
+  });
+
+  it("catches a branch step with no branches", () => {
+    const scenario: HelpScenario = {
+      ...ok,
+      steps: [{ action: "branch", branches: [] }],
+    };
+    expect(messages([scenario])).toContain("branch step has no branches");
+  });
+
+  it("catches a branch with no steps", () => {
+    const scenario: HelpScenario = {
+      ...ok,
+      steps: [
+        {
+          action: "branch",
+          branches: [
+            {
+              id: "empty",
+              when: { type: "target-visible", target: HelpTarget.PushToggle },
+              steps: [],
+            },
+          ],
+        },
+      ],
+    };
+    expect(messages([scenario])).toContain(`branch "empty" has no steps`);
+  });
+
+  it("catches a variant with no steps", () => {
+    const scenario: HelpScenario = {
+      ...ok,
+      executable: false,
+      steps: [],
+      variants: [{ environment: "fallback", label: "Any browser", steps: [] }],
+    };
+    expect(messages([scenario])).toContain(`variant "fallback" has no steps`);
+  });
+
+  it("catches a non-executable scenario with an executable step", () => {
+    const scenario: HelpScenario = { ...ok, executable: false };
+    expect(messages([scenario])).toContain(
+      "scenario is marked non-executable but contains executable steps",
+    );
+  });
+
   it("catches a duplicate branch id", () => {
     const scenario: HelpScenario = {
       ...ok,
