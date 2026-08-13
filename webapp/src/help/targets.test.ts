@@ -1,6 +1,12 @@
 /** @vitest-environment jsdom */
 import { describe, expect, it } from "vitest";
-import { HelpTarget, dayToggle, resolveTarget, targetSelector } from "./targets.ts";
+import {
+  HelpTarget,
+  dayStart,
+  dayToggle,
+  resolveTarget,
+  targetSelector,
+} from "./targets.ts";
 
 /** The markup Toggle actually renders (components/Toggle.tsx): the test
  *  ID sits on a 1x1 sr-only input, and the switch a person can see is a
@@ -55,6 +61,12 @@ describe("targetSelector", () => {
     expect(targetSelector(dayToggle(3))).toBe(
       `label:has([data-testid="toggle-day-3"]) span[aria-hidden="true"]`,
     );
+  });
+});
+
+describe("dayStart", () => {
+  it("is an element target for the row's start-time select", () => {
+    expect(dayStart(2)).toEqual({ id: "start-day-2", kind: "element" });
   });
 });
 

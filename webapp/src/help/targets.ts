@@ -61,7 +61,14 @@ export const dayStart = (i: WeekdayIndex): HelpTarget =>
   element(`start-day-${i}`);
 
 /** CSS for Playwright. Exactly the locator e2e/settings.spec.ts proves
- *  against the real component. */
+ *  against the real component.
+ *
+ *  `t.id` goes in unescaped, unlike `resolveTarget` below. That's fine
+ *  here and only here: every id comes from a typed factory or a
+ *  `WeekdayIndex` template, so no quote character is reachable, and a
+ *  malformed selector would fail a Playwright test at the point it's
+ *  used — not corrupt production state. `resolveTarget` runs in the
+ *  shipped app, where the same failure would throw at a user. */
 export function targetSelector(t: HelpTarget): string {
   return t.kind === "switch"
     ? `label:has([data-testid="${t.id}"]) span[aria-hidden="true"]`
