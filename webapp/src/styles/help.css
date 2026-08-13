@@ -1,58 +1,101 @@
 /* Driver.js ships its own popover look. Gigsy has one surface style and
    one button style (docs/design-system.md); an unrestyled popover reads
-   as another product's UI dropped onto the screen. Tokens mirror Card
-   and Button rather than repeating hex values by eye. */
+   as another product's UI dropped onto the screen. Every colour below
+   is a semantic token (src/styles/tokens/semantic.css) rather than a
+   literal — those tokens repoint themselves under [data-theme="dark"]
+   (src/styles/tokens/colors.css), which a hardcoded hex value cannot. */
 .gigsy-help-popover.driver-popover {
-  background-color: #ffffff;
-  border: 1px solid rgb(226 232 240); /* slate-200, as Card */
-  border-radius: 1rem; /* rounded-2xl */
-  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  color: rgb(15 23 42); /* slate-900 */
-  font-family: inherit; /* the system stack; Gigsy ships no webfont */
+  background-color: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl); /* Card's own radius (Card.tsx), not a bigger one */
+  box-shadow: var(--shadow-sm);
+  color: var(--text-strong);
+  font-family: var(--font-sans); /* the system stack; Gigsy ships no webfont */
   max-width: 20rem;
 }
 
 .gigsy-help-popover .driver-popover-title {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: rgb(15 23 42);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
 }
 
 .gigsy-help-popover .driver-popover-description {
-  font-size: 0.75rem;
-  line-height: 1.625;
-  color: rgb(100 116 139); /* slate-500 */
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  color: var(--text-muted);
 }
 
 .gigsy-help-popover .driver-popover-navigation-btns button {
-  background-color: rgb(236 253 245); /* emerald-50, as Button soft */
-  color: rgb(4 120 87); /* emerald-700 */
+  background-color: var(--accent-soft-bg);
+  color: var(--accent-soft-text);
   border: none;
-  border-radius: 0.75rem;
+  border-radius: var(--radius-xl);
   padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   text-shadow: none;
 }
 
 .gigsy-help-popover .driver-popover-navigation-btns button:focus-visible {
-  outline: 2px solid rgb(16 185 129); /* emerald-500 */
+  outline: 2px solid var(--accent-ring);
   outline-offset: 2px;
 }
 
-.gigsy-help-popover .driver-popover-progress-text {
-  font-size: 0.75rem;
-  color: rgb(148 163 184); /* slate-400 */
+/* Driver renders Close as its own `.driver-popover-close-btn`, entirely
+   separate from the Next/Previous pair styled above — a click step
+   shows only this button (the tour never presses it for the user), so
+   on that step it is the one and only way out. Driver's own default is
+   `all: unset` plus a near-invisible grey; that is not adequate contrast
+   for the sole exit from a step. */
+.gigsy-help-popover .driver-popover-close-btn {
+  color: var(--text-muted);
+  opacity: 1;
 }
 
-.gigsy-help-popover .driver-popover-arrow {
-  border-color: #ffffff;
+.gigsy-help-popover .driver-popover-close-btn:hover {
+  color: var(--text-strong);
+}
+
+.gigsy-help-popover .driver-popover-close-btn:focus-visible {
+  color: var(--text-strong);
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.gigsy-help-popover .driver-popover-progress-text {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+/* Driver's own base rule (`.driver-popover-arrow{border:5px solid #fff}`)
+   and its four `-side-*` rules, which turn three of those borders
+   transparent to draw the triangle, share one specificity — (0,1,0).
+   There is therefore no single higher-specificity selector that can
+   recolour the arrow without also beating the transparency and
+   redrawing it as a solid block (which is what a single
+   `.gigsy-help-popover .driver-popover-arrow` override used to do).
+   Matching each side rule's own specificity, plus this namespace class,
+   and touching only the one longhand each side rule leaves alone — the
+   visible edge — lets the two sets of rules add rather than fight. */
+.gigsy-help-popover .driver-popover-arrow-side-top {
+  border-top-color: var(--surface-card);
+}
+.gigsy-help-popover .driver-popover-arrow-side-bottom {
+  border-bottom-color: var(--surface-card);
+}
+.gigsy-help-popover .driver-popover-arrow-side-left {
+  border-left-color: var(--surface-card);
+}
+.gigsy-help-popover .driver-popover-arrow-side-right {
+  border-right-color: var(--surface-card);
 }
 
 /* The spotlight must not rely on colour alone: the cutout itself
    carries the meaning, and the ring reinforces it. */
 .driver-active-element {
-  outline: 2px solid rgb(16 185 129);
+  outline: 2px solid var(--accent-ring);
   outline-offset: 2px;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm);
 }
