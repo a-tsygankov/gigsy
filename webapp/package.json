@@ -1,6 +1,6 @@
 {
   "name": "gigsy-webapp",
-  "version": "0.0.47",
+  "version": "0.0.66",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,11 +11,14 @@
     "test": "vitest run",
     "test:e2e": "playwright test --project=chromium",
     "test:e2e:ui": "playwright test --ui",
+    "help:test": "playwright test --project=help",
+    "help:validate": "vitest run src/help",
     "deploy": "wrangler pages deploy dist --project-name=gigsy-webapp --branch=main"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",
     "dexie": "^4.0.0",
+    "driver.js": "^1.8.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-router-dom": "^6.28.0",
@@ -29,6 +32,7 @@
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.20",
     "fake-indexeddb": "^6.2.5",
+    "jsdom": "^30.0.1",
     "postcss": "^8.4.49",
     "sharp": "^0.35.3",
     "tailwindcss": "^3.4.17",

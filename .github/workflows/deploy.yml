@@ -100,7 +100,7 @@ jobs:
           command: deploy
 
   webapp-build:
-    name: Webapp typecheck + build
+    name: Webapp test + typecheck + build
     needs: changes
     if: needs.changes.outputs.webapp == 'true'
     runs-on: ubuntu-latest
@@ -115,6 +115,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
         working-directory: .
       - run: pnpm typecheck
+      # The webapp's vitest suite. Absent until Phase 13 review caught
+      # it: the `pnpm test` further up belongs to the *backend* job, so
+      # nothing in .github/workflows ever ran the webapp's unit tests —
+      # including src/help/runtime/TourRenderer.driver.test.ts, which
+      # exists precisely because two rounds shipped with the Driver.js
+      # step correlation silently broken. Runs before `build` so a red
+      # test costs seconds rather than a full production build.
+      - run: pnpm test
       - run: pnpm build
 
   # On PRs only: deploy this PR's webapp to a per-branch Cloudflare
@@ -249,6 +257,25 @@ jobs:
           # Turns a skipped signed-in spec into a failure here.
           E2E_REQUIRE_AUTH: '1'
         run: pnpm test:e2e
+
+      # Help scenarios prove the documented workflows are still doable:
+      # delete a data-testid a scenario points at and this fails naming
+      # the scenario, step and target, rather than leaving the help
+      # quietly wrong — for targets on the branch this stack takes. A
+      # target reachable only through the other branch of a branch step
+      # (push-toggle, capture-address-value) is not covered; see the
+      # PR 3 acceptance list in
+      # docs/gigsy-executable-help-implementation-spec.md.
+      # They belong in this job rather than the preview
+      # one, which proxies to the production worker with test auth off —
+      # there they would skip and report green, the exact trap the
+      # comment above this job describes.
+      - name: Validate help scenarios
+        working-directory: webapp
+        env:
+          E2E_BASE_URL: http://127.0.0.1:5192
+          E2E_REQUIRE_AUTH: '1'
+        run: pnpm help:test
 
       - uses: actions/upload-artifact@v4
         if: failure()
