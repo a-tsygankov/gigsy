@@ -46,6 +46,62 @@ export const HelpTarget = {
 
   // A calendar *title prefix* switch — nothing to do with toggle naming.
   TogglePrefix: painted("toggle-prefix"),
+
+  // ── the gig list (Gigs.tsx, gigs/GigFilters.tsx) ──
+  // `gig-list` is mounted only while at least one row is showing, which
+  // is what lets a branch use it to mean "there is a gig here to open".
+  // `gig-filters` is mounted whenever the user owns any gig at all, so
+  // the two together separate "no gigs" from "gigs, all filtered out".
+  GigList: element("gig-list"),
+  GigFilters: element("gig-filters"),
+  GigSearch: element("gig-search"),
+  GigFiltersToggle: element("gig-filters-toggle"),
+  // The Fab is a <Link>, not a Button — an element either way.
+  GigAdd: element("gig-add"),
+
+  // ── the gig form (GigEdit.tsx) ──
+  // Every one of these is an Input, Select, Textarea or Button, so every
+  // one is `element`. DateTimeField splits one labelled field across two
+  // controls and suffixes the id it is given, hence the two entries.
+  GigTitle: element("gig-title"),
+  GigClient: element("gig-client"),
+  GigStatus: element("gig-status"),
+  GigDate: element("gig-datetime-date"),
+  GigTime: element("gig-datetime-time"),
+  GigDuration: element("gig-duration"),
+  GigLocation: element("gig-location"),
+  GigUseCurrentLocation: element("use-current-location"),
+  GigOffered: element("gig-offered"),
+  GigPaid: element("gig-paid"),
+  GigNotes: element("gig-notes"),
+  GigSave: element("gig-save"),
+  // The two blocks below the save button. Both are `<section>`s carrying
+  // the id themselves, and GigEdit.tsx renders them in BOTH states — the
+  // real list plus its "+ Add …" link on a saved gig, a paragraph
+  // explaining what they are for on `/gigs/new`. That is what lets one
+  // target work on a gig that does not exist yet, which is the only way
+  // a tour can explain either feature: a tour cannot save a gig first.
+  GigServices: element("gig-services"),
+  GigPayments: element("gig-payments"),
+
+  // ── the additional-service form (ServiceEdit.tsx) ──
+  ServiceDescription: element("service-description"),
+  ServiceOffered: element("service-offered"),
+  ServicePaid: element("service-paid"),
+  ServicePayment: element("service-payment"),
+  // A bare 16px <input type="checkbox">, NOT a Toggle — nothing is
+  // sr-only here and there is no painted sibling to walk to, so this is
+  // `element` (checked against ServiceEdit.tsx, per this file's rule).
+  ServiceCompleted: element("service-completed"),
+  ServiceSave: element("service-save"),
+
+  // ── the payment form (PaymentEdit.tsx) ──
+  PaymentAmount: element("payment-amount"),
+  PaymentGig: element("payment-gig"),
+  PaymentPaidAt: element("payment-paid-at"),
+  PaymentNotes: element("payment-notes"),
+  PaymentConfirmation: element("payment-confirmation"),
+  PaymentSave: element("payment-save"),
 } as const;
 
 export type WeekdayIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6;

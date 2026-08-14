@@ -1,0 +1,150 @@
+import { HelpTarget } from "../targets.ts";
+import type { HelpScenario } from "../types.ts";
+
+/**
+ * The whole gig form, field by field.
+ *
+ * Every step is a `highlight`, including the last one, and that is a
+ * constraint rather than an oversight. This scenario runs in CI on every
+ * PR against a shared dev database, so it may not leave a record behind
+ * — and the only step that could create one is the save. Stopping at
+ * `gig-save` with a highlight is also the honest version for a person:
+ * the same rule TourRenderer.ts is built around (the USER performs the
+ * click) matters more here than anywhere else, because what would be
+ * written is their record, with this walkthrough's sample values in it.
+ *
+ * `input` and `select` steps would be safe in the app — GigEdit holds
+ * the form in React state and writes nothing until `submit` — but they
+ * are not safe in the runner's hands for no benefit: `performAction`
+ * really does fill and select, and a half-filled form is not what the
+ * next reader of this scenario should have to reason about. Nothing
+ * here needs the form to change state to explain the next field, so
+ * nothing here changes it.
+ *
+ * No branch: `/gigs/new` is `isNew` (GigEdit.tsx's `const isNew = id
+ * === "new"`), which renders every field unconditionally and skips the
+ * gig query entirely, so there is no second legitimate state to branch
+ * on. The delete button below is the one `!isNew`-only block left, and
+ * it is deliberately not part of this walkthrough.
+ *
+ * The services and payments sections ARE part of it. They used to be
+ * `!isNew` too, which meant the first gig anybody made was the one gig
+ * whose form never mentioned either feature — and a tour could not fill
+ * the gap, because explaining them needed a saved gig and a saved gig
+ * needs this scenario to press save. They now render on `/gigs/new` as
+ * explanation with no control attached, so the two steps below have a
+ * target that exists before the record does.
+ *
+ * The copy explains what a field is FOR. What it is called is already
+ * on screen; what `lead` does to your availability page is not.
+ */
+export const createGig: HelpScenario = {
+  id: "create-gig",
+  title: "Add a gig by hand",
+  description:
+    "What every field on the gig form is for, and which ones change how Gigsy behaves.",
+  category: "gigs",
+  startRoute: "/gigs/new",
+  steps: [
+    {
+      action: "highlight",
+      target: HelpTarget.GigTitle,
+      title: "Title (optional)",
+      description:
+        "Optional, and usually worth leaving blank: a gig with no title is listed by the first line of its notes, or by the client's name when there are none. Type one when that isn't enough to tell two shifts for the same agency apart.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigClient,
+      title: "Client",
+      description:
+        "Who the work is for. Leaving it on \"No client\" is fine — the gig still saves — but a client is what groups this gig with the rest of their work in Reports, and what the list falls back to for a name.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigStatus,
+      title: "Status",
+      description:
+        "lead → confirmed → completed → paid, and it drives real behaviour. A lead never blocks time on your public availability page and never reaches Google Calendar — it is an offer, not a commitment. Confirmed does both. Completed is the one the dashboard reads as work waiting to be paid; paid closes it off.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigDate,
+      title: "Date & time — the day",
+      description:
+        "Pick the day here. A gig with no date at all still saves, it just can't block time or sync anywhere. Choosing a date before you've touched the time sets 09:00 rather than dropping the day you just picked — the box beside it is where you change that.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigTime,
+      title: "…and the time",
+      description:
+        "A short list rather than a wheel of every minute: times run on the quarter hour, so 14:18 isn't something you can pick by accident. It stays greyed out until there is a date to attach it to. A gig that already carries an odd time — one read off a client's email — keeps that exact time in the list.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigDuration,
+      title: "Duration",
+      description:
+        "How long you'll be there, and the reason it matters: this is the end time your calendar and your availability page honour. Leave it unset and both assume four hours, so a two-hour tasting quietly fences off an afternoon you could have sold. The end time appears under the box once the date and the length are both set.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigLocation,
+      title: "Location",
+      description:
+        "Where to actually turn up. \"Costco on 5th, booth 12\" beats a street address on the morning. It is free text, it shows on the gig's line in the list, and the search box on that list looks in here too.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigUseCurrentLocation,
+      title: "📍 Use current location",
+      description:
+        "Tap this while you are standing there: Gigsy asks your device for coordinates and has the server turn them into a place name. If that lookup fails you get the raw coordinates instead of nothing — still enough to find the loading bay again next time.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigOffered,
+      title: "Offered ($)",
+      description:
+        "What the job pays — what was agreed, not what has arrived. While the gig is a lead or confirmed, this is what the dashboard adds up as Expected. Leave it blank if it hasn't been agreed yet; a zero is rejected, blank is the way to say \"not set\".",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigPaid,
+      title: "Paid ($)",
+      description:
+        "What has actually landed. The gap between Offered and Paid on a completed gig is exactly what \"Unpaid — waiting on clients\" on the dashboard and \"Still owed\" in Reports are made of, so leaving this blank until the money is real is what keeps those numbers true.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigNotes,
+      title: "Notes",
+      description:
+        "Anything you'll want on the day — parking, the contact's name, what the client asked for. Its first line doubles as the gig's name in the list whenever you left the title blank, so it's worth putting the useful bit first.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigServices,
+      title: "Additional services",
+      description:
+        "Work billed on top of the fee — the overtime hour, the second booth, the extra day. Each one is its own line with its own offered and paid amounts, which is why an unpaid extra still shows as owed after the gig's own fee has landed. Right now it only explains itself; a saved gig gets a \"+ Add service\" link here.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigPayments,
+      title: "Payments",
+      description:
+        "Money in the parts it actually arrives in — a deposit in March, the balance in May, each with its date and a photo of the proof. Paid ($) above is the total; this is the record of where that total came from, and what you show a client who says they already paid. It appears as a list you can add to once the gig is saved.",
+    },
+    {
+      action: "highlight",
+      // Deliberately a highlight and never a click — see this file's
+      // header. The save is the user's to press.
+      target: HelpTarget.GigSave,
+      title: "Save it yourself",
+      description:
+        "Press \"Save gig\" when the form says what you mean. This walkthrough stops here on purpose and will not press it for you: nothing is written until you do. Saving takes you back to the gig list, with the new gig on it.",
+    },
+  ],
+};

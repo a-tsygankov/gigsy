@@ -126,6 +126,7 @@ export function ClientEdit() {
           <>
             <Field label="Name" error={nameError}>
               <Input
+                data-testid="client-name"
                 placeholder="Acme Staffing"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -133,13 +134,18 @@ export function ClientEdit() {
             </Field>
             <Field label="Contact">
               <Input
+                data-testid="client-contact"
                 placeholder="booker@acme.com · (555) 010-2233"
                 value={contact}
                 onChange={(e) => setContact(e.target.value)}
               />
             </Field>
             <Field label="Notes">
-              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
+              <Textarea
+                data-testid="client-notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
             </Field>
 
             {save.isError && (
@@ -147,10 +153,19 @@ export function ClientEdit() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <Button className="flex-1" disabled={save.isPending} onClick={submit}>
+              <Button
+                data-testid="client-save"
+                className="flex-1"
+                disabled={save.isPending}
+                onClick={submit}
+              >
                 {save.isPending ? "Saving…" : "Save client"}
               </Button>
-              <Button variant="ghost" onClick={() => navigate("/clients")}>
+              <Button
+                data-testid="client-cancel"
+                variant="ghost"
+                onClick={() => navigate("/clients")}
+              >
                 Cancel
               </Button>
             </div>
@@ -179,6 +194,7 @@ export function ClientEdit() {
                 </section>
 
                 <Button
+                  data-testid="client-delete"
                   variant="danger"
                   block
                   disabled={remove.isPending}

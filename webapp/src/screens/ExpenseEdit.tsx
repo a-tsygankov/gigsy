@@ -97,6 +97,7 @@ export function ExpenseEdit() {
           <>
             <Field label="Amount ($)" error={amountError}>
               <Input
+                data-testid="expense-amount"
                 inputMode="decimal"
                 placeholder="23.50"
                 value={amount}
@@ -105,13 +106,18 @@ export function ExpenseEdit() {
             </Field>
             <Field label="Category">
               <Input
+                data-testid="expense-category"
                 placeholder="parking, supplies, mileage…"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
               />
             </Field>
             <Field label="Linked gig">
-              <Select value={gigId} onChange={(e) => setGigId(e.target.value)}>
+              <Select
+                data-testid="expense-gig"
+                value={gigId}
+                onChange={(e) => setGigId(e.target.value)}
+              >
                 <option value="">Not linked</option>
                 {gigs.data?.map((g) => (
                   <option key={g.id} value={g.id}>
@@ -121,7 +127,11 @@ export function ExpenseEdit() {
               </Select>
             </Field>
             <Field label="Notes">
-              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
+              <Textarea
+                data-testid="expense-notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
             </Field>
 
             {/* An expectation of reimbursement, not money received —
@@ -143,15 +153,25 @@ export function ExpenseEdit() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <Button className="flex-1" disabled={save.isPending} onClick={submit}>
+              <Button
+                data-testid="expense-save"
+                className="flex-1"
+                disabled={save.isPending}
+                onClick={submit}
+              >
                 {save.isPending ? "Saving…" : "Save expense"}
               </Button>
-              <Button variant="ghost" onClick={() => navigate("/expenses")}>
+              <Button
+                data-testid="expense-cancel"
+                variant="ghost"
+                onClick={() => navigate("/expenses")}
+              >
                 Cancel
               </Button>
             </div>
             {!isNew && (
               <Button
+                data-testid="expense-delete"
                 variant="danger"
                 block
                 disabled={remove.isPending}

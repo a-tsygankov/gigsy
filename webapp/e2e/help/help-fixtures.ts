@@ -10,7 +10,7 @@
  * done once for the rest of the suite.
  */
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
-import { requireTestAuth } from "../helpers/test-auth.ts";
+import { requireTestAuth, resetGigListView } from "../helpers/test-auth.ts";
 import type { HelpScenario } from "../../src/help/types.ts";
 
 /** Hosts a local stack can legitimately be reached at. `"[::1]"` keeps
@@ -122,6 +122,72 @@ export async function resetWorkingWeek(
 }
 
 /**
+ * Wait until the gig list a scenario is about to read actually reflects
+ * the server.
+ *
+ * The reason this is needed is not latency, it is architecture. Reads go
+ * through `OfflineDataService`, whose `listGigs()` returns whatever is in
+ * the local IndexedDB store and never touches the network
+ * (data-service.ts; docs/plan.md §7 — "reads/writes never block on the
+ * network"). A Playwright context starts with an empty IndexedDB, so
+ * `/gigs` opens with `gigs.data === []`, `all.length === 0`, and
+ * therefore the "No gigs yet" empty state with no `gig-filters` at all —
+ * for however long SyncEngine's first `pull()` takes to write several
+ * hundred rows into Dexie. Every one of those states is a legitimate
+ * render of the screen; that is exactly why `find-a-gig` branches on
+ * them.
+ *
+ * Which makes this a precondition problem, not a flake. `find-a-gig`'s
+ * `target-missing gig-filters` condition is *correct* during that
+ * window, so the settle-then-recheck debounce in help-runner.ts does not
+ * save it — it commits to `no-gigs-yet` and every target on the branch
+ * that matters (`gig-search`, `gig-filters-toggle`, `gig-list`) goes
+ * unresolved, which the README's §6 warns turns them into prose.
+ * Observed directly: the first `help:test` run against this stack took
+ * `no-gigs-yet` on an account of 396 gigs.
+ *
+ * So: ask the server what it has, and only then let a scenario look.
+ * Zero gigs server-side means there is genuinely nothing to wait for and
+ * `no-gigs-yet` is the honest state — this returns immediately rather
+ * than hanging on a condition that will never come true. In CI the count
+ * is never zero, because `test:e2e` runs first in the same job against
+ * the same local D1 and plants gigs (deploy.yml's webapp-e2e-full), which
+ * is why `find-a-gig` declares `gigs-showing`.
+ *
+ * Deliberately NOT a scenario step and not a longer debounce. A step
+ * would make the tour wait too, on a page where the user is watching
+ * nothing happen; a longer debounce would only widen a window that is
+ * bounded by dataset size, not by a fixed delay.
+ */
+async function waitForGigsToHydrate(
+  page: Page,
+  request: APIRequestContext,
+  baseURL: string,
+): Promise<void> {
+  const login = await request.post(`${baseURL}/api/auth/test-login`, {
+    data: { email: "dev@test.local" },
+  });
+  if (!login.ok()) return; // No test auth here; the spec skips anyway.
+  const { accessToken } = (await login.json()) as { accessToken: string };
+
+  const listed = await request.get(`${baseURL}/api/gigs`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
+  if (!listed.ok()) return;
+  const { items } = (await listed.json()) as { items?: unknown[] };
+  if (items === undefined || items.length === 0) return;
+
+  // `gig-filters` rather than `gig-list`: the filter bar is
+  // unconditional on `all.length > 0` (Gigs.tsx), so it is precisely
+  // "the store has gigs in it now" and says nothing about what the saved
+  // view leaves visible — that is the scenario's business, not this
+  // function's. 30s because the first pull writes every gig, client,
+  // expense, service and payment the account has.
+  await page.goto("/gigs");
+  await expect(page.getByTestId("gig-filters")).toBeVisible({ timeout: 30_000 });
+}
+
+/**
  * Signs in and, if the scenario declares one, navigates to its
  * `startRoute` — the state every scenario's first step assumes.
  *
@@ -142,6 +208,22 @@ export async function resetWorkingWeek(
  * that no other scenario reads or asserts on, so there is nothing to
  * scope it against, and a future scenario that does share the field
  * gets the same guarantee for free instead of having to remember to ask.
+ *
+ * Resets the saved gig-list view for the same reason, and this one is
+ * not hypothetical. `find-a-gig` branches on whether any row is showing,
+ * and what decides that is not only the data but the persisted filters —
+ * `gigListStatuses`, `gigListFrom/To`, `gigListHidePast`, all stored
+ * server-side for this same shared dev user, all written by
+ * `test:e2e`'s gig-list.spec.ts. A date range left behind by an earlier
+ * suite empties a list of several hundred gigs, `find-a-gig` correctly
+ * takes `gigs-hidden-by-filters`, and its `expectedCiBranches`
+ * assertion fails — a scenario failing for something no scenario did.
+ * Reusing gig-list.spec.ts's own helper rather than a second copy of
+ * the PATCH keeps one definition of "the default view".
+ *
+ * Note what this is NOT: no help scenario creates, updates or deletes a
+ * record, so nothing here is cleanup after a scenario. Both resets pin a
+ * PRECONDITION that other suites disturb.
  */
 export async function prepareHelpScenario(
   page: Page,
@@ -152,10 +234,16 @@ export async function prepareHelpScenario(
   requireLocalTarget();
   await requireTestAuth(request, baseURL);
   await resetWorkingWeek(request, baseURL);
+  await resetGigListView(request, baseURL);
 
   await page.goto("/login");
   await page.getByTestId("test-signin").click();
   await expect(page.getByTestId("tab-bar")).toBeVisible();
+
+  // Before the startRoute navigation, not after: a scenario's first step
+  // may run the instant that navigation settles, and the whole point is
+  // that the store is already populated by then.
+  await waitForGigsToHydrate(page, request, baseURL);
 
   if (scenario.startRoute !== undefined) {
     await page.goto(scenario.startRoute);

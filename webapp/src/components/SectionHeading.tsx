@@ -11,10 +11,15 @@ export function SectionHeading({
   children,
   actionLabel,
   actionTo,
+  actionTestId,
 }: {
   children: ReactNode;
   actionLabel?: string;
   actionTo?: string;
+  /** Stable hook for the inline action, which is the only interactive
+   *  thing a heading owns — the heading itself is reachable through the
+   *  section's own test id. */
+  actionTestId?: string;
 }) {
   const heading = (
     <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -29,6 +34,7 @@ export function SectionHeading({
       {heading}
       <Link
         to={actionTo}
+        data-testid={actionTestId}
         className="inline-block py-2 text-xs font-medium text-emerald-700 hover:underline"
       >
         {actionLabel}

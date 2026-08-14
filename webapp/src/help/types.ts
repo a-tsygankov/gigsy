@@ -6,7 +6,11 @@ import type { HelpTarget } from "./targets.ts";
 
 export type HelpScenarioId = string;
 
-export type HelpCategory = "getting-started" | "settings" | "installation";
+export type HelpCategory =
+  | "getting-started"
+  | "gigs"
+  | "settings"
+  | "installation";
 
 /** Which install instructions to show. Detection lives in
  *  environment.ts; the type lives here because scenarios reference it. */
