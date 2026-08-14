@@ -18,6 +18,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { appLog } from "../../lib/logger.ts";
 import { getHelpScenario } from "../registry.ts";
 import type { HelpScenarioId } from "../types.ts";
+import { HelpSheet } from "./HelpSheet.tsx";
 import { HelpUnavailableBanner } from "./HelpUnavailableBanner.tsx";
 
 interface HelpContextValue {
@@ -253,6 +254,13 @@ export function HelpProvider({ children }: { children: ReactNode }) {
   return (
     <HelpContext.Provider value={value}>
       {children}
+      {/* Rendered here, not by any one screen, so the header's "?"
+          button opens the same sheet regardless of route — the whole
+          point of exposing `isOpen`/`openHelp`/`closeHelp` from this
+          provider in the first place. `closeHelp` (not `setIsOpen`
+          directly) so picking a topic also tears down any in-flight
+          tour setup the same way the unavailable banner's paths do. */}
+      {isOpen && <HelpSheet onClose={closeHelp} />}
       {/* Not gated on `isOpen` or on which route this is — nothing in
           this codebase currently renders a menu that `isOpen` controls,
           and the whole reason this lives here rather than inside
