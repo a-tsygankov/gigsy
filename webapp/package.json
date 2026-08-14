@@ -1,6 +1,6 @@
 {
   "name": "gigsy-webapp",
-  "version": "0.0.55",
+  "version": "0.0.57",
   "private": true,
   "type": "module",
   "scripts": {

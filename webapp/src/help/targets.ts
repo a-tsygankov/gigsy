@@ -60,23 +60,42 @@ export const dayToggle = (i: WeekdayIndex): HelpTarget =>
 export const dayStart = (i: WeekdayIndex): HelpTarget =>
   element(`start-day-${i}`);
 
-/** CSS for Playwright. Exactly the locator e2e/settings.spec.ts proves
- *  against the real component.
+/** The CSS form of a target, for anything that needs a selector rather
+ *  than a node: e2e/settings.spec.ts's locators, and — since the tour
+ *  runtime landed — Driver.js's `element`, which must be a string so
+ *  that `waitForElement` can re-query it as the DOM changes under a
+ *  running tour (TourRenderer.ts).
  *
- *  `t.id` goes in unescaped, unlike `resolveTarget` below. That's fine
- *  here and only here: every id comes from a typed factory or a
- *  `WeekdayIndex` template, so no quote character is reachable, and a
- *  malformed selector would fail a Playwright test at the point it's
- *  used — not corrupt production state. `resolveTarget` runs in the
- *  shipped app, where the same failure would throw at a user. */
+ *  So this is production code now, not test-only, and the old rationale
+ *  for it ("a malformed selector fails a Playwright test, not
+ *  production") no longer holds. What does hold is the reason it was
+ *  never a real risk: `t.id` is never user input. Every id comes from a
+ *  typed factory in this file or from a `WeekdayIndex` template, so no
+ *  quote or bracket is reachable and there is nothing for an unescaped
+ *  interpolation to break. Adding a target with a hand-written id
+ *  containing anything outside `[A-Za-z0-9_-]` is what would change
+ *  that — use `CSS.escape` here if it ever does.
+ *
+ *  Switch targets resolve through `:has()`, which is Safari 15.4+ and
+ *  every current evergreen browser. That is a deliberate acceptance:
+ *  the alternative is a node, and a node cannot survive the re-query
+ *  that makes a not-yet-rendered target reachable. */
 export function targetSelector(t: HelpTarget): string {
   return t.kind === "switch"
     ? `label:has([data-testid="${t.id}"]) span[aria-hidden="true"]`
     : `[data-testid="${t.id}"]`;
 }
 
-/** DOM for the tour. Walks rather than using `:has()`, so the spotlight
- *  never depends on selector support in an older mobile Safari. */
+/** The resolved node behind a target, walked rather than selected.
+ *
+ *  Not the spotlight path: the spotlight is Driver.js's own, and it goes
+ *  through `targetSelector` and therefore through `:has()`. This is what
+ *  callers use when they need the element itself — today that is
+ *  `conditionHolds` in TourRenderer.ts, which measures a branch
+ *  condition's target for visibility and cannot do that to a selector
+ *  string. The Playwright validator and the scenario generator will want
+ *  the same thing, which is why walking stays: it is the one form that
+ *  needs no selector-engine support at all. */
 export function resolveTarget(t: HelpTarget): HTMLElement | null {
   const tagged = document.querySelector<HTMLElement>(
     `[data-testid="${CSS.escape(t.id)}"]`,

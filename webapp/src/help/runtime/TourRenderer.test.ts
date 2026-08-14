@@ -3,11 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HelpTarget, dayToggle, targetSelector } from "../targets.ts";
 import type { BranchStep, ClickStep, HighlightStep } from "../types.ts";
 
-/** jsdom never computes layout, so every element's rect is zero-sized
- *  by default — `conditionHolds` reads a real size as "visible" (and
- *  jsdom does not implement `checkVisibility`, so this exercises the
- *  fallback path), so a target-visible test needs a stubbed rect to
- *  ever hold. */
+/** jsdom never computes layout, so every element's rect is zero-sized by
+ *  default; a target-visible test needs a stubbed rect to ever hold.
+ *
+ *  The rect is not a jsdom-only crutch, though. `isVisible` checks size
+ *  before anything else in every environment, precisely because
+ *  `checkVisibility()` reports a `peer sr-only` input — `display:block`,
+ *  clipped to a pixel — as visible. So what these tests pin down is a
+ *  real-browser property, not an artefact of the fallback path. */
 function stubVisible(testId: string, size = { width: 40, height: 40 }): void {
   document.body.innerHTML = `<a data-testid="${testId}">Settings</a>`;
   const el = document.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
@@ -138,6 +141,9 @@ describe("flatten", () => {
     // The exact shape Toggle's real <input> has: present in the DOM,
     // but a 1x1 box — precisely the node this system must never treat
     // as "visible" (see targets.ts's own comment on the switch trap).
+    // `isVisible` rules this out on size, which is the only check that
+    // can: the node is `display:block` and merely clipped, so
+    // `checkVisibility()` calls it visible whatever options it is given.
     stubVisible("settings-link", { width: 1, height: 1 });
     const notTaken: HighlightStep = {
       action: "highlight",
@@ -268,12 +274,24 @@ describe("runTour", () => {
     }));
   });
 
+  /** Invokes the hook the way the real library does — and the emphasis
+   *  is on *the way*. `driver.js.mjs`'s `B(e,t,n)` rebuilds the step as
+   *  `{...i, popover: {...}}` on every highlight, so the object reaching
+   *  `onHighlightStarted` is a clone, never the one we handed over.
+   *
+   *  Two rounds of this file passed while production was entirely
+   *  broken, because the fake passed the original object straight back
+   *  and made an identity-keyed lookup look sound. Cloning here is what
+   *  keeps these fast tests honest; TourRenderer.driver.test.ts is what
+   *  proves the clone shape is right in the first place. */
   function highlightStarted(index: number, element: Element | undefined): void {
-    const steps = driverConfig?.["steps"] as unknown[];
+    const steps = driverConfig?.["steps"] as Array<Record<string, unknown>>;
     const onHighlightStarted = driverConfig?.["onHighlightStarted"] as
       | ((el: Element | undefined, step: unknown, opts: unknown) => void)
       | undefined;
-    onHighlightStarted?.(element, steps[index], {});
+    const original = steps[index]!;
+    const clone = { ...original, popover: { ...(original["popover"] as object) } };
+    onHighlightStarted?.(element, clone, {});
   }
 
   it("maps each step to a DriveStep with a targetSelector element and matching popover", async () => {
@@ -321,6 +339,31 @@ describe("runTour", () => {
     expect(steps[0]!.popover.showButtons).toEqual(["close"]);
     expect(steps[1]!.popover.showButtons).toEqual(["next", "previous", "close"]);
     expect(steps[2]!.popover.showButtons).toEqual(["next", "previous", "close"]);
+  });
+
+  it("waits long for a target only once a click step could have created it", async () => {
+    const { runTour } = await import("./TourRenderer.ts");
+    const scenario = {
+      id: "s",
+      title: "T",
+      category: "settings" as const,
+      steps: [
+        // Should already be on screen — a five-second stare at a blank
+        // popover is the wrong answer when this one is simply gone.
+        { action: "highlight" as const, target: HelpTarget.SettingsLink, description: "a" },
+        { action: "click" as const, target: HelpTarget.SettingsHelp, description: "b" },
+        // Only this one can legitimately be absent when the tour is
+        // built: the click above is what puts it on the page.
+        { action: "highlight" as const, target: HelpTarget.SettingsNotifications, description: "c" },
+      ],
+    };
+
+    await runTour(scenario, { signal: new AbortController().signal, onUnavailable: vi.fn() });
+
+    const steps = driverConfig?.["steps"] as Array<{ waitForElement: number }>;
+    expect(steps[0]!.waitForElement).toBe(1_000);
+    expect(steps[1]!.waitForElement).toBe(1_000);
+    expect(steps[2]!.waitForElement).toBe(5_000);
   });
 
   it("advances on a real click for an element-kind click step", async () => {
@@ -418,6 +461,45 @@ describe("runTour", () => {
     highlightStarted(0, undefined);
 
     expect(onUnavailable).toHaveBeenCalledWith(expect.stringContaining("settings-link"));
+    // Not yet: destroying from inside the hook is what leaves a
+    // permanent overlay behind (driver.js.mjs's `J()` re-renders the
+    // popover and restarts its rAF loop after the hook returns), so the
+    // teardown is deferred out of Driver's own call stack.
+    expect(fakeInstance.destroy).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(fakeInstance.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails loudly, not silently, if a DriveStep cannot be correlated to its HelpStep", async () => {
+    const { runTour } = await import("./TourRenderer.ts");
+    document.body.innerHTML = `<a data-testid="settings-link">Settings</a>`;
+    const el = document.querySelector<HTMLElement>(`[data-testid="settings-link"]`)!;
+    const onUnavailable = vi.fn();
+    const scenario = {
+      id: "s",
+      title: "T",
+      category: "settings" as const,
+      steps: [
+        { action: "click" as const, target: HelpTarget.SettingsLink, description: "click" },
+      ],
+    };
+
+    await runTour(scenario, { signal: new AbortController().signal, onUnavailable });
+
+    // A DriveStep with the correlation stripped off — what a driver.js
+    // upgrade that stopped preserving own properties across `B()`'s
+    // clone would hand back. This must never be the silent no-op it was
+    // for two rounds: it killed every click step.
+    const original = (driverConfig?.["steps"] as Array<Record<string, unknown>>)[0]!;
+    const onHighlightStarted = driverConfig?.["onHighlightStarted"] as (
+      el: Element | undefined,
+      step: unknown,
+      opts: unknown,
+    ) => void;
+    onHighlightStarted(el, { element: original["element"], popover: {} }, {});
+
+    expect(onUnavailable).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
     expect(fakeInstance.destroy).toHaveBeenCalledTimes(1);
   });
 

@@ -40,21 +40,31 @@ export function useHelp(): HelpContextValue {
 
 const UNAVAILABLE_MESSAGE = "This help step is currently unavailable.";
 
-/** Waits for the router to settle on `route` before the tour is built.
- *  Polling beats a timeout: it finishes as soon as it is true. A plain
- *  timer, not requestAnimationFrame — rAF never fires in a backgrounded
- *  tab, which would turn a bounded wait into an indefinite stall. */
+/** Waits for the router to settle on the scenario's start route before
+ *  the tour is built. Polling beats a timeout: it finishes as soon as it
+ *  is true. A plain timer, not requestAnimationFrame — rAF never fires
+ *  in a backgrounded tab, which would turn a bounded wait into an
+ *  indefinite stall.
+ *
+ *  `settled` is a predicate over the ROUTER's location, not
+ *  `window.location.pathname`. The two are not the same thing: they
+ *  diverge under a `basename`, under any non-DOM history, and — the
+ *  reason this bit — under MemoryRouter, which never touches
+ *  `window.location` at all, so the old form could only ever have been
+ *  tested against the browser history it happened to assume. Asking the
+ *  router what route it is on is both what the rest of this file does
+ *  and the only answer that stays right if a basename is ever added. */
 async function waitForRoute(
-  route: string,
+  settled: () => boolean,
   signal: AbortSignal,
   timeoutMs = 5_000,
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline && !signal.aborted) {
-    if (window.location.pathname === route) return true;
+    if (settled()) return true;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  return window.location.pathname === route;
+  return settled();
 }
 
 export function HelpProvider({ children }: { children: ReactNode }) {
@@ -77,6 +87,15 @@ export function HelpProvider({ children }: { children: ReactNode }) {
   // own startRoute navigation apart from someone leaving mid-tour, at
   // every stage from setup through a live tour.
   const expectedRouteRef = useRef<string | null>(null);
+  // The router's current path, readable from inside an async callback
+  // that was created before the navigation it is waiting on. A ref
+  // rather than the captured `location.pathname`, which is a snapshot of
+  // the render `startScenario` was built in and therefore never changes
+  // while that call is still awaiting.
+  const pathnameRef = useRef(location.pathname);
+  useEffect(() => {
+    pathnameRef.current = location.pathname;
+  }, [location.pathname]);
 
   /** Stops whatever is currently happening — an in-flight attempt to
    *  start a scenario, or a running tour — without touching the menu's
@@ -117,7 +136,11 @@ export function HelpProvider({ children }: { children: ReactNode }) {
         location.pathname !== scenario.startRoute
       ) {
         navigate(scenario.startRoute);
-        const settled = await waitForRoute(scenario.startRoute, controller.signal);
+        const startRoute = scenario.startRoute;
+        const settled = await waitForRoute(
+          () => pathnameRef.current === startRoute,
+          controller.signal,
+        );
         if (controller.signal.aborted) return;
         if (!settled) {
           appLog.warn("help: startRoute never settled", { id });
@@ -135,6 +158,13 @@ export function HelpProvider({ children }: { children: ReactNode }) {
         const cancel = await runTour(scenario, {
           signal: controller.signal,
           onUnavailable: (reason) => {
+            // Abort-guarded like every other write in this function. A
+            // missing target is reported from a Driver.js hook that can
+            // fire seconds after the step began waiting, by which time
+            // the user may have closed help or navigated away — and
+            // surfacing "This help step is currently unavailable" onto a
+            // screen they already left is a message about nothing.
+            if (controller.signal.aborted) return;
             appLog.warn("help: scenario ended early", { id, reason });
             setUnavailable(UNAVAILABLE_MESSAGE);
           },
