@@ -140,6 +140,14 @@ export function HelpProvider({ children }: { children: ReactNode }) {
   const startScenario = useCallback(
     async (id: HelpScenarioId): Promise<void> => {
       cancelTour();
+      // A prior failure must not outlive the attempt that follows it —
+      // `openHelp` already clears this on the way back into the menu,
+      // but picking a new scenario straight off the failed one (Back to
+      // Help, then a different topic; or just trying again) skips
+      // `openHelp` entirely. Left set, the fixed banner would sit on
+      // screen through an entirely successful tour, claiming something
+      // is unavailable while help is actively working.
+      setUnavailable(null);
 
       const scenario = getHelpScenario(id);
       if (scenario === undefined) {

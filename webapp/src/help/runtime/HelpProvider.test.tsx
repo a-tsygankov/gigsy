@@ -98,6 +98,34 @@ describe("HelpProvider", () => {
     expect(latest!.unavailable).toBe("This help step is currently unavailable.");
   });
 
+  it("clears a stale unavailable message once a new scenario starts", async () => {
+    // The bug: `startScenario` only ever *sets* `unavailable` on its
+    // failure paths — unlike `openHelp`, it never clears it on entry.
+    // A user who fails a scenario, ignores both banner buttons, and
+    // just picks something else (or retries the same one) would carry
+    // the old message into an entirely successful run: the fixed
+    // banner would sit on screen through the whole live tour, saying
+    // something is unavailable while help is actively working.
+    mount("/");
+    vi.mocked(runTour).mockRejectedValueOnce(new Error("chunk 404"));
+
+    await act(async () => {
+      await latest!.startScenario("open-settings");
+    });
+    expect(latest!.unavailable).toBe("This help step is currently unavailable.");
+    expect(container!.querySelector('[data-testid="help-unavailable"]')).not.toBeNull();
+
+    const cancel = vi.fn();
+    vi.mocked(runTour).mockResolvedValueOnce(cancel);
+
+    await act(async () => {
+      await latest!.startScenario("open-settings");
+    });
+
+    expect(latest!.unavailable).toBeNull();
+    expect(container!.querySelector('[data-testid="help-unavailable"]')).toBeNull();
+  });
+
   it("renders the unavailable message where the user actually is, even after the scenario navigated away first", async () => {
     // The bug this guards: HelpSection (the only thing that used to
     // show `unavailable`) mounts solely on "/settings", but a scenario
