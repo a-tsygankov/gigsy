@@ -40,8 +40,32 @@ that wants to demonstrate reaching Settings has to start from `/`.
 `AvailabilitySection` renders `start-day-N` only once day N's switch is
 on. Do not assume every target in a scenario exists when the scenario
 starts — the tour renderer resolves each step's target when that step is
-entered, not all of them up front, specifically because of this. If you
-add a step type or a runtime, keep that property.
+entered, not all of them up front, specifically because of this. (It
+hands Driver.js `targetSelector`'s *string*, never a node, so
+`waitForElement` re-queries it — `TourRenderer.ts`.) If you add a step
+type or a runtime, keep that property.
+
+**That is true of targets. It is NOT true of branches — and the two
+adapters differ.** `TourRenderer.runTour` calls `flatten()` over the
+whole scenario *before* `tour.drive()`, so every branch step is resolved
+against the DOM as it looks when the tour starts, while the user has
+done nothing yet. `help-runner.ts`'s `runSteps` walks the list in order
+and resolves each branch step at the moment it reaches it, after every
+earlier step has already run.
+
+For a branch that sits before any interaction — both of today's, on
+`/settings` — the two agree. Put a branch *after* a click, `input` or
+`select` and they diverge: the runner sees the post-interaction DOM and
+picks correctly, the tour evaluates the same condition against the
+pre-interaction DOM and may pick the other branch or, if neither
+condition holds yet, give up with "no branch matched" and show the
+unavailable banner. **You can write a scenario that passes `help:test`
+and is broken for every real user.** Nothing catches it.
+
+So: keep branch steps ahead of the first user interaction. If a scenario
+genuinely needs to branch on state the user has just created, fix
+`flatten()` to resolve branches lazily first — do not ship the scenario
+against the current renderer and trust the green suite.
 
 **If a screen has more than one legitimate state, branch — don't
 assume.** Push notifications are either offered or explained-as-blocked;
@@ -78,12 +102,22 @@ Add it to `helpScenarios` in `webapp/src/help/registry.ts`.
 pnpm --filter gigsy-webapp help:validate
 ```
 
-This runs `validateHelpRegistry` over every registered scenario —
-structural checks only (duplicate ids, an empty branch, a branch nested
-inside a branch, `expectedCiBranches` naming a branch that doesn't exist,
-a non-executable scenario with no `fallback` variant, and so on). It
-proves the scenario is well-formed. It does not run a browser and cannot
-tell you whether a selector still resolves to anything — that's step 5.
+Despite the name, this is `vitest run src/help` — the **whole** help unit
+suite (101 tests at the time of writing), not just the validator. That
+includes
+`TourRenderer.driver.test.ts`, which drives the real Driver.js library in
+jsdom and takes ~16s on its own, so budget around twenty seconds rather
+than the instant answer the name suggests. It is a superset of what
+`pnpm --filter gigsy-webapp test` runs for `src/help`, so running both
+is redundant; this is the narrower one.
+
+The part that checks your scenario is `validateHelpRegistry`, which is
+structural only (duplicate ids, an empty branch, a branch nested inside a
+branch, `expectedCiBranches` naming a branch that doesn't exist, a
+non-executable scenario with no `fallback` variant or with no variants at
+all, and so on). It proves the scenario is well-formed. It does not run a
+browser and cannot tell you whether a selector still resolves to
+anything — that's step 5.
 
 ## 5. Run it against a local stack
 
@@ -138,11 +172,44 @@ a prompt to edit the declaration to match whatever happened:
   match a flake instead of fixing the race enshrines the wrong branch and
   quietly retires the coverage for the branch CI used to exercise.
 
-## 6. Look at it
+## 6. Look at it — and know what the suite cannot see
 
-Validation and the Playwright suite prove a selector resolves. Neither
-proves the guidance reads sensibly to a person. Run the app and follow
-your own scenario:
+Validation and the Playwright suite prove a selector resolves. That is
+less than it sounds like, and the gaps are all in the same direction: a
+green run does **not** mean the help is right. Four things it will never
+tell you.
+
+**Targets on branches CI doesn't take.** A scenario runs exactly one
+branch per run, and `expectedCiBranches` pins which. Everything inside
+the other branch — including its step targets — is never resolved.
+Rename `push-toggle` (only reachable via `configure-notifications`'
+`push-available` branch) or `capture-address-value` (only via
+`set-up-email-capture`'s `capture-configured` branch) and `help:test`
+stays green: the guarding `target-visible` condition simply stops
+holding, the declared branch runs as usual, and nothing notices. Those
+targets are prose. If you touch a testid, grep `src/help/` for it
+yourself.
+
+**What a step actually does.** `performAction` clicks and moves on; it
+asserts nothing about the result. `open-settings` clicks `settings-link`
+and passes — `scenarios.spec.ts` would pass with the link's `to` pointing
+at a route that doesn't exist, because a click on a present element is
+all it checks. A scenario proves its controls are *findable and
+operable*, not that following it gets you anywhere. (`reachability.spec.ts`
+happens to assert the arrival for this one click, as a side effect of
+testing the tour runtime. Nothing does it for the other scenarios.)
+
+**Whether the prose is true.** Nothing compares a step's `description`
+to what the control does. Copy that was accurate when it was written and
+has since been overtaken by a feature change reads as confidently as
+ever, and the suite is green throughout. Same for step order and for
+whether the walkthrough makes sense end to end.
+
+**A branch placed after an interaction.** See §2 — the runner and the
+in-app tour resolve branches at different times, and only the runner's
+answer is tested.
+
+So run it yourself:
 
 ```bash
 pnpm --filter gigsy-webapp dev
@@ -155,6 +222,11 @@ tour asking a human to press the actual control isn't a UX nicety, it's
 the whole point); if the popover text, the spotlight target, or the step
 order doesn't make sense as a walkthrough, no test in this project will
 catch that but you.
+
+`e2e/help/reachability.spec.ts` covers one thing the scenario suite
+structurally cannot — that help is reachable from Settings at all and
+that a topic really starts a Driver.js tour. It is deliberately a single
+test against `open-settings`; do not add a per-scenario copy of it.
 
 ## 7. Final check before committing
 

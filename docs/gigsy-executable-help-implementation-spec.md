@@ -778,14 +778,16 @@ test IDs. `data-testid` is an implementation identifier, not documentation.
 
 ### PR 2 acceptance
 
-- A Help section is visible on Settings and keyboard-operable.
+- A Help section is visible on Settings and keyboard-operable (§17: only
+  the visible half is tested).
 - "Open Settings" runs, spotlights the real control, and completes.
 - A working-hours step spotlights the **painted switch**, verified by eye
   — this is the regression §2.1 predicts.
 - Cancelling restores normal application state.
 - A deliberately broken target ends the tour gracefully.
 - With help inactive, application behaviour is unchanged.
-- Driver.js is absent from the initial bundle.
+- Driver.js is absent from the initial bundle (§17: it is still in the
+  service worker's precache manifest).
 
 ---
 
@@ -985,7 +987,16 @@ Do not auto-commit generated artifacts from CI.
 - Every executable scenario passes under `help:test` against a local stack.
 - `help:test` refuses to run against production.
 - Deleting a `data-testid` used by a scenario produces a failure naming
-  the scenario, step, and target.
+  the scenario, step, and target — **for targets on the branch CI
+  actually takes**. A target reachable only through a branch CI never
+  enters is not covered: renaming `push-toggle` or
+  `capture-address-value` leaves `help:test` green, because the
+  `target-visible` condition guarding their branch simply stops holding
+  and the runner takes the other branch — the one
+  `expectedCiBranches` already declares. Targets on untaken branches are
+  therefore **documentation, not tested claims**; a UI change can break
+  them silently, and checking them stays a human job until something
+  resolves every branch's targets rather than only the taken one.
 - Changing a scenario's real CI branch without updating
   `expectedCiBranches` fails.
 - `pnpm test:e2e` runs exactly the specs it ran before.
@@ -1153,7 +1164,13 @@ The architecture permits some of these later. None may delay the core.
 - [ ] A registry exists and is the only discovery mechanism.
 - [ ] Five scenarios: navigation, conditional, interactive, state-dependent,
       and external.
-- [ ] A Help section is visible and keyboard-operable on Settings.
+- [ ] A Help section is visible on Settings — asserted end-to-end by
+      `e2e/help/reachability.spec.ts`. It is built from semantic buttons
+      and a real `<input type="search">` (`HelpMenu.tsx`), so it *should*
+      be keyboard-operable, but nothing tests that: no spec tabs to a
+      topic and starts it with Enter, and no spec checks focus handling
+      once a tour is running. Treat the keyboard half as a design
+      intention that has been eyeballed, not a verified property.
 - [ ] Tours spotlight real controls, including painted switches.
 - [ ] Users perform the instructed operations; the tour never clicks for
       them.
@@ -1166,7 +1183,15 @@ The architecture permits some of these later. None may delay the core.
 - [ ] CI runs help validation in `webapp-e2e-full`.
 - [ ] Existing E2E tests still pass, unmodified.
 - [ ] Application behaviour is unchanged when help is inactive.
-- [ ] Driver.js is absent from the initial bundle.
+- [ ] Driver.js is absent from the initial bundle — it is a lazy chunk
+      (`assets/driver.js-*.js`, 26 KB, plus `assets/driver-*.css`, 3 KB),
+      fetched only when a tour starts. It is **not** absent from the
+      service worker, though: `vite.config.ts`'s `injectManifest.globPatterns`
+      is `**/*.{js,css,html,ico,png,svg,webmanifest}`, which sweeps both
+      files into the precache manifest. So an installed PWA downloads
+      ~29 KB of Driver.js on install whether or not the user ever opens
+      help. First *page load* is unaffected, which is what §12 asks for;
+      install cost is not.
 - [ ] `docs/plan.md` §13 gains Phase 13.
 - [ ] Developer documentation explains how to add a scenario (§18).
 

@@ -97,6 +97,31 @@ describe("validateHelpRegistry", () => {
     );
   });
 
+  it("catches a non-executable scenario with steps but no variants", () => {
+    // Well-formed in every other respect: non-executable and every step
+    // external, so no other rule fires. VariantPicker still reads only
+    // `variants`, so this renders as an empty picker with no
+    // instructions — the dead end this rule exists to catch.
+    const scenario: HelpScenario = {
+      ...ok,
+      executable: false,
+      steps: [
+        { action: "external", externalType: "os-ui", description: "Tap Share." },
+      ],
+    };
+    expect(messages([scenario])).toEqual([
+      "non-executable scenario has steps but no variants — nothing renders them",
+    ]);
+  });
+
+  it("does not report the missing variants twice for an empty scenario", () => {
+    // "scenario has neither steps nor variants" already covers this;
+    // the new rule must not pile a second, more confusing message on it.
+    expect(messages([{ ...ok, executable: false, steps: [] }])).toEqual([
+      "scenario has neither steps nor variants",
+    ]);
+  });
+
   it("catches a duplicate branch id", () => {
     const scenario: HelpScenario = {
       ...ok,

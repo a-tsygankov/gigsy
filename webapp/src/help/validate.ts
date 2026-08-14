@@ -96,6 +96,20 @@ export function validateHelpRegistry(scenarios: HelpScenario[]): HelpProblem[] {
       if (!executable && !allExternal) {
         report("scenario is marked non-executable but contains executable steps");
       }
+      // A non-executable scenario has no tour to run, and the only thing
+      // that renders one is HelpMenu's VariantPicker — which reads
+      // `variants` and ignores `scenario.steps` entirely. So a scenario
+      // that is non-executable, carries steps, and declares no variants
+      // renders as an empty <Select> with no instructions under it: a
+      // dead end, exactly like the one "no fallback variant" exists to
+      // prevent. Guarded on `steps.length > 0` (and unreachable when
+      // variants exist) so it never doubles up with "scenario has
+      // neither steps nor variants", which already covers the empty case.
+      if (!executable && variants.length === 0) {
+        report(
+          "non-executable scenario has steps but no variants — nothing renders them",
+        );
+      }
     }
 
     if (variants.length > 0) {

@@ -325,7 +325,14 @@ Phase 2 lands (TODO in `backend/src/routes/debug.ts`).
   `webapp/e2e/help/`. The point is to stop maintaining in-app help, UI
   tests, and written docs as three artifacts describing the same
   workflow that quietly drift apart — a UI change that breaks a
-  documented workflow now fails CI instead of leaving stale help behind.
+  documented workflow fails CI instead of leaving stale help behind,
+  *along the path CI takes*. That qualifier is load-bearing: a scenario
+  that branches on app state only ever executes one branch per run, so
+  a target reachable solely through the other one (`push-toggle` in
+  `configure-notifications`, `capture-address-value` in
+  `set-up-email-capture`) can be renamed with the suite still green —
+  the guarding condition just stops holding and the declared branch runs
+  as usual. Those targets are documentation, checked by people.
   A target carries its *kind* (`element` or `switch`) rather than having
   it guessed from the name, because most of this app's switches
   (`Toggle`) tag a 1×1 `sr-only` input while the thing a person actually
