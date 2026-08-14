@@ -143,8 +143,10 @@ describe("runTour against the real driver.js", () => {
     );
 
     // Driver.js waits out `waitForElement` and falls back to its 0x0
-    // dummy node, which it reports to the hook as `undefined`.
-    expect(await waitFor(() => onUnavailable.mock.calls.length > 0)).toBe(true);
+    // dummy node, which it reports to the hook as `undefined`. Step 0 is
+    // on the long wait — it is racing the initial data load, so this
+    // poll has to outlast TARGET_WAIT_BEFORE_INTERACTION_MS.
+    expect(await waitFor(() => onUnavailable.mock.calls.length > 0, 10_000)).toBe(true);
     expect(onUnavailable).toHaveBeenCalledWith(expect.stringContaining("settings-link"));
 
     // And the tour actually goes away. A synchronous `destroy()` from

@@ -36,27 +36,33 @@ export type CancelTour = () => void;
 /** How long Driver.js will wait — via its own MutationObserver-based
  *  polling, see `waitForElement` below — for a step's target to appear.
  *
- *  Two values, because the two situations are not alike. A target that
- *  should already be on screen when its step is reached is either there
- *  within a frame or two of React settling, or it is gone; waiting five
- *  seconds to say so just makes the user stare at a blank popover. A
- *  target that an *earlier* step's click creates (the start-time
- *  <select> that only renders once its day has been switched on) has to
- *  outlast a state update, a re-render, and a slow device.
+ *  Two values, because two different things make a target late and they
+ *  are orders of magnitude apart.
  *
- *  The rule that picks between them is deliberately not a dependency
- *  graph: only a user action can add DOM mid-tour, so nothing can
- *  appear late until the scenario's first click step has gone by. Every
- *  step up to and including that one gets the short wait; everything
- *  after it gets the long one.
+ *  DATA ARRIVAL is the slow one, and it lands at the START of a
+ *  scenario. `startScenario` waits for the ROUTE to settle, not for
+ *  data: `Settings.tsx` renders `<AvailabilitySection />` only once
+ *  `useSettings`' query resolves, and that query has no `staleTime` and
+ *  no `initialData`, so on a cold open it is a live `GET /api/settings`.
+ *  A working-hours scenario whose first step highlights
+ *  `avail-working-week` is therefore racing a network round trip. Lose
+ *  that race and a perfectly healthy app tells the user its help is
+ *  unavailable — intermittently, on first run only, because the retry
+ *  hits react-query's cache.
  *
- *  The one case the short wait does not cover is a target that only
- *  exists once react-query has answered. That is what a branch step is
- *  for — `settleBranch` polls for ten seconds — and pointing an
- *  unconditional first step at data-dependent DOM is the bug, not this
- *  timeout. */
-const TARGET_WAIT_MS = 1_000;
-const TARGET_WAIT_AFTER_CLICK_MS = 5_000;
+ *  A RE-RENDER AFTER AN INTERACTION is the fast one. The start-time
+ *  <select> that appears once its day is switched on costs a state
+ *  update and a paint, no network, and Driver.js is watching with a
+ *  MutationObserver. A second is many times what that needs, and it
+ *  buys back the dead air: a target that is genuinely gone is now
+ *  reported in about a second instead of five.
+ *
+ *  So the long wait goes to every step up to and including the
+ *  scenario's first user interaction — which means step 0 always gets
+ *  it, whatever it is — and the short wait to everything after. It is
+ *  deliberately not a dependency graph. */
+const TARGET_WAIT_BEFORE_INTERACTION_MS = 5_000;
+const TARGET_WAIT_AFTER_INTERACTION_MS = 1_000;
 
 /** A step after branches have been resolved against the live DOM — there
  *  is nothing left for Driver.js to interpret as a branch. */
@@ -64,6 +70,19 @@ type FlatStep = Exclude<HelpStep, BranchStep>;
 
 function isFlatStep(step: HelpStep): step is FlatStep {
   return step.action !== "branch";
+}
+
+/** A step the USER performs, and therefore the only kind that can put
+ *  new DOM on the page part-way through a tour. All three of types.ts's
+ *  action steps count — a `select` that reveals something downstream is
+ *  no different from a `click` that does. `highlight` and `external`
+ *  change nothing. */
+function isUserInteraction(step: FlatStep): boolean {
+  return (
+    step.action === "click" ||
+    step.action === "input" ||
+    step.action === "select"
+  );
 }
 
 /** Two independent checks, because neither one alone is enough.
@@ -201,10 +220,10 @@ export async function runTour(
   }
 
   const driveSteps: TaggedDriveStep[] = [];
-  // Only a user action can add DOM mid-tour, so no target can arrive
-  // late until the scenario's first click step has been passed. See
-  // TARGET_WAIT_MS.
-  let afterClickStep = false;
+  // Everything up to and including the first thing the user does is
+  // still racing the initial data load; after that, a late target is
+  // only ever a re-render away. See TARGET_WAIT_BEFORE_INTERACTION_MS.
+  let afterFirstInteraction = false;
 
   for (const step of flat) {
     const driveStep: TaggedDriveStep =
@@ -225,9 +244,9 @@ export async function runTour(
             // been switched on — is not in the DOM yet when the tour
             // is built, only by the time this step is actually reached.
             element: targetSelector(step.target),
-            waitForElement: afterClickStep
-              ? TARGET_WAIT_AFTER_CLICK_MS
-              : TARGET_WAIT_MS,
+            waitForElement: afterFirstInteraction
+              ? TARGET_WAIT_AFTER_INTERACTION_MS
+              : TARGET_WAIT_BEFORE_INTERACTION_MS,
             popover: {
               title: step.title ?? scenario.title,
               description: step.description,
@@ -242,7 +261,9 @@ export async function runTour(
     // object Driver.js hands back is a clone — see HELP_STEP.
     driveStep[HELP_STEP] = step;
     driveSteps.push(driveStep);
-    if (step.action === "click") afterClickStep = true;
+    // After this step, not on it: the interaction step's own target is
+    // still part of the screen the tour opened on.
+    if (isUserInteraction(step)) afterFirstInteraction = true;
   }
 
   if (options.signal.aborted) return () => undefined;

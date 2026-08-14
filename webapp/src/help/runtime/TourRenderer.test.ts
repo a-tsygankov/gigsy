@@ -341,19 +341,21 @@ describe("runTour", () => {
     expect(steps[2]!.popover.showButtons).toEqual(["next", "previous", "close"]);
   });
 
-  it("waits long for a target only once a click step could have created it", async () => {
+  it("waits long until the user's first interaction, then short", async () => {
     const { runTour } = await import("./TourRenderer.ts");
     const scenario = {
       id: "s",
       title: "T",
       category: "settings" as const,
       steps: [
-        // Should already be on screen — a five-second stare at a blank
-        // popover is the wrong answer when this one is simply gone.
+        // Step 0 is racing the initial data load, not just a render:
+        // `startScenario` waits for the route, and Settings only mounts
+        // AvailabilitySection once useSettings' query resolves. A short
+        // wait here calls a healthy app broken on a slow connection.
         { action: "highlight" as const, target: HelpTarget.SettingsLink, description: "a" },
         { action: "click" as const, target: HelpTarget.SettingsHelp, description: "b" },
-        // Only this one can legitimately be absent when the tour is
-        // built: the click above is what puts it on the page.
+        // Past the first interaction, a late target is one re-render
+        // away — no network — so five seconds of dead air buys nothing.
         { action: "highlight" as const, target: HelpTarget.SettingsNotifications, description: "c" },
       ],
     };
@@ -361,9 +363,56 @@ describe("runTour", () => {
     await runTour(scenario, { signal: new AbortController().signal, onUnavailable: vi.fn() });
 
     const steps = driverConfig?.["steps"] as Array<{ waitForElement: number }>;
-    expect(steps[0]!.waitForElement).toBe(1_000);
-    expect(steps[1]!.waitForElement).toBe(1_000);
-    expect(steps[2]!.waitForElement).toBe(5_000);
+    expect(steps[0]!.waitForElement).toBe(5_000);
+    // The interaction step's own target is part of the screen the tour
+    // opened on, so it is still on the long wait.
+    expect(steps[1]!.waitForElement).toBe(5_000);
+    expect(steps[2]!.waitForElement).toBe(1_000);
+  });
+
+  it("gives step 0 the long wait even when the scenario opens on an interaction", async () => {
+    const { runTour } = await import("./TourRenderer.ts");
+    const scenario = {
+      id: "s",
+      title: "T",
+      category: "settings" as const,
+      // open-settings' exact shape. Nothing precedes step 0, so nothing
+      // else can grant it the long wait — it has to be the default.
+      steps: [
+        { action: "click" as const, target: HelpTarget.SettingsLink, description: "a" },
+      ],
+    };
+
+    await runTour(scenario, { signal: new AbortController().signal, onUnavailable: vi.fn() });
+
+    const steps = driverConfig?.["steps"] as Array<{ waitForElement: number }>;
+    expect(steps[0]!.waitForElement).toBe(5_000);
+  });
+
+  it("counts select and input as first interactions, not just click", async () => {
+    const { runTour } = await import("./TourRenderer.ts");
+    // types.ts defines three action steps, and a `select` that reveals
+    // something downstream is no different from a `click` that does.
+    for (const action of ["select", "input"] as const) {
+      await runTour(
+        {
+          id: "s",
+          title: "T",
+          category: "settings" as const,
+          steps: [
+            { action, target: HelpTarget.SettingsLink, description: "a" },
+            { action: "highlight" as const, target: HelpTarget.SettingsHelp, description: "b" },
+          ],
+        },
+        { signal: new AbortController().signal, onUnavailable: vi.fn() },
+      );
+
+      // `driverConfig` is overwritten by each `driver()` call, so this
+      // is the tour just built.
+      const steps = driverConfig?.["steps"] as Array<{ waitForElement: number }>;
+      expect(steps[0]!.waitForElement, action).toBe(5_000);
+      expect(steps[1]!.waitForElement, action).toBe(1_000);
+    }
   });
 
   it("advances on a real click for an element-kind click step", async () => {
