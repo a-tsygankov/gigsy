@@ -714,6 +714,21 @@ everything inside it interactive (Driver.js sets `pointer-events: auto`
 on the active element's descendants), so a listener registered up front
 can be consumed by a click meant for a different step.
 
+**Wait generously before the first user interaction, briefly after it.**
+Two different things create DOM mid-tour, and they need different
+patience. After a user action the target appears fast, so a short wait
+keeps a genuinely broken scenario from making someone stare at a blank
+popover. Before any interaction, though, the target may still be waiting
+on data: the provider waits for the *route* to settle, not the query, and
+`Settings.tsx` renders whole sections only once settings load. A short
+wait on step 0 reports "unavailable" on a healthy app whenever the
+network is slow — and then works on retry, because the query has cached,
+which makes it an intermittent first-run failure.
+
+Branch steps are not the fix for this. They exist for states that are all
+legitimate, not for waiting, and a scenario like working-hours has
+nothing conditional in it.
+
 **Failure is graceful.** A missing target ends the scenario with "This
 help step is currently unavailable" and a way back to the menu. It never
 throws into the app, and it logs enough to debug. Contrast with §8, where
