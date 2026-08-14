@@ -23,6 +23,14 @@ export default defineConfig({
       // Chromium-based handset profile (viewport, touch, mobile UA).
       name: "chromium",
       use: { ...devices["Pixel 7"] },
+      // Help scenarios have their own project: they write settings and
+      // refuse to run anywhere but a local stack.
+      testIgnore: /help\//,
+    },
+    {
+      name: "help",
+      use: { ...devices["Pixel 7"] },
+      testMatch: /help\/.*\.spec\.ts/,
     },
   ],
 });

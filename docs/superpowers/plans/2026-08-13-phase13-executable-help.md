@@ -2010,10 +2010,23 @@ pnpm --filter gigsy-webapp dev --port 5192 --host 127.0.0.1
 E2E_BASE_URL=http://127.0.0.1:5192 E2E_REQUIRE_AUTH=1 pnpm --filter gigsy-webapp help:test
 ```
 
-Expected: PASS. If `configure-notifications` fails on the branch
-assertion, the local stack produced `push-available` instead — update
-`expectedCiBranches` to what actually ran and note why in the scenario's
-comment. Do not delete the assertion.
+Expected: PASS.
+
+**If `configure-notifications` fails on the branch assertion, do not
+reach for `expectedCiBranches` first.** The likely cause is a race, not a
+genuine environment difference: `Settings.tsx`'s `blocked` state waits on
+a `getPushConfig()` round trip, so `push-toggle` is *transiently
+rendered* before the query resolves, and a runner that commits too early
+locks onto `push-available` — clicking the real subscribe button on its
+way past. Editing the declaration to match would enshrine the wrong
+branch and quietly retire the coverage this scenario exists for.
+
+Diagnose first. Run it several times: intermittent means a race, and the
+fix is the runner's branch-stability window, not the scenario. Only if it
+fails *consistently*, and you have confirmed by looking at the running
+app that the local stack genuinely offers push, should you update
+`expectedCiBranches` — and then say why in the scenario's comment. Never
+delete the assertion.
 
 - [ ] **Step 6: Prove the guard works**
 

@@ -872,8 +872,13 @@ if (!process.env["E2E_BASE_URL"]) {
 }
 ```
 
-Also reject a value matching `pages.dev`. A guard that only catches the
-unset case does not catch the dangerous case.
+**Allow-list, not deny-list.** Rejecting `pages.dev` sounds sufficient
+and is not: the check misses a different case, an uppercase host, a
+custom domain, and `*.workers.dev`. Accept only `localhost`, `127.0.0.1`
+and `::1`, and trim the value first. The error message already promises
+"a local stack" — the guard should be the shape that delivers it. When
+the failure mode is writing to real users' settings, the default must be
+refusal.
 
 ### 8.5 The suite asserts branch coverage
 
