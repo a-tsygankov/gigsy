@@ -202,6 +202,71 @@ function resolveOperableElement(target: HelpTarget): HTMLElement | null {
   );
 }
 
+/** How long a target may be absent before its step is called dead.
+ *
+ *  Not zero, because React legitimately unmounts and remounts a node
+ *  within a frame, and a selector that misses for one microtask is not
+ *  a broken scenario. Short, because this only ever runs after the step
+ *  was already on screen — the target existed a moment ago, so there is
+ *  no initial load left to wait out. */
+const TARGET_GRACE_MS = 250;
+
+/** Watches a step's target for the rest of that step's life, and calls
+ *  `onGone` if it leaves the page for good.
+ *
+ *  Driver.js resolves `element` exactly once, when the step is entered,
+ *  and never looks again — so a target that disappears *after* that
+ *  moment produces no `waitForElement` timeout, no dummy node, and no
+ *  `onHighlightStarted(undefined, …)`. Nothing reports it, because from
+ *  Driver.js's point of view nothing went wrong.
+ *
+ *  That is not a corner case here, it is the ordinary consequence of
+ *  how a click step advances. Our listener sits on the control itself,
+ *  so it runs before React's delegated handler has even seen the event,
+ *  let alone re-rendered. `moveNext()` therefore resolves the next
+ *  step's target against the DOM as it was *before* the interaction
+ *  took effect. Measured on the working-hours scenario started from a
+ *  day that was already on: the hook fires for the select step with
+ *  `element=SELECT/start-day-0/connected=true`, and only afterwards
+ *  does the row collapse and take the select with it — leaving a
+ *  popover anchored to a detached node, no spotlight, and no failure
+ *  ever reported.
+ *
+ *  Re-queries the selector rather than tracking the node it was given:
+ *  a re-render that swaps one node for an equivalent one is not a
+ *  failure, only an empty result is. */
+function watchTarget(target: HelpTarget, onGone: () => void): () => void {
+  const selector = targetSelector(target);
+  let pending: ReturnType<typeof setTimeout> | null = null;
+
+  const cancelPending = (): void => {
+    if (pending === null) return;
+    clearTimeout(pending);
+    pending = null;
+  };
+
+  // One decision point, deliberately: a miss only ever *schedules* the
+  // verdict, and the verdict is reached by looking again. Cancelling the
+  // timer the moment the target reappears would work too, but then two
+  // separate guards would each be enough on their own, and a broken one
+  // could hide behind the other.
+  const check = (): void => {
+    if (pending !== null) return;
+    if (document.querySelector(selector) !== null) return;
+    pending = setTimeout(() => {
+      pending = null;
+      if (document.querySelector(selector) === null) onGone();
+    }, TARGET_GRACE_MS);
+  };
+
+  const observer = new MutationObserver(check);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  return () => {
+    observer.disconnect();
+    cancelPending();
+  };
+}
+
 /** Driver.js's own per-step cleanup, applied to anything it left
  *  behind. Enforces the invariant the spotlight depends on: exactly one
  *  element carries `driver-active-element` at any moment.
@@ -330,10 +395,14 @@ export async function runTour(
 
   if (options.signal.aborted) return () => undefined;
 
-  let activeCleanup: (() => void) | null = null;
+  // Everything wired for the step currently on screen: its click
+  // listener and its target watchdog. Drained together when the step
+  // changes or the tour ends, and safe to drain twice.
+  let stepCleanups: Array<() => void> = [];
   const clearActiveCleanup = (): void => {
-    activeCleanup?.();
-    activeCleanup = null;
+    const draining = stepCleanups;
+    stepCleanups = [];
+    for (const cleanup of draining) cleanup();
   };
 
   let torndown = false;
@@ -417,6 +486,18 @@ export async function runTour(
         return;
       }
 
+      // Driver.js checked this target once, a moment ago, and will not
+      // check it again. Everything from here on is on us: a target that
+      // leaves the page mid-step has to end the scenario with the
+      // banner, exactly as a target that never arrived does (§10).
+      if (step.action === "external") return;
+      stepCleanups.push(
+        watchTarget(step.target, () => {
+          options.onUnavailable(`target ${step.target.id} disappeared`);
+          endTourAfterHook();
+        }),
+      );
+
       if (step.action !== "click") return;
 
       const operable = resolveOperableElement(step.target);
@@ -429,7 +510,9 @@ export async function runTour(
       const eventName = step.target.kind === "switch" ? "change" : "click";
       const onFire = (): void => tour.moveNext();
       operable.addEventListener(eventName, onFire, { once: true });
-      activeCleanup = () => operable.removeEventListener(eventName, onFire);
+      stepCleanups.push(() =>
+        operable.removeEventListener(eventName, onFire),
+      );
     },
     onDestroyed: clearActiveCleanup,
   });

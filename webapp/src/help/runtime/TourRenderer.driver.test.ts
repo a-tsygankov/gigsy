@@ -19,7 +19,7 @@
  * not need the library; these are the ones that cannot be fooled.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HelpTarget, dayToggle } from "../targets.ts";
+import { HelpTarget, dayStart, dayToggle } from "../targets.ts";
 import { runTour } from "./TourRenderer.ts";
 import type { ClickStep, HelpScenario } from "../types.ts";
 
@@ -273,6 +273,149 @@ describe("runTour against the real driver.js", () => {
       expect(section.getAttribute("aria-haspopup")).toBeNull();
       expect(section.getAttribute("aria-expanded")).toBeNull();
       expect(section.getAttribute("aria-controls")).toBeNull();
+    }, 15_000);
+  });
+
+  describe("a target that vanishes after its step is entered", () => {
+    /** AvailabilitySection's real shape: the start/end selects exist
+     *  only while the day is switched on. */
+    function week(sundayOn: boolean): string {
+      return `
+        <div data-testid="avail-working-week">
+          <label class="inline-flex">
+            <input id="day-0" type="checkbox" role="switch" class="peer sr-only"
+                   data-testid="toggle-day-0" ${sundayOn ? "checked" : ""} />
+            <span aria-hidden="true" class="relative h-6 w-11"></span>
+          </label>
+          ${sundayOn ? `<select data-testid="start-day-0"><option value="540">09:00</option></select>` : ""}
+        </div>`;
+    }
+
+    const workingHours: HelpScenario["steps"] = [
+      { action: "click", target: dayToggle(0), description: "tap the switch" },
+      { action: "select", target: dayStart(0), value: "540", description: "set the start time" },
+    ];
+
+    it("reports and tears down when the click that advances also removes the next target", async () => {
+      // The reported hang, reduced. Started from a day that is ALREADY
+      // ON, the tap switches it off and the row collapses — so the
+      // select this step wants never comes back.
+      //
+      // Driver.js cannot see this on its own. Our click listener sits on
+      // the control, so it advances before React's delegated handler has
+      // even run: at the instant Driver.js resolves `start-day-0` it is
+      // still on the page, `waitForElement` never engages, and the hook
+      // is handed a real, connected element. Nothing is wrong as far as
+      // Driver.js is concerned, and without a watchdog nothing is ever
+      // reported.
+      document.body.innerHTML = week(true);
+      const onUnavailable = vi.fn();
+      await start(workingHours, onUnavailable);
+      expect(await waitFor(() => popoverText() === "tap the switch")).toBe(true);
+
+      const input = document.querySelector<HTMLInputElement>('[data-testid="toggle-day-0"]')!;
+      input.checked = false;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      // React collapses the row on the next render, after the tour has
+      // already advanced.
+      document.querySelector('[data-testid="start-day-0"]')!.remove();
+
+      expect(await waitFor(() => onUnavailable.mock.calls.length > 0)).toBe(true);
+      expect(onUnavailable).toHaveBeenCalledWith(expect.stringContaining("start-day-0"));
+      // §10: a dead end the user can back out of, not one they have to
+      // reload out of.
+      expect(await waitFor(() => document.querySelector(".driver-overlay") === null)).toBe(true);
+      expect(driverResidue()).toEqual(CLEAN);
+    }, 15_000);
+
+    it("does not report when the click creates the next target instead of removing it", async () => {
+      // The negative control, and the one that matters most: this is the
+      // scenario working correctly. A watchdog that cannot tell "gone"
+      // from "arriving late" would call a healthy app broken.
+      document.body.innerHTML = week(false);
+      const onUnavailable = vi.fn();
+      await start(workingHours, onUnavailable);
+      expect(await waitFor(() => popoverText() === "tap the switch")).toBe(true);
+
+      const input = document.querySelector<HTMLInputElement>('[data-testid="toggle-day-0"]')!;
+      input.checked = true;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      document
+        .querySelector('[data-testid="avail-working-week"]')!
+        .insertAdjacentHTML(
+          "beforeend",
+          `<select data-testid="start-day-0"><option value="540">09:00</option></select>`,
+        );
+
+      expect(await waitFor(() => popoverText() === "set the start time")).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      expect(onUnavailable).not.toHaveBeenCalled();
+      expect(popoverText()).toBe("set the start time");
+    }, 15_000);
+
+    it("does not report a target that is removed and comes straight back", async () => {
+      // A React re-render can unmount and remount across two flushes,
+      // leaving the selector genuinely unresolvable for a few
+      // milliseconds. That is not a broken scenario, and it is the whole
+      // reason the watchdog waits out a grace period and looks again
+      // instead of reporting on the first miss.
+      document.body.innerHTML = `<a data-testid="settings-link">Settings</a>`;
+      const onUnavailable = vi.fn();
+      await start(
+        [{ action: "highlight", target: HelpTarget.SettingsLink, description: "here" }],
+        onUnavailable,
+      );
+      expect(await waitFor(() => popoverText() === "here")).toBe(true);
+
+      const parent = document.body;
+      const node = document.querySelector('[data-testid="settings-link"]')!;
+      node.remove();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      parent.appendChild(node);
+
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      expect(onUnavailable).not.toHaveBeenCalled();
+    }, 15_000);
+
+    it("stops watching the target once the tour has ended", async () => {
+      // The watchdog outliving its tour would surface "unavailable" onto
+      // a screen the user already left — the same late-report hazard the
+      // provider's abort guard exists for, arriving from the other side.
+      document.body.innerHTML = `<a data-testid="settings-link">Settings</a>`;
+      const onUnavailable = vi.fn();
+      const cancel = await start(
+        [{ action: "highlight", target: HelpTarget.SettingsLink, description: "here" }],
+        onUnavailable,
+      );
+      expect(await waitFor(() => popoverText() === "here")).toBe(true);
+
+      cancel();
+      document.querySelector('[data-testid="settings-link"]')!.remove();
+
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      expect(onUnavailable).not.toHaveBeenCalled();
+    }, 15_000);
+
+    it("tolerates a re-render that swaps the target node for an equivalent one", async () => {
+      // React replacing a node is not a scenario failure. The watchdog
+      // re-queries the selector rather than holding the node it was
+      // handed, so this must stay silent.
+      document.body.innerHTML = `<a data-testid="settings-link">Settings</a>`;
+      const onUnavailable = vi.fn();
+      await start(
+        [{ action: "highlight", target: HelpTarget.SettingsLink, description: "here" }],
+        onUnavailable,
+      );
+      expect(await waitFor(() => popoverText() === "here")).toBe(true);
+
+      const old = document.querySelector('[data-testid="settings-link"]')!;
+      const replacement = document.createElement("a");
+      replacement.setAttribute("data-testid", "settings-link");
+      replacement.textContent = "Settings";
+      old.replaceWith(replacement);
+
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      expect(onUnavailable).not.toHaveBeenCalled();
     }, 15_000);
   });
 

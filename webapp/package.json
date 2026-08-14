@@ -1,6 +1,6 @@
 {
   "name": "gigsy-webapp",
-  "version": "0.0.63",
+  "version": "0.0.64",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,6 +11,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test --project=chromium",
     "test:e2e:ui": "playwright test --ui",
+    "help:test": "playwright test --project=help",
+    "help:validate": "vitest run src/help",
     "deploy": "wrangler pages deploy dist --project-name=gigsy-webapp --branch=main"
   },
   "dependencies": {
