@@ -653,26 +653,40 @@ Responsibilities: track the active scenario, navigate when a step requires
 it, drive the renderer, and cancel cleanly. Mount it inside `App.tsx` so
 `startScenario` can route.
 
-### 7.2 The launcher lives on Settings
+### 7.2 Two doors, one menu
 
-§2.7: the 375px header and the five-tab bar are both full, and Gigsy has
-no icon set to shrink an entry point into.
+`HelpMenu` renders scenarios grouped by category with a text search over
+title and description, and calls `startScenario` on selection. It owns
+the list and nothing else, which is what lets more than one entry point
+mount it without duplicating anything.
 
-Add `HelpSection` — a `SettingGroup` titled "Help" with
-`data-testid="settings-help"` — to the Settings screen, above `Account`.
-It owns placement and nothing else: the list itself is `HelpMenu`, which
-renders scenarios grouped by category with a text search over title and
-description, and calls `startScenario` on selection.
+**On Settings:** `HelpSection`, a `SettingGroup` titled "Help" with
+`data-testid="settings-help"`, above `Account`. Help is discoverable
+where people already look for configuration.
 
-The split is what makes a second entry point additive later — a header
-door would mount the same `HelpMenu` without duplicating it.
+**In the header:** a `?` button (`data-testid="help-link"`) left of the
+Settings link, calling `openHelp()`. `HelpProvider` renders `HelpSheet`
+— a bottom sheet in `HiddenConsole`'s idiom — above the router, so help
+opens from any screen rather than only from Settings. This is what gives
+`isOpen` / `openHelp` / `closeHelp` a consumer; before it, nothing read
+them.
 
-Do not build a documentation portal inside it. Do not redesign navigation.
+The `?` is a Unicode character in a text button, not an icon: §2.7 still
+holds, Gigsy has no icon set, and text is what the design system uses
+instead.
 
-The cost is one extra tap and that help is discovered where people already
-look for configuration. If a header entry point is wanted later, it is
-additive: the section stays, the header gains a second door to the same
-menu.
+Unlike the Settings link, the help button renders on `/settings` too —
+it has no screen it would be pointing at itself, and the Settings help
+section is the same menu by another door.
+
+Both header controls are `h-11` (44px, the design system's tap minimum)
+with the label left small, the same trick `Toggle` uses. They sit four
+pixels apart on a phone next to the control people reach for most; a
+24px pair was a mis-tap waiting to happen. The row's padding drops to
+`py-1` to compensate, so the header does not grow.
+
+Do not build a documentation portal inside either door. Do not redesign
+navigation.
 
 ### 7.3 TourRenderer
 

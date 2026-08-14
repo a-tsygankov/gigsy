@@ -361,4 +361,55 @@ describe("HelpProvider", () => {
     });
     expect(latest!.isOpen).toBe(false);
   });
+
+  it("does not render the help sheet until openHelp is called", () => {
+    mount("/");
+
+    expect(container!.querySelector('[data-testid="help-sheet"]')).toBeNull();
+
+    act(() => {
+      latest!.openHelp();
+    });
+
+    expect(container!.querySelector('[data-testid="help-sheet"]')).not.toBeNull();
+  });
+
+  it("closes the help sheet on Escape", () => {
+    mount("/");
+
+    act(() => {
+      latest!.openHelp();
+    });
+    expect(container!.querySelector('[data-testid="help-sheet"]')).not.toBeNull();
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+
+    expect(latest!.isOpen).toBe(false);
+    expect(container!.querySelector('[data-testid="help-sheet"]')).toBeNull();
+  });
+
+  it("picking a topic in the help sheet closes the sheet and starts the scenario", async () => {
+    mount("/"); // open-settings' startRoute is "/", so no navigation wait is needed
+    const cancel = vi.fn();
+    vi.mocked(runTour).mockResolvedValueOnce(cancel);
+
+    act(() => {
+      latest!.openHelp();
+    });
+    const startButton = container!.querySelector<HTMLButtonElement>(
+      '[data-testid="help-start-open-settings"]',
+    );
+    expect(startButton).not.toBeNull();
+
+    await act(async () => {
+      startButton!.click();
+      await Promise.resolve();
+    });
+
+    expect(latest!.isOpen).toBe(false);
+    expect(container!.querySelector('[data-testid="help-sheet"]')).toBeNull();
+    expect(runTour).toHaveBeenCalledTimes(1);
+  });
 });

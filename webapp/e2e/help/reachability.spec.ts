@@ -90,3 +90,37 @@ test("help is reachable from Settings and starts a real tour", async ({
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(popover).toBeHidden();
 });
+
+test("help is reachable from the header on a screen that is not Settings", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  // The header's "?" button is the whole point of this test: it has to
+  // open the same menu from a screen that has nothing to do with
+  // Settings, proving help isn't only reachable through HelpSection.
+  await prepareHelpScenario(page, request, baseURL!, {
+    ...openSettings,
+    startRoute: "/gigs",
+  });
+
+  // 1. The header entry point exists here, and the topic list opens.
+  const helpLink = page.getByTestId("help-link");
+  await expect(helpLink).toBeVisible();
+  await helpLink.click();
+
+  const sheet = page.getByTestId("help-sheet");
+  await expect(sheet).toBeVisible();
+  const startOpenSettings = sheet.getByTestId(`help-start-${openSettings.id}`);
+  await expect(startOpenSettings).toBeVisible();
+
+  // 2. Picking a topic closes the sheet and starts the real tour, which
+  //    routes to the scenario's own startRoute ("/", not "/gigs").
+  await startOpenSettings.click();
+  await expect(sheet).toBeHidden();
+  await expect(page).toHaveURL(new URL(openSettings.startRoute!, baseURL!).href);
+
+  const popover = page.locator(".driver-popover.gigsy-help-popover");
+  await expect(popover).toBeVisible();
+  await expect(popover).toContainText(openSettings.title);
+});
