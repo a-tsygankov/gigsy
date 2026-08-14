@@ -18,6 +18,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { appLog } from "../../lib/logger.ts";
 import { getHelpScenario } from "../registry.ts";
 import type { HelpScenarioId } from "../types.ts";
+import { HelpUnavailableBanner } from "./HelpUnavailableBanner.tsx";
 
 interface HelpContextValue {
   isOpen: boolean;
@@ -25,7 +26,10 @@ interface HelpContextValue {
   closeHelp(): void;
   startScenario(id: HelpScenarioId): Promise<void>;
   /** Set when a scenario ended early — a missing target, or no branch
-   *  matching. Rendered by the menu; never thrown into the app. */
+   *  matching. Rendered by HelpUnavailableBanner at the app root, not
+   *  by the menu: the scenario that failed may already have navigated
+   *  the user away from wherever the menu lives. Never thrown into the
+   *  app. */
   unavailable: string | null;
   dismissUnavailable(): void;
 }
@@ -115,22 +119,23 @@ export function HelpProvider({ children }: { children: ReactNode }) {
     setIsOpen(false);
   }, [cancelTour]);
 
-  /** Surfaces a failure and makes sure something is open to show it.
-   *
-   *  `unavailable` alone was not enough: `startScenario` closes the menu
-   *  before it can possibly fail, and nothing else reopened it — a
-   *  reviewer caught that `unavailable` could end up non-null while
-   *  `isOpen` stayed false, which is exactly the state a menu gated on
-   *  `isOpen` would never render (spec §10 requires the message plus a
-   *  way back to the menu). Reopening here, rather than teaching every
-   *  future consumer of `unavailable` to also force `isOpen`, keeps the
-   *  invariant — "a message implies something is open to show it" — in
-   *  the one place that can break it, and puts the message back in
-   *  context with the topic list still there. */
-  const reportUnavailable = useCallback((message: string) => {
-    setUnavailable(message);
+  const openHelp = useCallback(() => {
+    setUnavailable(null);
     setIsOpen(true);
   }, []);
+
+  const dismissUnavailable = useCallback(() => setUnavailable(null), []);
+
+  /** What "Back to Help" on the app-root banner does: the only place
+   *  help currently lives is the Settings screen (HelpSection), so
+   *  getting back to it after a scenario has sent the user elsewhere
+   *  means going there directly, then opening the menu fresh. This is
+   *  the one thing in this file that knows help's address — everything
+   *  else routes to a *scenario's* startRoute, never to help itself. */
+  const backToHelp = useCallback(() => {
+    navigate("/settings");
+    openHelp();
+  }, [navigate, openHelp]);
 
   const startScenario = useCallback(
     async (id: HelpScenarioId): Promise<void> => {
@@ -138,7 +143,7 @@ export function HelpProvider({ children }: { children: ReactNode }) {
 
       const scenario = getHelpScenario(id);
       if (scenario === undefined) {
-        reportUnavailable("That help topic no longer exists.");
+        setUnavailable("That help topic no longer exists.");
         return;
       }
 
@@ -161,7 +166,7 @@ export function HelpProvider({ children }: { children: ReactNode }) {
         if (controller.signal.aborted) return;
         if (!settled) {
           appLog.warn("help: startRoute never settled", { id });
-          reportUnavailable(UNAVAILABLE_MESSAGE);
+          setUnavailable(UNAVAILABLE_MESSAGE);
           return;
         }
       }
@@ -183,7 +188,7 @@ export function HelpProvider({ children }: { children: ReactNode }) {
             // screen they already left is a message about nothing.
             if (controller.signal.aborted) return;
             appLog.warn("help: scenario ended early", { id, reason });
-            reportUnavailable(UNAVAILABLE_MESSAGE);
+            setUnavailable(UNAVAILABLE_MESSAGE);
           },
         });
 
@@ -200,11 +205,11 @@ export function HelpProvider({ children }: { children: ReactNode }) {
         // otherwise become silence instead of the required message.
         if (!controller.signal.aborted) {
           appLog.warn("help: failed to start tour", { id, error: String(error) });
-          reportUnavailable(UNAVAILABLE_MESSAGE);
+          setUnavailable(UNAVAILABLE_MESSAGE);
         }
       }
     },
-    [location.pathname, navigate, cancelTour, reportUnavailable],
+    [location.pathname, navigate, cancelTour],
   );
 
   // A tour outlives navigation only by accident — once one is running,
@@ -228,17 +233,30 @@ export function HelpProvider({ children }: { children: ReactNode }) {
   const value = useMemo<HelpContextValue>(
     () => ({
       isOpen,
-      openHelp: () => {
-        setUnavailable(null);
-        setIsOpen(true);
-      },
+      openHelp,
       closeHelp,
       startScenario,
       unavailable,
-      dismissUnavailable: () => setUnavailable(null),
+      dismissUnavailable,
     }),
-    [isOpen, closeHelp, startScenario, unavailable],
+    [isOpen, openHelp, closeHelp, startScenario, unavailable, dismissUnavailable],
   );
 
-  return <HelpContext.Provider value={value}>{children}</HelpContext.Provider>;
+  return (
+    <HelpContext.Provider value={value}>
+      {children}
+      {/* Not gated on `isOpen` or on which route this is — nothing in
+          this codebase currently renders a menu that `isOpen` controls,
+          and the whole reason this lives here rather than inside
+          HelpSection is that the scenario which failed may have
+          navigated the user somewhere else already. */}
+      {unavailable !== null && (
+        <HelpUnavailableBanner
+          message={unavailable}
+          onBackToHelp={backToHelp}
+          onDismiss={dismissUnavailable}
+        />
+      )}
+    </HelpContext.Provider>
+  );
 }

@@ -117,17 +117,38 @@ function conditionHolds(condition: HelpCondition): boolean {
   return condition.type === "target-visible" ? visible : !visible;
 }
 
-/** Waits until one of the branch conditions holds. Data arrives through
- *  react-query, so neither branch is resolvable on the first frame. */
+/** Waits until one of the branch conditions holds, and stays true for a
+ *  moment before committing to it. Data arrives through react-query, so
+ *  neither branch is resolvable on the first frame — but "not yet
+ *  resolvable" and "resolved to something that is about to change
+ *  again" look identical to a single check. `configureNotifications` is
+ *  the concrete case: `Settings.tsx`'s `blocked` depends on both a fast
+ *  client-only `useEffect` and a real `getPushConfig()` round trip, so
+ *  `push-toggle` can render first and get swapped for `push-unavailable`
+ *  a moment later. Committing on first sight would lock onto
+ *  "push-available", spotlight a control that is about to vanish, and
+ *  silently contradict the scenario's own `expectedCiBranches`.
+ *
+ *  The fix is a debounce, not a smarter predicate: wait `stableMs`,
+ *  then re-check the SAME candidate's own condition (not "does some
+ *  branch hold", which would happily accept a different one flickering
+ *  into view instead). If it no longer holds, that was the flicker —
+ *  loop and keep waiting rather than trusting it. */
 async function settleBranch(
   step: BranchStep,
   signal: AbortSignal,
   timeoutMs = 10_000,
+  stableMs = 250,
 ): Promise<HelpStep[] | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline && !signal.aborted) {
-    const hit = step.branches.find((branch) => conditionHolds(branch.when));
-    if (hit !== undefined) return hit.steps;
+    const candidate = step.branches.find((branch) => conditionHolds(branch.when));
+    if (candidate !== undefined) {
+      await new Promise((resolve) => setTimeout(resolve, stableMs));
+      if (signal.aborted) return null;
+      if (conditionHolds(candidate.when)) return candidate.steps;
+      continue;
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   return null;
@@ -139,17 +160,19 @@ async function settleBranch(
  *  mocking Driver.js.
  *
  *  `branchTimeoutMs` exists so tests can exercise the "no branch
- *  matched" path without waiting out the real 10s default. */
+ *  matched" path without waiting out the real 10s default;
+ *  `branchStableMs` so a flicker test doesn't need the real 250ms. */
 export async function flatten(
   steps: HelpStep[],
   signal: AbortSignal,
   branchTimeoutMs = 10_000,
+  branchStableMs = 250,
 ): Promise<FlatStep[] | null> {
   const flat: FlatStep[] = [];
   for (const step of steps) {
     if (signal.aborted) return null;
     if (!isFlatStep(step)) {
-      const taken = await settleBranch(step, signal, branchTimeoutMs);
+      const taken = await settleBranch(step, signal, branchTimeoutMs, branchStableMs);
       if (taken === null) return null;
       for (const inner of taken) {
         // validate.ts rejects a branch step whose own steps nest another

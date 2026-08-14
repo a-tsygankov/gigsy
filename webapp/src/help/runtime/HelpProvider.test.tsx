@@ -84,7 +84,6 @@ describe("HelpProvider", () => {
     });
 
     expect(latest!.unavailable).toBe("That help topic no longer exists.");
-    expect(latest!.isOpen).toBe(true);
     expect(runTour).not.toHaveBeenCalled();
   });
 
@@ -97,36 +96,86 @@ describe("HelpProvider", () => {
     });
 
     expect(latest!.unavailable).toBe("This help step is currently unavailable.");
-    // Spec §10: the message needs somewhere to be shown, with a way
-    // back to the menu — see the next test for why this assertion is
-    // the whole point, not a bonus check.
-    expect(latest!.isOpen).toBe(true);
   });
 
-  it("reopens the menu so a failed scenario's message is actually visible", async () => {
-    // The bug this guards: `startScenario` closes the menu (setIsOpen
-    // false) before it can possibly fail, and nothing used to reopen
-    // it — so `unavailable` could end up set while `isOpen` stayed
-    // false, which is exactly the state a menu gated on `isOpen` would
-    // never render. A menu that was already open makes that failure
-    // mode visible: if the fix ever regresses, this is the test that
-    // would watch the menu silently close on a failure instead of
-    // staying open around the message.
-    mount("/");
+  it("renders the unavailable message where the user actually is, even after the scenario navigated away first", async () => {
+    // The bug this guards: HelpSection (the only thing that used to
+    // show `unavailable`) mounts solely on "/settings", but a scenario
+    // can fail after navigating elsewhere — "Open Settings" starts on
+    // "/". A message that only a menu on "/settings" can show is
+    // invisible to a user who is, at the moment of failure, on "/".
+    // This mounts the real HelpProvider tree — nothing about the
+    // banner is stubbed — and checks the actual DOM, not just the
+    // context's own `unavailable` field, after exactly that sequence.
+    mount("/settings");
     vi.mocked(runTour).mockRejectedValueOnce(new Error("chunk 404"));
 
-    act(() => {
-      latest!.openHelp();
+    // Two-phase act for the same reason as "navigates to startRoute and
+    // only then builds the tour" below: React 18 queues the navigate
+    // triggered inside the callback and only flushes it once the
+    // callback settles, so awaiting all of `startScenario` in one act
+    // scope would deadlock on a navigation that cannot render until
+    // this scope lets go.
+    let pending: Promise<void>;
+    await act(async () => {
+      pending = latest!.startScenario("open-settings");
     });
-    expect(latest!.isOpen).toBe(true);
+    await act(async () => {
+      await pending;
+    });
+
+    expect(pathname).toBe("/");
+    expect(latest!.unavailable).toBe("This help step is currently unavailable.");
+    const banner = container!.querySelector('[data-testid="help-unavailable"]');
+    expect(banner).not.toBeNull();
+    expect(banner!.textContent).toContain("This help step is currently unavailable.");
+  });
+
+  it("Back to Help on the banner returns to /settings, reopens help, and clears the message", async () => {
+    mount("/settings");
+    vi.mocked(runTour).mockRejectedValueOnce(new Error("chunk 404"));
+
+    let pending: Promise<void>;
+    await act(async () => {
+      pending = latest!.startScenario("open-settings");
+    });
+    await act(async () => {
+      await pending;
+    });
+    expect(pathname).toBe("/");
+
+    const back = container!.querySelector<HTMLButtonElement>(
+      '[data-testid="help-unavailable-back"]',
+    );
+    expect(back).not.toBeNull();
+    act(() => {
+      back!.click();
+    });
+
+    expect(pathname).toBe("/settings");
     expect(latest!.unavailable).toBeNull();
+    expect(latest!.isOpen).toBe(true);
+    expect(container!.querySelector('[data-testid="help-unavailable"]')).toBeNull();
+  });
+
+  it("Close on the banner dismisses the message without navigating", async () => {
+    mount("/");
+    vi.mocked(runTour).mockRejectedValueOnce(new Error("chunk 404"));
 
     await act(async () => {
       await latest!.startScenario("open-settings");
     });
 
-    expect(latest!.isOpen).toBe(true);
-    expect(latest!.unavailable).toBe("This help step is currently unavailable.");
+    const dismiss = container!.querySelector<HTMLButtonElement>(
+      '[data-testid="help-unavailable-dismiss"]',
+    );
+    act(() => {
+      dismiss!.click();
+    });
+
+    expect(pathname).toBe("/");
+    expect(latest!.unavailable).toBeNull();
+    expect(container!.querySelector('[data-testid="help-unavailable"]')).toBeNull();
   });
 
   it("cancels the first tour instead of stacking a second overlay when a scenario is started twice", async () => {

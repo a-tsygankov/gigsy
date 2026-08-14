@@ -200,6 +200,78 @@ describe("flatten", () => {
     ).resolves.toBeNull();
   });
 
+  it("does not commit to a branch whose target only appears momentarily", async () => {
+    const { flatten } = await import("./TourRenderer.ts");
+    document.body.innerHTML = "";
+
+    function addVisible(testId: string): HTMLElement {
+      const el = document.createElement("div");
+      el.setAttribute("data-testid", testId);
+      el.getBoundingClientRect = () =>
+        ({
+          width: 40,
+          height: 40,
+          top: 0,
+          left: 0,
+          right: 40,
+          bottom: 40,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        }) as DOMRect;
+      document.body.appendChild(el);
+      return el;
+    }
+
+    // The exact race `configureNotifications` is subject to:
+    // `push-toggle` renders first (client-side availability resolves in
+    // a plain `useEffect`), then `getPushConfig()`'s real round trip
+    // comes back and Settings.tsx swaps it for `push-unavailable`. A
+    // resolver that commits on first sight would lock onto
+    // "push-available" and spotlight a control that is about to vanish
+    // — silently contradicting `expectedCiBranches: ["push-blocked"]`.
+    const flickering = addVisible("push-toggle");
+
+    const flickered: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.PushToggle,
+      description: "flickered",
+    };
+    const settled: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.PushUnavailable,
+      description: "settled",
+    };
+    const branch: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "push-available",
+          when: { type: "target-visible", target: HelpTarget.PushToggle },
+          steps: [flickered],
+        },
+        {
+          id: "push-blocked",
+          when: { type: "target-visible", target: HelpTarget.PushUnavailable },
+          steps: [settled],
+        },
+      ],
+    };
+
+    // Fires inside the first candidate's stability wait — before
+    // `settleBranch` would otherwise have committed to it.
+    setTimeout(() => {
+      flickering.remove();
+      addVisible("push-unavailable");
+    }, 5);
+
+    // A short branchStableMs, not the real 250ms default, so the test
+    // stays fast — same reasoning as branchTimeoutMs above.
+    await expect(
+      flatten([branch], new AbortController().signal, 5_000, 30),
+    ).resolves.toEqual([settled]);
+  });
+
   it("stops promptly once the signal aborts, instead of waiting out the timeout", async () => {
     const { flatten } = await import("./TourRenderer.ts");
     document.body.innerHTML = "";

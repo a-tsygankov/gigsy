@@ -989,6 +989,13 @@ mechanism, stop and reconsider the scenario first (§3.5).
 
 The asymmetry is deliberate.
 
+**The message has to render where the failure happened.** A tour can
+navigate before it fails — `open-settings` starts on `/` — so a notice
+that only exists inside the help menu is a notice the user never sees,
+because the menu lives on `/settings`. Mount it above the router, and
+give it a way back to the menu rather than assuming the user is already
+looking at one.
+
 | | Missing target | Unmatched branch |
 |---|---|---|
 | **Interactive** | "This help step is currently unavailable", offer Close / Back to Help | end gracefully |
