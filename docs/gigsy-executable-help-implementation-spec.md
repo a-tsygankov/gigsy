@@ -925,6 +925,20 @@ setup blocks into each scenario.
 Where a scenario mutates shared state, reset it through the API the way
 `resetGigListView` does, not through the UI.
 
+**This is not optional for any scenario that toggles something.**
+`configure-working-hours` switches Sunday on, and the setting is
+persisted server-side for the shared dev user — so the second
+consecutive run switches it back off, the row collapses, and the
+`select` step times out waiting for a `start-day-0` that no longer
+exists. Runs alternate pass/fail deterministically. It passes in CI only
+because a fresh local D1 starts at the schema default; a change to that
+default would break CI with a failure that reads like a scenario bug.
+
+Resetting by reading current state and clicking conditionally is not the
+fix — that would make the tour act on the user's behalf depending on
+what it found, which is the one thing §7.3 forbids. Reset out of band,
+before the scenario starts.
+
 ### 8.8 Type-check the seam
 
 §2.2. Add `webapp/tsconfig.e2e.json` including `e2e`, and reference it

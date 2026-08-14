@@ -319,6 +319,30 @@ Phase 2 lands (TODO in `backend/src/routes/debug.ts`).
   `freebusy`, which returns ranges and never titles). Tokens are
   hashed, revocable and optionally expiring (migration 0010). See
   `2026-08-10-phase12-availability.md`.
+- **Phase 13 — Executable help.** One `HelpScenario` model under
+  `webapp/src/help/`, consumed by two adapters that read it and own
+  nothing: an in-app Driver.js tour and a Playwright suite in
+  `webapp/e2e/help/`. The point is to stop maintaining in-app help, UI
+  tests, and written docs as three artifacts describing the same
+  workflow that quietly drift apart — a UI change that breaks a
+  documented workflow now fails CI instead of leaving stale help behind.
+  A target carries its *kind* (`element` or `switch`) rather than having
+  it guessed from the name, because most of this app's switches
+  (`Toggle`) tag a 1×1 `sr-only` input while the thing a person actually
+  touches is a sibling span; clicking the tagged input in a test passes
+  while proving nothing, which is exactly the bug that motivated
+  recording the kind explicitly (`push-toggle` is a `<Button>`,
+  `toggle-prefix` is a real switch — the name lies both directions).
+  Scenarios that branch on legitimate app states — push available vs.
+  explained-as-unavailable, capture configured vs. not — declare which
+  branch the hermetic CI stack takes in `expectedCiBranches`, and the
+  suite asserts the trace matches; an environment change that flips a
+  branch fails loudly instead of silently testing something else
+  forever. Screenshot and Markdown generation from the same model is
+  deferred, deliberately, to a later phase. See
+  `docs/gigsy-executable-help-implementation-spec.md`,
+  `docs/superpowers/plans/2026-08-13-phase13-executable-help.md`, and
+  `docs/help/README.md` for adding a scenario.
 
 ### Phase 12 — Client-facing availability (2026-08-10)
 
