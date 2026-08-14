@@ -250,6 +250,20 @@ jobs:
           E2E_REQUIRE_AUTH: '1'
         run: pnpm test:e2e
 
+      # Help scenarios prove the documented workflows are still doable:
+      # delete a data-testid a scenario points at and this fails naming
+      # the scenario, step and target, rather than leaving the help
+      # quietly wrong. They belong in this job rather than the preview
+      # one, which proxies to the production worker with test auth off —
+      # there they would skip and report green, the exact trap the
+      # comment above this job describes.
+      - name: Validate help scenarios
+        working-directory: webapp
+        env:
+          E2E_BASE_URL: http://127.0.0.1:5192
+          E2E_REQUIRE_AUTH: '1'
+        run: pnpm help:test
+
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
