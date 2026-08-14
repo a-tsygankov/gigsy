@@ -67,6 +67,61 @@ export function requireLocalTarget(): void {
 }
 
 /**
+ * Put the shared dev user's working week back to the schema default —
+ * Sunday and Saturday off, Monday through Friday 09:00–17:00
+ * (backend/src/domain/settings.ts's own default for
+ * `availabilityWorkingWeek`; the shape is
+ * `({ startMinute: number; endMinute: number } | null)[]`, Sunday first,
+ * per settings-schema.ts and working-week.ts).
+ *
+ * `configure-working-hours` toggles Sunday, which is persisted
+ * server-side for the shared dev user — and a click always flips
+ * whatever is there, whether the run before it passed or failed. Running
+ * `help:test` back to back against the same local stack was observed to
+ * alternate pass/fail/pass/fail/pass: a run that starts with Sunday off
+ * turns it on and finds `start-day-0`; the next run starts with Sunday
+ * on, the click turns it off, the row collapses, and the `select` step
+ * times out waiting for a select that will never render. That is a
+ * failure in a scenario that did nothing wrong — indistinguishable from
+ * a real regression to whoever is iterating on it — so the precondition
+ * has to be pinned before every run, the same way `resetGigListView`
+ * pins the gig-list view before every gig-list test.
+ *
+ * Driven through the API rather than the UI, and for the same reason
+ * `resetGigListView` is: a UI reset would mean loading `/settings`,
+ * finding whichever day is currently on, and clicking it off before the
+ * scenario's own navigation and clicks even start — another chance for
+ * exactly the flakiness this function exists to remove, and pointless
+ * work when a PATCH says the same thing in one call.
+ */
+export async function resetWorkingWeek(
+  request: APIRequestContext,
+  baseURL: string,
+): Promise<void> {
+  const login = await request.post(`${baseURL}/api/auth/test-login`, {
+    data: { email: "dev@test.local" },
+  });
+  if (!login.ok()) return; // No test auth here; the spec skips anyway.
+  const { accessToken } = (await login.json()) as { accessToken: string };
+
+  const nineToFive = { startMinute: 540, endMinute: 1020 };
+  await request.patch(`${baseURL}/api/settings`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+    data: {
+      availabilityWorkingWeek: [
+        null,
+        nineToFive,
+        nineToFive,
+        nineToFive,
+        nineToFive,
+        nineToFive,
+        null,
+      ],
+    },
+  });
+}
+
+/**
  * Signs in and, if the scenario declares one, navigates to its
  * `startRoute` — the state every scenario's first step assumes.
  *
@@ -80,6 +135,13 @@ export function requireLocalTarget(): void {
  * exactly one auth mechanism in this suite (test-auth.ts's
  * `requireTestAuth` plus the `test-signin` bypass button) and this must
  * not grow a second one.
+ *
+ * Resets the working week for every scenario, not just
+ * `configure-working-hours` — matching how `resetGigListView` isn't
+ * scoped to gig-list-only specs either. It touches one settings field
+ * that no other scenario reads or asserts on, so there is nothing to
+ * scope it against, and a future scenario that does share the field
+ * gets the same guarantee for free instead of having to remember to ask.
  */
 export async function prepareHelpScenario(
   page: Page,
@@ -89,6 +151,7 @@ export async function prepareHelpScenario(
 ): Promise<void> {
   requireLocalTarget();
   await requireTestAuth(request, baseURL);
+  await resetWorkingWeek(request, baseURL);
 
   await page.goto("/login");
   await page.getByTestId("test-signin").click();

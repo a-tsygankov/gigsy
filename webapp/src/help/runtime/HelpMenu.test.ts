@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { HelpScenario } from "../types.ts";
-import { groupScenarios, matches } from "./HelpMenu.tsx";
+import type { HelpEnvironment, HelpScenario, HelpVariant } from "../types.ts";
+import { groupScenarios, initialVariant, matches } from "./HelpMenu.tsx";
 
 /** Minimal, valid-enough scenarios for exercising search and grouping —
  *  deliberately not the real registry, so ordering and matching are
@@ -73,5 +73,31 @@ describe("groupScenarios", () => {
   it("trims the query before matching", () => {
     const groups = groupScenarios("  notifications  ", fixture);
     expect(groups.flatMap((g) => g.scenarios.map((s) => s.id))).toEqual(["notifications"]);
+  });
+});
+
+describe("initialVariant", () => {
+  function variant(environment: HelpEnvironment): HelpVariant {
+    return {
+      environment,
+      label: environment,
+      steps: [{ action: "external", externalType: "browser-ui", description: "x" }],
+    };
+  }
+
+  it("preselects the detected environment when the scenario offers it", () => {
+    const variants = [variant("android-chrome"), variant("fallback")];
+    expect(initialVariant("android-chrome", variants)).toBe("android-chrome");
+  });
+
+  it("falls back when detection itself returned fallback", () => {
+    const variants = [variant("ios-safari"), variant("fallback")];
+    expect(initialVariant("fallback", variants)).toBe("fallback");
+  });
+
+  it("falls back when the detected environment has no matching variant", () => {
+    // e.g. detection says desktop-edge but this scenario never got one.
+    const variants = [variant("ios-safari"), variant("fallback")];
+    expect(initialVariant("desktop-edge", variants)).toBe("fallback");
   });
 });

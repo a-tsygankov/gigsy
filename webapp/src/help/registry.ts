@@ -2,11 +2,20 @@
  * The single discovery mechanism — the help menu, the Playwright suite
  * and any future generator all read this and nothing else.
  */
+import { setUpEmailCapture } from "./scenarios/email-capture.ts";
+import { installApp } from "./scenarios/install-app.ts";
 import { configureNotifications } from "./scenarios/notifications.ts";
 import { openSettings } from "./scenarios/open-settings.ts";
+import { configureWorkingHours } from "./scenarios/working-hours.ts";
 import type { HelpScenario, HelpScenarioId } from "./types.ts";
 
-export const helpScenarios: HelpScenario[] = [openSettings, configureNotifications];
+export const helpScenarios: HelpScenario[] = [
+  openSettings,
+  configureNotifications,
+  configureWorkingHours,
+  setUpEmailCapture,
+  installApp,
+];
 
 export function getHelpScenario(
   id: HelpScenarioId,

@@ -19,8 +19,20 @@ describe("the help registry", () => {
     expect(getHelpScenario("nope")).toBeUndefined();
   });
 
-  it("lists every scenario as executable until one opts out", () => {
-    expect(executableHelpScenarios.length).toBe(helpScenarios.length);
+  it("excludes install-gigsy — the one scenario that opts out of execution — from executableHelpScenarios", () => {
+    // install-gigsy lives entirely in browser and OS chrome (see
+    // scenarios/install-app.ts), so it must be discoverable in the full
+    // registry but never handed to the Playwright runner. Asserting both
+    // sides, plus the count actually differing, is what makes this fail
+    // if `executableHelpScenarios`'s `.filter(...)` in registry.ts were
+    // ever deleted — with the filter removed the two arrays become the
+    // same array, "install-gigsy" would appear in both, and the count
+    // difference below would be `0` instead of `1`.
+    expect(helpScenarios.map((s) => s.id)).toContain("install-gigsy");
+    expect(executableHelpScenarios.map((s) => s.id)).not.toContain(
+      "install-gigsy",
+    );
+    expect(helpScenarios.length - executableHelpScenarios.length).toBe(1);
   });
 
   // Opening help from Settings and being told to tap a link that
