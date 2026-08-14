@@ -202,6 +202,45 @@ function resolveOperableElement(target: HelpTarget): HTMLElement | null {
   );
 }
 
+/** Driver.js's own per-step cleanup, applied to anything it left
+ *  behind. Enforces the invariant the spotlight depends on: exactly one
+ *  element carries `driver-active-element` at any moment.
+ *
+ *  Driver.js does not guarantee that in our usage, and the reason is a
+ *  timing window, not nesting or our selector strings — both of those
+ *  were measured and cleared. `J()` removes the class from
+ *  `o = getState("__activeElement") || t`, but `__activeElement` is
+ *  assigned only in the *settled* branch of the rAF loop, which needs
+ *  `elapsed >= duration` (400ms). Advance inside that window and
+ *  `__activeElement` is still undefined, so `o` falls back to `t` — the
+ *  element arriving — and Driver.js dutifully removes the class from
+ *  the node it is about to add it to, never touching the outgoing one.
+ *  Measured across a delay sweep: 50/200/380ms leave two highlighted,
+ *  420/600/900ms leave one, and siblings behave exactly like nested
+ *  targets.
+ *
+ *  That window is not an edge case for this file. A click step advances
+ *  on the user's own tap or `change`, which is routinely faster than
+ *  400ms, and the consequences are worse than a second outline:
+ *  Driver.js's `.driver-active .driver-active-element * {pointer-events:
+ *  auto}` leaves the whole stale subtree interactive — the same hazard
+ *  as wiring listeners up front, arriving by a different road — and the
+ *  stale `aria-haspopup`/`aria-expanded`/`aria-controls` misreport the
+ *  page to assistive technology (§7.5).
+ *
+ *  Safe to run before Driver.js's own bookkeeping: this hook is called
+ *  from inside `J()` *before* it removes and re-adds the class, so the
+ *  element arriving is re-marked synchronously and never flickers. */
+function clearStaleHighlights(current: Element | undefined): void {
+  for (const stale of document.querySelectorAll(".driver-active-element")) {
+    if (stale === current) continue;
+    stale.classList.remove("driver-active-element", "driver-no-interaction");
+    stale.removeAttribute("aria-haspopup");
+    stale.removeAttribute("aria-expanded");
+    stale.removeAttribute("aria-controls");
+  }
+}
+
 /** Carries the HelpStep a DriveStep came from, on the DriveStep itself.
  *
  *  A Map keyed on the DriveStep object cannot work: Driver.js never
@@ -344,6 +383,10 @@ export async function runTour(
       // listener before the tour ever reached it, with no Next button
       // to recover.
       clearActiveCleanup();
+      // Before anything else, and unconditionally: a step that failed
+      // to correlate or whose target went missing still has to leave
+      // the previous step's spotlight behind it.
+      clearStaleHighlights(element);
 
       const step = helpStepOf(driveStep);
 

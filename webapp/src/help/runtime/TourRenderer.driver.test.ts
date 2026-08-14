@@ -188,6 +188,94 @@ describe("runTour against the real driver.js", () => {
     expect(driverResidue()).toEqual(CLEAN);
   }, 20_000);
 
+  describe("exactly one element is ever spotlighted", () => {
+    /** The real NotificationsSection shape: push-unavailable is a <p>
+     *  INSIDE the settings-notifications <section>, which is how this
+     *  was first seen in a browser. */
+    const nested = `
+      <section data-testid="settings-notifications">
+        <h2>Notifications</h2>
+        <p data-testid="push-unavailable">Blocked in browser settings.</p>
+      </section>`;
+    /** Same two targets, no ancestry between them — nesting is not what
+     *  causes this, and pinning that down keeps the next person from
+     *  "fixing" the wrong thing. */
+    const siblings = `
+      <section data-testid="settings-notifications"><h2>Notifications</h2></section>
+      <p data-testid="push-unavailable">Blocked in browser settings.</p>`;
+
+    function spotlighted(): string[] {
+      return [...document.querySelectorAll(".driver-active-element")].map(
+        (el) => el.getAttribute("data-testid") ?? el.tagName,
+      );
+    }
+
+    /** `delayBeforeNext` is the whole point. Driver.js only records
+     *  `__activeElement` once a highlight has settled — `elapsed >=
+     *  duration`, 400ms by default — and it is that recorded element,
+     *  not the outgoing one, that it later strips the class from.
+     *  Advance sooner and it strips the class from the element it is
+     *  about to add it to, stranding the previous step's spotlight. A
+     *  click step advances on the user's own tap, so this window is the
+     *  normal case here, not a corner. */
+    async function advanceAfter(dom: string, delayBeforeNext: number): Promise<void> {
+      document.body.innerHTML = dom;
+      await start([
+        { action: "highlight", target: HelpTarget.SettingsNotifications, description: "step0" },
+        { action: "highlight", target: HelpTarget.PushUnavailable, description: "step1" },
+      ]);
+      expect(await waitFor(() => popoverText() === "step0")).toBe(true);
+      expect(spotlighted()).toEqual(["settings-notifications"]);
+
+      await new Promise((resolve) => setTimeout(resolve, delayBeforeNext));
+      document
+        .querySelector<HTMLElement>(".driver-popover-next-btn")!
+        .dispatchEvent(new Event("click", { bubbles: true }));
+
+      expect(await waitFor(() => popoverText() === "step1")).toBe(true);
+      // Let the transition settle, so this cannot pass by catching an
+      // intermediate frame.
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect(spotlighted()).toEqual(["push-unavailable"]);
+    }
+
+    it("when the next step is nested inside the current one and Next comes fast", async () => {
+      await advanceAfter(nested, 100);
+    }, 15_000);
+
+    it("when the two targets are siblings and Next comes fast", async () => {
+      await advanceAfter(siblings, 100);
+    }, 15_000);
+
+    it("when Next comes after the transition has settled", async () => {
+      await advanceAfter(nested, 600);
+    }, 15_000);
+
+    it("leaves no stale aria pointing assistive tech at the old element", async () => {
+      document.body.innerHTML = nested;
+      await start([
+        { action: "highlight", target: HelpTarget.SettingsNotifications, description: "step0" },
+        { action: "highlight", target: HelpTarget.PushUnavailable, description: "step1" },
+      ]);
+      expect(await waitFor(() => popoverText() === "step0")).toBe(true);
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      document
+        .querySelector<HTMLElement>(".driver-popover-next-btn")!
+        .dispatchEvent(new Event("click", { bubbles: true }));
+      expect(await waitFor(() => popoverText() === "step1")).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+
+      // Driver.js sets these alongside the class and clears them from
+      // the same node it clears the class from, so they go stale
+      // together (§7.5: the tour must not misreport the page).
+      const section = document.querySelector('[data-testid="settings-notifications"]')!;
+      expect(section.getAttribute("aria-haspopup")).toBeNull();
+      expect(section.getAttribute("aria-expanded")).toBeNull();
+      expect(section.getAttribute("aria-controls")).toBeNull();
+    }, 15_000);
+  });
+
   it("leaves a clean DOM when the caller cancels mid-tour", async () => {
     document.body.innerHTML = `<a data-testid="settings-link">Settings</a>`;
     const cancel = await start([
