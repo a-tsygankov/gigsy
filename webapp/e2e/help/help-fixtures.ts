@@ -122,6 +122,71 @@ export async function resetWorkingWeek(
 }
 
 /**
+ * Title marker for the gig `ensureAtLeastOneGig` plants. Distinct enough
+ * that anyone who finds one of these in a dev account — locally or in
+ * CI — knows immediately it came from this fixture and not from a human
+ * or a scenario. Also doubles as an idempotency check on its own: see
+ * `ensureAtLeastOneGig`.
+ */
+const SEEDED_GIG_TITLE = "[help-fixtures] seeded so find-a-gig has a row";
+
+/**
+ * Guarantee the account owns at least one gig, seeding one through the
+ * API when it owns none.
+ *
+ * `find-a-gig`'s `expectedCiBranches: ["gigs-showing"]` used to hold only
+ * by accident of CI step ordering: `test:e2e` runs before `help:test` in
+ * `webapp-e2e-full` (deploy.yml) and plants several hundred gigs first,
+ * so `help:test` never actually ran against the state it needs to
+ * handle. Point it at a freshly migrated D1 — alone, or if those steps
+ * are ever reordered — and the account has zero gigs, `find-a-gig`
+ * correctly takes `no-gigs-yet`, and the branch assertion fails: a
+ * missing precondition reading like a scenario bug. This closes that gap
+ * by making the precondition true itself instead of hoping something
+ * upstream already made it true.
+ *
+ * Idempotent and bounded, not "create a gig every run": it lists first
+ * and only calls `PUT /api/gigs/:id` when the account has none at all.
+ * Every CI run after the first, and every developer machine with real
+ * data on it (this account has several hundred), sees a non-empty list
+ * and this is a no-op — it does not matter whether an existing gig is
+ * one this function planted earlier or one a human or another suite
+ * wrote; "any gig" is all `find-a-gig`'s `gigs-showing` branch needs.
+ *
+ * Through the API, matching `resetWorkingWeek` and `resetGigListView` in
+ * this same file: a token from `POST /api/auth/test-login`, then the
+ * REST call — `PUT /api/gigs/:id` with a fresh UUID, per how `GigEdit.tsx`
+ * creates a gig and what `backend/src/domain/schemas.ts`'s `GigInput`
+ * actually requires (nothing beyond `status` and `source`, both
+ * defaulted). `SEEDED_GIG_TITLE` marks provenance for whoever finds it.
+ *
+ * This is a fixture pinning a precondition, not a scenario writing data
+ * — the same distinction `resetWorkingWeek` and `resetGigListView`
+ * already draw. Phase 13's rule that no *scenario* creates, updates or
+ * deletes a record is untouched: `find-a-gig` still only walks the
+ * screen and stops at a row. What changed is which layer guarantees the
+ * row exists to walk to.
+ */
+async function ensureAtLeastOneGig(request: APIRequestContext, baseURL: string): Promise<void> {
+  const login = await request.post(`${baseURL}/api/auth/test-login`, {
+    data: { email: "dev@test.local" },
+  });
+  if (!login.ok()) return; // No test auth here; the spec skips anyway.
+  const { accessToken } = (await login.json()) as { accessToken: string };
+  const headers = { authorization: `Bearer ${accessToken}` };
+
+  const listed = await request.get(`${baseURL}/api/gigs`, { headers });
+  if (!listed.ok()) return;
+  const { items } = (await listed.json()) as { items?: unknown[] };
+  if (items === undefined || items.length > 0) return; // Already has gigs — no-op.
+
+  await request.put(`${baseURL}/api/gigs/${crypto.randomUUID()}`, {
+    headers,
+    data: { title: SEEDED_GIG_TITLE, status: "lead", source: "manual" },
+  });
+}
+
+/**
  * Wait until the gig list a scenario is about to read actually reflects
  * the server.
  *
@@ -132,8 +197,8 @@ export async function resetWorkingWeek(
  * network"). A Playwright context starts with an empty IndexedDB, so
  * `/gigs` opens with `gigs.data === []`, `all.length === 0`, and
  * therefore the "No gigs yet" empty state with no `gig-filters` at all —
- * for however long SyncEngine's first `pull()` takes to write several
- * hundred rows into Dexie. Every one of those states is a legitimate
+ * for however long SyncEngine's first `pull()` takes to write however
+ * many rows the account has. Every one of those states is a legitimate
  * render of the screen; that is exactly why `find-a-gig` branches on
  * them.
  *
@@ -144,15 +209,16 @@ export async function resetWorkingWeek(
  * that matters (`gig-search`, `gig-filters-toggle`, `gig-list`) goes
  * unresolved, which the README's §6 warns turns them into prose.
  * Observed directly: the first `help:test` run against this stack took
- * `no-gigs-yet` on an account of 396 gigs.
+ * `no-gigs-yet` on an account of 396 gigs, before hydration had caught
+ * up — the account was never the problem, the wait was missing.
  *
- * So: ask the server what it has, and only then let a scenario look.
- * Zero gigs server-side means there is genuinely nothing to wait for and
- * `no-gigs-yet` is the honest state — this returns immediately rather
- * than hanging on a condition that will never come true. In CI the count
- * is never zero, because `test:e2e` runs first in the same job against
- * the same local D1 and plants gigs (deploy.yml's webapp-e2e-full), which
- * is why `find-a-gig` declares `gigs-showing`.
+ * The *other* half of the precondition — that the account has a gig to
+ * hydrate at all — is `ensureAtLeastOneGig`'s job, called before this
+ * one in `prepareHelpScenario`. This function only ever waits for
+ * something the server already has; it does not create anything itself,
+ * which is why it still returns immediately, honestly, when the server
+ * genuinely has zero gigs (a broken call to `ensureAtLeastOneGig`, a
+ * user other than `dev@test.local`, or similar).
  *
  * Deliberately NOT a scenario step and not a longer debounce. A step
  * would make the tour wait too, on a page where the user is watching
@@ -221,9 +287,17 @@ async function waitForGigsToHydrate(
  * Reusing gig-list.spec.ts's own helper rather than a second copy of
  * the PATCH keeps one definition of "the default view".
  *
+ * Guarantees the account has a gig at all, before worrying about which
+ * ones are visible: `ensureAtLeastOneGig` seeds exactly one, and only
+ * when the account has none. Without it, `gigs-showing` was true only
+ * because some *other* CI job happened to run first and leave gigs
+ * behind — a dependency this fixture now removes by making the
+ * precondition true itself.
+ *
  * Note what this is NOT: no help scenario creates, updates or deletes a
- * record, so nothing here is cleanup after a scenario. Both resets pin a
- * PRECONDITION that other suites disturb.
+ * record, so nothing here is cleanup after a scenario. All three resets
+ * pin a PRECONDITION that other suites (or a bare freshly migrated D1)
+ * would otherwise leave unpredictable.
  */
 export async function prepareHelpScenario(
   page: Page,
@@ -235,6 +309,7 @@ export async function prepareHelpScenario(
   await requireTestAuth(request, baseURL);
   await resetWorkingWeek(request, baseURL);
   await resetGigListView(request, baseURL);
+  await ensureAtLeastOneGig(request, baseURL);
 
   await page.goto("/login");
   await page.getByTestId("test-signin").click();
