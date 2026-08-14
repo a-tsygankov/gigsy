@@ -127,6 +127,7 @@ export function ServiceEdit() {
           <>
             <Field label="Description" error={error}>
               <Input
+                data-testid="service-description"
                 placeholder="Extra hour, banner install, teardown…"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -136,6 +137,7 @@ export function ServiceEdit() {
             <div className="grid grid-cols-2 gap-3">
               <Field label="Offered ($)">
                 <Input
+                  data-testid="service-offered"
                   inputMode="decimal"
                   placeholder="50.00"
                   value={offered}
@@ -144,6 +146,7 @@ export function ServiceEdit() {
               </Field>
               <Field label="Paid ($)">
                 <Input
+                  data-testid="service-paid"
                   inputMode="decimal"
                   placeholder="0.00"
                   value={paid}
@@ -153,7 +156,11 @@ export function ServiceEdit() {
             </div>
 
             <Field label="Payment entry">
-              <Select value={paymentId} onChange={(e) => setPaymentId(e.target.value)}>
+              <Select
+                data-testid="service-payment"
+                value={paymentId}
+                onChange={(e) => setPaymentId(e.target.value)}
+              >
                 <option value="">Not linked</option>
                 {payments.data?.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -169,6 +176,7 @@ export function ServiceEdit() {
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <input
                 type="checkbox"
+                data-testid="service-completed"
                 className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                 checked={isCompleted}
                 onChange={(e) => setIsCompleted(e.target.checked)}
@@ -181,15 +189,25 @@ export function ServiceEdit() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <Button className="flex-1" disabled={save.isPending} onClick={submit}>
+              <Button
+                data-testid="service-save"
+                className="flex-1"
+                disabled={save.isPending}
+                onClick={submit}
+              >
                 {save.isPending ? "Saving…" : "Save service"}
               </Button>
-              <Button variant="ghost" onClick={() => navigate(backTo)}>
+              <Button
+                data-testid="service-cancel"
+                variant="ghost"
+                onClick={() => navigate(backTo)}
+              >
                 Cancel
               </Button>
             </div>
             {!isNew && (
               <Button
+                data-testid="service-delete"
                 variant="danger"
                 block
                 disabled={remove.isPending}

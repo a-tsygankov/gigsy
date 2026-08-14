@@ -14,8 +14,12 @@ import { helpScenarios } from "../registry.ts";
 import type { HelpCategory, HelpEnvironment, HelpScenario, HelpVariant } from "../types.ts";
 import { useHelp } from "./HelpProvider.tsx";
 
+/** Key order is section order in the menu (see `groupScenarios`), so
+ *  "Gigs" sits between the first-run topics and the settings ones —
+ *  where the work itself is. */
 const CATEGORY_LABELS: Record<HelpCategory, string> = {
   "getting-started": "Getting started",
+  gigs: "Gigs",
   settings: "Settings",
   installation: "Installing Gigsy",
 };

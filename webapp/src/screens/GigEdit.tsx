@@ -223,6 +223,7 @@ export function GigEdit() {
 
             <Field label="Client">
               <Select
+                data-testid="gig-client"
                 value={form.clientId}
                 onChange={(e) => set("clientId", e.target.value)}
               >
@@ -237,6 +238,7 @@ export function GigEdit() {
 
             <Field label="Status">
               <Select
+                data-testid="gig-status"
                 value={form.status}
                 onChange={(e) => set("status", e.target.value as GigStatus)}
               >
@@ -282,6 +284,7 @@ export function GigEdit() {
 
             <Field label="Location">
               <Input
+                data-testid="gig-location"
                 placeholder="Costco on 5th, booth 12…"
                 value={form.location}
                 onChange={(e) => set("location", e.target.value)}
@@ -304,6 +307,7 @@ export function GigEdit() {
             <div className="grid grid-cols-2 gap-3">
               <Field label="Offered ($)" error={moneyError}>
                 <Input
+                  data-testid="gig-offered"
                   inputMode="decimal"
                   placeholder="150.00"
                   value={form.offered}
@@ -312,6 +316,7 @@ export function GigEdit() {
               </Field>
               <Field label="Paid ($)">
                 <Input
+                  data-testid="gig-paid"
                   inputMode="decimal"
                   placeholder="0.00"
                   value={form.paid}
@@ -322,6 +327,7 @@ export function GigEdit() {
 
             <Field label="Notes">
               <Textarea
+                data-testid="gig-notes"
                 value={form.notes}
                 onChange={(e) => set("notes", e.target.value)}
               />
@@ -332,21 +338,56 @@ export function GigEdit() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <Button className="flex-1" disabled={save.isPending} onClick={submit}>
+              <Button
+                data-testid="gig-save"
+                className="flex-1"
+                disabled={save.isPending}
+                onClick={submit}
+              >
                 {save.isPending ? "Saving…" : "Save gig"}
               </Button>
-              <Button variant="ghost" onClick={() => navigate("/gigs")}>
+              <Button
+                data-testid="gig-cancel"
+                variant="ghost"
+                onClick={() => navigate("/gigs")}
+              >
                 Cancel
               </Button>
             </div>
 
-            {!isNew && (
-              <>
-                {/* ── Additional services (addable at any time) ── */}
-                <section className="pt-2" data-testid="gig-services">
+            {/* ── Additional services (addable at any time) ──
+                Rendered on a new gig too, explained rather than offered.
+                Both live on a gig id that does not exist until the save,
+                so there is nothing here to operate yet — but a form that
+                simply omits them is how someone finishes their first gig
+                without ever learning that the extra hour they worked has
+                a place to go. Same `data-testid` in both states so one
+                help target covers both.
+
+                The explanatory state deliberately renders NO link and no
+                button. `SectionHeading` drops its action entirely when
+                `actionLabel`/`actionTo` are absent, which keeps
+                "+ Add service" a unique accessible name on the one screen
+                that has it — e2e/signed-in.spec.ts reaches the real
+                control by that name, and a second match is a strict-mode
+                failure, not a cosmetic one. */}
+            <section className="pt-2" data-testid="gig-services">
+              {isNew ? (
+                <>
+                  <SectionHeading>Additional services</SectionHeading>
+                  <p className="text-xs text-slate-500">
+                    Extra work billed on top of the fee — an overtime hour, a
+                    second booth. Each one carries its own offered and paid
+                    amounts, so what a gig really earned stays right. Save the
+                    gig and you can add them here.
+                  </p>
+                </>
+              ) : (
+                <>
                   <SectionHeading
                     actionLabel="+ Add service"
                     actionTo={`/services/new?gigId=${id}`}
+                    actionTestId="gig-add-service"
                   >
                     Additional services
                   </SectionHeading>
@@ -374,13 +415,29 @@ export function GigEdit() {
                       </CardLink>
                     ))}
                   </div>
-                </section>
+                </>
+              )}
+            </section>
 
-                {/* ── Payments received for this gig ── */}
-                <section className="pt-2" data-testid="gig-payments">
+            {/* ── Payments received for this gig ── */}
+            <section className="pt-2" data-testid="gig-payments">
+              {isNew ? (
+                <>
+                  <SectionHeading>Payments</SectionHeading>
+                  <p className="text-xs text-slate-500">
+                    Money as it actually lands — a deposit now, the balance
+                    weeks later, each with its own date and a photo of the
+                    proof. Paid ($) above is the running total; this is where
+                    the parts of it live. Save the gig and you can add them
+                    here.
+                  </p>
+                </>
+              ) : (
+                <>
                   <SectionHeading
                     actionLabel="+ Add payment"
                     actionTo={`/payments/new?gigId=${id}`}
+                    actionTestId="gig-add-payment"
                   >
                     Payments
                   </SectionHeading>
@@ -407,19 +464,22 @@ export function GigEdit() {
                       </CardLink>
                     ))}
                   </div>
-                </section>
+                </>
+              )}
+            </section>
 
-                <Button
-                  variant="danger"
-                  block
-                  disabled={remove.isPending}
-                  onClick={() => {
-                    if (window.confirm("Delete this gig?")) remove.mutate();
-                  }}
-                >
-                  Delete gig
-                </Button>
-              </>
+            {!isNew && (
+              <Button
+                data-testid="gig-delete"
+                variant="danger"
+                block
+                disabled={remove.isPending}
+                onClick={() => {
+                  if (window.confirm("Delete this gig?")) remove.mutate();
+                }}
+              >
+                Delete gig
+              </Button>
             )}
           </>
         )}

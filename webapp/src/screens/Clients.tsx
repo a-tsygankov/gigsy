@@ -31,18 +31,25 @@ export function Clients() {
             to="/clients/new"
           />
         )}
-        {clients.data?.map((client) => (
-          <CardLink key={client.id} to={`/clients/${client.id}`}>
-            <p className="text-sm font-semibold text-slate-900">{client.name}</p>
-            {client.contactInfo !== null && (
-              <p className="mt-0.5 truncate text-xs text-slate-500">
-                {client.contactInfo}
-              </p>
-            )}
-          </CardLink>
-        ))}
+        {/* Rendered only when there is at least one row, so the test id
+            is a truthful "this list has clients in it" signal — an empty
+            wrapper would still resolve while showing nothing. */}
+        {(clients.data?.length ?? 0) > 0 && (
+          <div className="space-y-3" data-testid="client-list">
+            {clients.data?.map((client) => (
+              <CardLink key={client.id} to={`/clients/${client.id}`}>
+                <p className="text-sm font-semibold text-slate-900">{client.name}</p>
+                {client.contactInfo !== null && (
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {client.contactInfo}
+                  </p>
+                )}
+              </CardLink>
+            ))}
+          </div>
+        )}
       </main>
-      <Fab to="/clients/new" label="Add client" />
+      <Fab to="/clients/new" label="Add client" testId="client-add" />
     </>
   );
 }

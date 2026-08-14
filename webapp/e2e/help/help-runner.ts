@@ -225,15 +225,38 @@ async function findHoldingBranch(
 /**
  * Resolves a branch step against the live page.
  *
- * Ports TourRenderer.ts's `settleBranch` discipline: a candidate whose
- * condition merely holds on one check is not trusted until the SAME
- * candidate's own condition still holds after a short, bounded pause —
- * never "does some branch hold", which would happily accept a
- * different one flickering into view instead. `expect.poll` supplies
- * the outer wait/retry (a real Playwright synchronisation primitive,
- * not a hand-rolled `waitForTimeout` loop); the one bounded
- * `page.waitForTimeout` inside it is purely the debounce, not used to
- * wait for anything to appear.
+ * Ports TourRenderer.ts's `settleBranch` discipline, and has to port it
+ * with one extra guarantee that file gets for free.
+ *
+ * `settleBranch` scans with a synchronous `branches.find(conditionHolds)`
+ * — every condition read from the DOM within a single tick, so the scan
+ * is atomic and "the winner of an ordered scan" is a coherent statement
+ * about one instant. `findHoldingBranch` here cannot be: each
+ * `Locator.isVisible()` is its own round trip to the browser, and the
+ * page renders between them. Two conditions in the same ordered scan can
+ * therefore be answered about two different DOMs.
+ *
+ * That is not hypothetical. `find-a-gig` reads `gig-list` (branch 1) and
+ * `gig-filters` (branch 2); Gigs.tsx mounts both in one render, but a
+ * scan that samples `gig-list` a millisecond before that render and
+ * `gig-filters` a millisecond after sees exactly the combination the
+ * screen never actually shows — no list, filters present — and picks
+ * "your filters are hiding everything" for a list of several hundred
+ * visible gigs. Observed: a scan straddling the ~50ms hydration render.
+ *
+ * So the debounce re-runs the WHOLE ordered scan and requires the same
+ * branch to still win, rather than only re-checking the candidate's own
+ * condition. Re-checking one condition cannot see this: `gig-filters` is
+ * still visible 750ms later, so the wrong winner confirms itself
+ * happily. Requiring the same winner is strictly stronger and is what
+ * the original comment already meant by refusing "does some branch
+ * hold" — the intent was there, the single-condition recheck just
+ * couldn't express it once the scan stopped being atomic.
+ *
+ * `expect.poll` supplies the outer wait/retry (a real Playwright
+ * synchronisation primitive, not a hand-rolled `waitForTimeout` loop);
+ * the one bounded `page.waitForTimeout` inside it is purely the
+ * debounce, not used to wait for anything to appear.
  *
  * No branch holding — even after the full timeout — is a hard failure:
  * a scenario whose branches have all stopped matching is exactly the
@@ -272,7 +295,13 @@ async function resolveBranch(
           // not what makes this loop eventually succeed or time out;
           // expect.poll owns that.
           await page.waitForTimeout(BRANCH_STABLE_MS);
-          if (!(await conditionHolds(page, candidate.when, deadline))) return false;
+
+          // A full ordered rescan, not `conditionHolds(candidate.when)`:
+          // the scan is not atomic here, so the question that matters is
+          // "does this branch still WIN", not "does its own condition
+          // still hold". See the doc above.
+          const confirmed = await findHoldingBranch(page, step.branches, deadline);
+          if (confirmed === undefined || confirmed.id !== candidate.id) return false;
 
           settled = candidate;
           return true;

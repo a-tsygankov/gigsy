@@ -32,26 +32,33 @@ export function Expenses() {
             to="/expenses/new"
           />
         )}
-        {expenses.data?.map((expense) => (
-          <CardLink key={expense.id} to={`/expenses/${expense.id}`}>
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-slate-900">
-                  {expense.category ?? "Uncategorized"}
-                </p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {new Date(expense.createdAt).toLocaleDateString()}
-                  {expense.reimbursable && " · billable to client"}
-                </p>
-              </div>
-              <span className="shrink-0 text-sm font-semibold text-slate-800">
-                {formatMoney(expense.amountCents)}
-              </span>
-            </div>
-          </CardLink>
-        ))}
+        {/* See Clients.tsx: the wrapper only exists when the list does,
+            so `expense-list` means "there are expenses", not "the screen
+            rendered". */}
+        {(expenses.data?.length ?? 0) > 0 && (
+          <div className="space-y-3" data-testid="expense-list">
+            {expenses.data?.map((expense) => (
+              <CardLink key={expense.id} to={`/expenses/${expense.id}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {expense.category ?? "Uncategorized"}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {new Date(expense.createdAt).toLocaleDateString()}
+                      {expense.reimbursable && " · billable to client"}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold text-slate-800">
+                    {formatMoney(expense.amountCents)}
+                  </span>
+                </div>
+              </CardLink>
+            ))}
+          </div>
+        )}
       </main>
-      <Fab to="/expenses/new" label="Add expense" />
+      <Fab to="/expenses/new" label="Add expense" testId="expense-add" />
     </>
   );
 }

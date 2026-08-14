@@ -125,6 +125,7 @@ export function PaymentEdit() {
           <>
             <Field label="Amount ($)" error={error}>
               <Input
+                data-testid="payment-amount"
                 inputMode="decimal"
                 placeholder="150.00"
                 value={amount}
@@ -133,7 +134,11 @@ export function PaymentEdit() {
             </Field>
 
             <Field label="Related gig">
-              <Select value={gigId} onChange={(e) => setGigId(e.target.value)}>
+              <Select
+                data-testid="payment-gig"
+                value={gigId}
+                onChange={(e) => setGigId(e.target.value)}
+              >
                 <option value="">Not linked</option>
                 {gigs.data?.map((g) => (
                   <option key={g.id} value={g.id}>
@@ -148,6 +153,7 @@ export function PaymentEdit() {
 
             <Field label="Received on">
               <Input
+                data-testid="payment-paid-at"
                 type="datetime-local"
                 value={paidAt}
                 onChange={(e) => setPaidAt(e.target.value)}
@@ -156,6 +162,7 @@ export function PaymentEdit() {
 
             <Field label="Notes">
               <Textarea
+                data-testid="payment-notes"
                 className="min-h-20"
                 placeholder="Zelle, cash, check #…"
                 value={notes}
@@ -182,6 +189,7 @@ export function PaymentEdit() {
                   <input
                     ref={fileInput}
                     type="file"
+                    data-testid="payment-confirmation-file"
                     accept="image/*,.eml,.pdf"
                     className="block w-full text-xs text-slate-500 file:mr-3 file:rounded-xl
                                file:border-0 file:bg-emerald-600 file:px-3 file:py-2
@@ -212,10 +220,19 @@ export function PaymentEdit() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <Button className="flex-1" disabled={save.isPending} onClick={submit}>
+              <Button
+                data-testid="payment-save"
+                className="flex-1"
+                disabled={save.isPending}
+                onClick={submit}
+              >
                 {save.isPending ? "Saving…" : "Save payment"}
               </Button>
-              <Button variant="ghost" onClick={() => navigate(backTo)}>
+              <Button
+                data-testid="payment-cancel"
+                variant="ghost"
+                onClick={() => navigate(backTo)}
+              >
                 {isNew ? "Cancel" : "Back"}
               </Button>
             </div>
@@ -224,12 +241,14 @@ export function PaymentEdit() {
                 {gigId !== "" && (
                   <Link
                     to={`/gigs/${gigId}`}
+                    data-testid="payment-open-gig"
                     className="block py-2 text-center text-xs font-medium text-emerald-700 hover:underline"
                   >
                     Open related gig →
                   </Link>
                 )}
                 <Button
+                  data-testid="payment-delete"
                   variant="danger"
                   block
                   disabled={remove.isPending}
