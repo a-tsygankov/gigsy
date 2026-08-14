@@ -15,7 +15,7 @@ export function AppHeader({ title }: { title: string }) {
   const { user } = useAuthState();
   const sync = useSyncState();
   const tap = useConsoleTap();
-  const { openHelp } = useHelp();
+  const { isOpen: helpOpen, openHelp, closeHelp } = useHelp();
   // No point linking to the screen you're already on.
   const onSettings = useLocation().pathname === "/settings";
 
@@ -52,18 +52,37 @@ export function AppHeader({ title }: { title: string }) {
               itself — it opens the same sheet from every screen,
               including /settings, whose own Help section is a second
               door to this same menu by design. */}
+          {/* Toggles rather than only opening: the natural way to dismiss
+              a sheet you opened from a button is to press that button
+              again, and a user who does not find the Close button will
+              try it. `aria-expanded` is what tells a screen reader the
+              same thing the second press does. */}
           <button
             type="button"
-            onClick={openHelp}
+            onClick={helpOpen ? closeHelp : openHelp}
             aria-label="Help"
+            aria-expanded={helpOpen}
             title="Help"
             data-testid="help-link"
-            className="inline-flex h-11 min-w-11 items-center justify-center rounded-xl px-2
-                       text-xs font-medium text-slate-500 transition-colors
-                       hover:bg-slate-200 hover:text-slate-700 focus:outline-none
+            className="group inline-flex h-11 min-w-11 items-center justify-center rounded-xl
+                       transition-colors hover:bg-slate-200 focus:outline-none
                        focus-visible:ring-2 focus-visible:ring-emerald-500"
           >
-            ?
+            {/* A ring around the glyph, not a bare "?" — punctuation
+                floating in a header reads as a typo, a circled one reads
+                as help. Still pure type: the design system has no icon
+                set and Unicode plus a border is how it draws marks.
+                The open state is not painted here; the sheet itself is
+                the indication, and aria-expanded carries it for anyone
+                who cannot see the sheet. */}
+            <span
+              aria-hidden="true"
+              className="flex h-6 w-6 items-center justify-center rounded-full border
+                         border-slate-400 text-sm font-semibold leading-none text-slate-500
+                         transition-colors group-hover:border-slate-600 group-hover:text-slate-700"
+            >
+              ?
+            </span>
           </button>
           {/* Settings is a rare destination, so it gets a header link
               rather than a sixth tab — five is already the practical

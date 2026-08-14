@@ -124,3 +124,39 @@ test("help is reachable from the header on a screen that is not Settings", async
   await expect(popover).toBeVisible();
   await expect(popover).toContainText(openSettings.title);
 });
+
+test("the header button closes the sheet it opened, and so does Close", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  // Pressing the button you opened something with is how people expect
+  // to dismiss it, and anyone who misses the Close button will try it.
+  // aria-expanded has to agree, since that is what says the same thing
+  // to a screen reader.
+  await prepareHelpScenario(page, request, baseURL!, {
+    ...openSettings,
+    startRoute: "/gigs",
+  });
+
+  const helpLink = page.getByTestId("help-link");
+  const sheet = page.getByTestId("help-sheet");
+
+  await expect(helpLink).toHaveAttribute("aria-expanded", "false");
+
+  await helpLink.click();
+  await expect(sheet).toBeVisible();
+  await expect(helpLink).toHaveAttribute("aria-expanded", "true");
+
+  // Second press on the same button closes it.
+  await helpLink.click();
+  await expect(sheet).toBeHidden();
+  await expect(helpLink).toHaveAttribute("aria-expanded", "false");
+
+  // And the Close button still works, reopening first.
+  await helpLink.click();
+  await expect(sheet).toBeVisible();
+  await sheet.getByTestId("help-sheet-close").click();
+  await expect(sheet).toBeHidden();
+  await expect(helpLink).toHaveAttribute("aria-expanded", "false");
+});
