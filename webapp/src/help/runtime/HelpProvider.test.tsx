@@ -84,6 +84,7 @@ describe("HelpProvider", () => {
     });
 
     expect(latest!.unavailable).toBe("That help topic no longer exists.");
+    expect(latest!.isOpen).toBe(true);
     expect(runTour).not.toHaveBeenCalled();
   });
 
@@ -95,6 +96,36 @@ describe("HelpProvider", () => {
       await latest!.startScenario("open-settings");
     });
 
+    expect(latest!.unavailable).toBe("This help step is currently unavailable.");
+    // Spec §10: the message needs somewhere to be shown, with a way
+    // back to the menu — see the next test for why this assertion is
+    // the whole point, not a bonus check.
+    expect(latest!.isOpen).toBe(true);
+  });
+
+  it("reopens the menu so a failed scenario's message is actually visible", async () => {
+    // The bug this guards: `startScenario` closes the menu (setIsOpen
+    // false) before it can possibly fail, and nothing used to reopen
+    // it — so `unavailable` could end up set while `isOpen` stayed
+    // false, which is exactly the state a menu gated on `isOpen` would
+    // never render. A menu that was already open makes that failure
+    // mode visible: if the fix ever regresses, this is the test that
+    // would watch the menu silently close on a failure instead of
+    // staying open around the message.
+    mount("/");
+    vi.mocked(runTour).mockRejectedValueOnce(new Error("chunk 404"));
+
+    act(() => {
+      latest!.openHelp();
+    });
+    expect(latest!.isOpen).toBe(true);
+    expect(latest!.unavailable).toBeNull();
+
+    await act(async () => {
+      await latest!.startScenario("open-settings");
+    });
+
+    expect(latest!.isOpen).toBe(true);
     expect(latest!.unavailable).toBe("This help step is currently unavailable.");
   });
 

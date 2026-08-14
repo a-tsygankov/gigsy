@@ -115,13 +115,30 @@ export function HelpProvider({ children }: { children: ReactNode }) {
     setIsOpen(false);
   }, [cancelTour]);
 
+  /** Surfaces a failure and makes sure something is open to show it.
+   *
+   *  `unavailable` alone was not enough: `startScenario` closes the menu
+   *  before it can possibly fail, and nothing else reopened it — a
+   *  reviewer caught that `unavailable` could end up non-null while
+   *  `isOpen` stayed false, which is exactly the state a menu gated on
+   *  `isOpen` would never render (spec §10 requires the message plus a
+   *  way back to the menu). Reopening here, rather than teaching every
+   *  future consumer of `unavailable` to also force `isOpen`, keeps the
+   *  invariant — "a message implies something is open to show it" — in
+   *  the one place that can break it, and puts the message back in
+   *  context with the topic list still there. */
+  const reportUnavailable = useCallback((message: string) => {
+    setUnavailable(message);
+    setIsOpen(true);
+  }, []);
+
   const startScenario = useCallback(
     async (id: HelpScenarioId): Promise<void> => {
       cancelTour();
 
       const scenario = getHelpScenario(id);
       if (scenario === undefined) {
-        setUnavailable("That help topic no longer exists.");
+        reportUnavailable("That help topic no longer exists.");
         return;
       }
 
@@ -144,7 +161,7 @@ export function HelpProvider({ children }: { children: ReactNode }) {
         if (controller.signal.aborted) return;
         if (!settled) {
           appLog.warn("help: startRoute never settled", { id });
-          setUnavailable(UNAVAILABLE_MESSAGE);
+          reportUnavailable(UNAVAILABLE_MESSAGE);
           return;
         }
       }
@@ -166,7 +183,7 @@ export function HelpProvider({ children }: { children: ReactNode }) {
             // screen they already left is a message about nothing.
             if (controller.signal.aborted) return;
             appLog.warn("help: scenario ended early", { id, reason });
-            setUnavailable(UNAVAILABLE_MESSAGE);
+            reportUnavailable(UNAVAILABLE_MESSAGE);
           },
         });
 
@@ -183,11 +200,11 @@ export function HelpProvider({ children }: { children: ReactNode }) {
         // otherwise become silence instead of the required message.
         if (!controller.signal.aborted) {
           appLog.warn("help: failed to start tour", { id, error: String(error) });
-          setUnavailable(UNAVAILABLE_MESSAGE);
+          reportUnavailable(UNAVAILABLE_MESSAGE);
         }
       }
     },
-    [location.pathname, navigate, cancelTour],
+    [location.pathname, navigate, cancelTour, reportUnavailable],
   );
 
   // A tour outlives navigation only by accident — once one is running,
