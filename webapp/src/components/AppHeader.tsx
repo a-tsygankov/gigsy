@@ -5,7 +5,12 @@
  * hidden-console trigger (three quick taps).
  */
 import { Link, useLocation } from "react-router-dom";
-import { useAuthState, useServices, useSyncState } from "../lib/app-context.tsx";
+import {
+  useAuthState,
+  useServices,
+  useSyncEngine,
+  useSyncState,
+} from "../lib/app-context.tsx";
 import { useHelp } from "../help/runtime/HelpProvider.tsx";
 import { useConsoleTap } from "./ConsoleProvider.tsx";
 import { SyncBadge } from "./SyncBadge.tsx";
@@ -14,6 +19,7 @@ export function AppHeader({ title }: { title: string }) {
   const { auth } = useServices();
   const { user } = useAuthState();
   const sync = useSyncState();
+  const engine = useSyncEngine();
   const tap = useConsoleTap();
   const { isOpen: helpOpen, openHelp, closeHelp } = useHelp();
   // No point linking to the screen you're already on.
@@ -38,7 +44,12 @@ export function AppHeader({ title }: { title: string }) {
           </span>
           <h1 className="text-sm font-medium text-slate-500">{title}</h1>
           {sync !== null && (
-            <SyncBadge online={sync.online} pendingCount={sync.pendingCount} />
+            <SyncBadge
+              online={sync.online}
+              pendingCount={sync.pendingCount}
+              stalled={sync.stalled}
+              onRetry={() => void engine?.retryNow()}
+            />
           )}
         </div>
         {/* Both controls are h-11 — 44px, the design system's tap

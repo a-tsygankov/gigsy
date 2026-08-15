@@ -2,8 +2,12 @@ import "fake-indexeddb/auto";
 import { describe, it, expect, vi } from "vitest";
 import { openUserDb } from "./db.ts";
 import { LocalStore } from "./local-store.ts";
-import { SyncEngine, type SyncApi } from "./sync-engine.ts";
-import type { SyncOp } from "./api.ts";
+import {
+  SyncEngine,
+  type SyncApi,
+  type SyncEngineOptions,
+} from "./sync-engine.ts";
+import { ApiError, type SyncOp } from "./api.ts";
 import type { Gig } from "./types.ts";
 
 let seq = 0;
@@ -52,18 +56,33 @@ function stubApi(overrides: Partial<SyncApi> = {}): SyncApi {
   };
 }
 
-function makeEngine(api: SyncApi, clockValue = () => 1000) {
+function makeEngine(
+  api: SyncApi,
+  clockValue = () => 1000,
+  options: SyncEngineOptions = {},
+) {
   const store = new LocalStore(openUserDb(`sync-${++seq}`), clockValue);
+  // Every delay the engine asked for, in order — the only way to assert
+  // on backoff without letting real time into a unit test.
+  const delays: number[] = [];
   const engine = new SyncEngine(store, api, {
     // Immediate scheduler — no timers in unit tests.
-    schedule: (fn) => {
+    schedule: (fn, ms) => {
+      delays.push(ms);
       void fn();
       return () => undefined;
     },
     isOnline: () => true,
+    events: null,
+    ...options,
   });
-  return { store, engine, api };
+  return { store, engine, api, delays };
 }
+
+const rejects = (status = 401) =>
+  vi.fn(async () => {
+    throw new ApiError(status, "session expired");
+  });
 
 describe("SyncEngine.drain", () => {
   it("sends pending ops oldest-first and clears applied ones", async () => {
@@ -254,6 +273,137 @@ describe("SyncEngine restart persistence", () => {
   });
 });
 
+/**
+ * The failure path.
+ *
+ * start() used to perform exactly one sync, and a pull that failed
+ * logged "will retry" and then did nothing at all — the next attempt
+ * could only come from a local edit or an `online` event. A user whose
+ * FIRST pull failed (token expired mid-flight, flaky connection at app
+ * start, cold worker) was left looking at an empty app with no way back
+ * that they could reasonably be expected to find.
+ */
+describe("SyncEngine retry", () => {
+  it("retries a failed first pull until it lands", async () => {
+    let attempt = 0;
+    const api = stubApi({
+      listGigs: vi.fn(async () => {
+        attempt += 1;
+        if (attempt === 1) throw new ApiError(401, "session expired");
+        return [serverGig()];
+      }),
+    });
+    const { store, engine } = makeEngine(api, () => 1000, { retryBaseMs: 1 });
+
+    engine.start();
+
+    await vi.waitFor(async () => {
+      expect((await store.getGig(G1))?.location).toBe("server copy");
+    });
+    expect(api.listGigs).toHaveBeenCalledTimes(2);
+    expect(engine.getState()).toMatchObject({ failedAttempts: 0, stalled: false });
+    engine.stop();
+  });
+
+  it("retries a failed drain too, leaving the ops queued meanwhile", async () => {
+    let attempt = 0;
+    const api = stubApi({
+      sync: vi.fn(async (ops: SyncOp[]) => {
+        attempt += 1;
+        if (attempt === 1) throw new TypeError("Failed to fetch");
+        return { results: ops.map((o) => ({ id: o.id, status: "applied" as const })) };
+      }),
+    });
+    const { store, engine } = makeEngine(api, () => 1000, { retryBaseMs: 1 });
+    await store.putGig(G1, { status: "lead" });
+
+    engine.start();
+
+    await vi.waitFor(async () => {
+      expect(await store.pendingCount()).toBe(0);
+    });
+    expect(api.sync).toHaveBeenCalledTimes(2);
+    engine.stop();
+  });
+
+  it("backs off exponentially and gives up after a bounded count", async () => {
+    const api = stubApi({ listGigs: rejects() });
+    const { engine, delays } = makeEngine(api, () => 1000, {
+      retryBaseMs: 10,
+      maxRetries: 3,
+    });
+
+    engine.start();
+
+    await vi.waitFor(() => {
+      expect(engine.getState().stalled).toBe(true);
+    });
+    // One initial attempt plus exactly maxRetries retries — a failing
+    // server must not be hammered forever.
+    expect(api.listGigs).toHaveBeenCalledTimes(4);
+    expect(delays).toEqual([10, 20, 40]);
+    expect(engine.getState().failedAttempts).toBe(4);
+    engine.stop();
+  });
+
+  it("does not burn retries while the browser reports itself offline", async () => {
+    const api = stubApi({ listGigs: rejects() });
+    const { engine, delays } = makeEngine(api, () => 1000, {
+      isOnline: () => false,
+      retryBaseMs: 10,
+    });
+
+    // start() skips the sync while offline, so drive one directly —
+    // this is the "went offline mid-sync" case.
+    await engine.syncNow();
+
+    // The offline badge already explains this, and `online` fires a
+    // fresh sync; spending the budget here would exhaust it before the
+    // connection is even back.
+    expect(delays).toEqual([]);
+    expect(engine.getState().stalled).toBe(false);
+  });
+
+  it("retryNow restarts the ladder after the engine has given up", async () => {
+    const api = stubApi({ listGigs: rejects() });
+    const { engine, delays } = makeEngine(api, () => 1000, {
+      retryBaseMs: 10,
+      maxRetries: 1,
+    });
+
+    engine.start();
+    await vi.waitFor(() => {
+      expect(engine.getState().stalled).toBe(true);
+    });
+    expect(delays).toEqual([10]);
+
+    await engine.retryNow();
+
+    // Back to the first rung, not stuck at the exhausted one.
+    expect(delays).toEqual([10, 10]);
+    engine.stop();
+  });
+
+  it("only one sync runs at a time", async () => {
+    let inFlight = 0;
+    let overlapped = false;
+    const api = stubApi({
+      listGigs: vi.fn(async () => {
+        inFlight += 1;
+        if (inFlight > 1) overlapped = true;
+        await Promise.resolve();
+        inFlight -= 1;
+        return [];
+      }),
+    });
+    const { engine } = makeEngine(api);
+
+    await Promise.all([engine.syncNow(), engine.syncNow(), engine.syncNow()]);
+
+    expect(overlapped).toBe(false);
+  });
+});
+
 describe("SyncEngine state + triggers", () => {
   it("notifyLocalChange schedules a drain and updates pendingCount", async () => {
     const api = stubApi();
@@ -265,6 +415,25 @@ describe("SyncEngine state + triggers", () => {
       expect(await store.pendingCount()).toBe(0);
     });
     expect(engine.getState().pendingCount).toBe(0);
+  });
+
+  it("resets the failure state once a sync gets through", async () => {
+    const api = stubApi({ listGigs: rejects() });
+    const { engine } = makeEngine(api, () => 1000, {
+      retryBaseMs: 1,
+      maxRetries: 2,
+    });
+
+    engine.start();
+    await vi.waitFor(() => {
+      expect(engine.getState().stalled).toBe(true);
+    });
+
+    (api.listGigs as ReturnType<typeof vi.fn>).mockResolvedValue([serverGig()]);
+    await engine.retryNow();
+
+    expect(engine.getState()).toMatchObject({ stalled: false, failedAttempts: 0 });
+    engine.stop();
   });
 
   it("exposes online state and notifies subscribers", async () => {
