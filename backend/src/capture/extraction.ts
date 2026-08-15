@@ -21,13 +21,26 @@ export const ExtractedData = z.object({
 });
 export type ExtractedDataT = z.infer<typeof ExtractedData>;
 
+/** One image handed to a model alongside the text. */
+export interface ExtractionMedia {
+  mimeType: string;
+  dataBase64: string;
+}
+
+/**
+ * What a provider is asked to read.
+ *
+ * Text and media travel together rather than as an either/or: a
+ * forwarded booking email is a body AND, often, the flyer attached to
+ * it, and reading only one of them is how a draft ends up confidently
+ * wrong. There is no `kind` discriminator because it would be derivable
+ * from `media` and therefore able to disagree with it.
+ */
 export interface ExtractionInput {
-  kind: "image" | "text";
-  /** image inputs */
-  mimeType?: string;
-  dataBase64?: string;
-  /** text inputs (forwarded emails) */
+  /** Body text — subject + body for email, absent for a bare photo. */
   text?: string;
+  /** Photo capture sends exactly one; email capture sends zero or more. */
+  media?: ExtractionMedia[];
 }
 
 export interface ExtractionProvider {

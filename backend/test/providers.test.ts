@@ -14,9 +14,15 @@ import type {
 } from "../src/capture/extraction.ts";
 
 const IMAGE_INPUT = {
-  kind: "image" as const,
-  mimeType: "image/png",
-  dataBase64: "aGVsbG8=",
+  media: [{ mimeType: "image/png", dataBase64: "aGVsbG8=" }],
+};
+
+const TEXT_AND_MEDIA_INPUT = {
+  text: "Tasting stand Saturday, $150",
+  media: [
+    { mimeType: "image/png", dataBase64: "aGVsbG8=" },
+    { mimeType: "image/jpeg", dataBase64: "d29ybGQ=" },
+  ],
 };
 
 const EXTRACTION = {
@@ -118,6 +124,76 @@ describe("AnthropicProvider", () => {
     const body = JSON.parse(seenBody) as { model: string };
     expect(body.model).toBe("claude-haiku-4-5-20251001");
     expect(result?.kind).toBe("gig");
+  });
+});
+
+describe("providers with text and media together", () => {
+  it("Gemini sends the prompt, every image, and the text", async () => {
+    let seenBody = "";
+    const fetchFn = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      seenBody = String(init?.body);
+      return jsonResponse({
+        candidates: [
+          { content: { parts: [{ text: JSON.stringify(EXTRACTION) }] } },
+        ],
+      });
+    }) as typeof fetch;
+
+    await new GeminiProvider("gemini-2.5-flash", "k", fetchFn).extract(
+      TEXT_AND_MEDIA_INPUT,
+    );
+
+    const parts = (
+      JSON.parse(seenBody) as { contents: { parts: Record<string, unknown>[] }[] }
+    ).contents[0]!.parts;
+    expect(parts.filter((p) => "inline_data" in p)).toHaveLength(2);
+    const texts = parts.filter((p) => "text" in p).map((p) => p["text"] as string);
+    expect(texts.some((t) => t.includes("Tasting stand Saturday"))).toBe(true);
+  });
+
+  it("Anthropic sends every image plus one text block", async () => {
+    let seenBody = "";
+    const fetchFn = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      seenBody = String(init?.body);
+      return jsonResponse({
+        content: [{ type: "text", text: JSON.stringify(EXTRACTION) }],
+      });
+    }) as typeof fetch;
+
+    await new AnthropicProvider("claude-x", "k", fetchFn).extract(
+      TEXT_AND_MEDIA_INPUT,
+    );
+
+    const content = (
+      JSON.parse(seenBody) as {
+        messages: { content: { type: string; text?: string }[] }[];
+      }
+    ).messages[0]!.content;
+    expect(content.filter((b) => b.type === "image")).toHaveLength(2);
+    expect(content.find((b) => b.type === "text")?.text ?? "").toContain(
+      "Tasting stand Saturday",
+    );
+  });
+
+  it("a text-only input sends no image blocks", async () => {
+    let seenBody = "";
+    const fetchFn = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      seenBody = String(init?.body);
+      return jsonResponse({
+        candidates: [
+          { content: { parts: [{ text: JSON.stringify(EXTRACTION) }] } },
+        ],
+      });
+    }) as typeof fetch;
+
+    await new GeminiProvider("gemini-2.5-flash", "k", fetchFn).extract({
+      text: "just words",
+    });
+
+    const parts = (
+      JSON.parse(seenBody) as { contents: { parts: Record<string, unknown>[] }[] }
+    ).contents[0]!.parts;
+    expect(parts.filter((p) => "inline_data" in p)).toHaveLength(0);
   });
 });
 

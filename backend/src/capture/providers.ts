@@ -27,12 +27,13 @@ export class GeminiProvider implements ExtractionProvider {
 
   async extract(input: ExtractionInput): Promise<ExtractedDataT | null> {
     const parts: Record<string, unknown>[] = [{ text: EXTRACTION_PROMPT }];
-    if (input.kind === "image") {
+    for (const item of input.media ?? []) {
       parts.push({
-        inline_data: { mime_type: input.mimeType, data: input.dataBase64 },
+        inline_data: { mime_type: item.mimeType, data: item.dataBase64 },
       });
-    } else {
-      parts.push({ text: input.text ?? "" });
+    }
+    if (input.text !== undefined && input.text !== "") {
+      parts.push({ text: input.text });
     }
     try {
       const res = await this.fetchFn(
@@ -66,20 +67,25 @@ export class AnthropicProvider implements ExtractionProvider {
   ) {}
 
   async extract(input: ExtractionInput): Promise<ExtractedDataT | null> {
-    const content: Record<string, unknown>[] =
-      input.kind === "image"
-        ? [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: input.mimeType,
-                data: input.dataBase64,
-              },
-            },
-            { type: "text", text: EXTRACTION_PROMPT },
-          ]
-        : [{ type: "text", text: `${EXTRACTION_PROMPT}\n\n${input.text ?? ""}` }];
+    // Images first, then one text block — the order this provider was
+    // already using for photo capture.
+    const content: Record<string, unknown>[] = (input.media ?? []).map(
+      (item) => ({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: item.mimeType,
+          data: item.dataBase64,
+        },
+      }),
+    );
+    content.push({
+      type: "text",
+      text:
+        input.text !== undefined && input.text !== ""
+          ? `${EXTRACTION_PROMPT}\n\n${input.text}`
+          : EXTRACTION_PROMPT,
+    });
     try {
       const res = await this.fetchFn("https://api.anthropic.com/v1/messages", {
         method: "POST",

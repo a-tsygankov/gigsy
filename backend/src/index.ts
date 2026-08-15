@@ -140,7 +140,7 @@ export default {
       rawBytes,
       rawContentType: "message/rfc822",
       provider,
-      input: { kind: "text", text },
+      input: { text },
       // Never silently drop a user's mail: a failed extraction still
       // yields a reviewable draft pointing at the original.
       fallbackExtracted: {

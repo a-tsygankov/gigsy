@@ -50,7 +50,7 @@ export function makeCaptureRouter(
         rawBytes: bytes,
         rawContentType: mimeType,
         provider: providerFactory(c.env),
-        input: { kind: "image", mimeType, dataBase64: toBase64(bytes) },
+        input: { media: [{ mimeType, dataBase64: toBase64(bytes) }] },
       });
       if (result === "extraction-failed") {
         return c.json({ error: "extraction failed — try again" }, 502);
