@@ -19,7 +19,12 @@ export const setUpEmailCapture: HelpScenario = {
   id: "set-up-email-capture",
   title: "Forward a booking email",
   description: "Forward it and it becomes a draft to review, nothing more.",
-  category: "settings",
+  // "capture", not "settings", even though the address lives on the
+  // Settings screen: this and `capture-receipt` are one feature reached
+  // two ways, and a menu that files them apart makes someone read both
+  // sections to find out which one they wanted. `startRoute` is where
+  // the controls are; `category` is what the topic is about.
+  category: "capture",
   startRoute: "/settings",
   expectedCiBranches: ["capture-unconfigured"],
   steps: [

@@ -6,9 +6,23 @@ import type { HelpTarget } from "./targets.ts";
 
 export type HelpScenarioId = string;
 
+/** Sections in the help menu. Ordered by CATEGORY_LABELS' key order in
+ *  HelpMenu.tsx, not by this union — but the two are kept in the same
+ *  order so reading either one tells you how the menu reads.
+ *
+ *  "money" and "capture" are groupings of workflow, not of screen.
+ *  Clients and expenses are both "the paperwork around a gig" and sit
+ *  together; photo capture and email capture are the same feature
+ *  reached two ways and belong in one place, which is why
+ *  `set-up-email-capture` moved out of "settings" when the photo route
+ *  was written. "settings" keeps what is genuinely configuration —
+ *  including the calendar connection, whose button happens to live on
+ *  the dashboard. */
 export type HelpCategory =
   | "getting-started"
   | "gigs"
+  | "money"
+  | "capture"
   | "settings"
   | "installation";
 

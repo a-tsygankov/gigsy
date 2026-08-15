@@ -47,8 +47,13 @@ export function Capture() {
             if (file !== undefined) capture.mutate(file);
           }}
         />
+        {/* The visible control. `capture-input` above is the real file
+            input and is `hidden`, so it is neither highlightable nor
+            something a help scenario may drive — this is what a person
+            actually taps, and what a tour spotlights. */}
         <Button
           block
+          data-testid="capture-start"
           disabled={offline || capture.isPending}
           onClick={() => fileInput.current?.click()}
         >
