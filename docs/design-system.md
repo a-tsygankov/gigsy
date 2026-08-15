@@ -140,6 +140,12 @@ plan and held to everywhere.
   the active tab, paid amounts. Status hues are the only other saturated colours:
   slate/sky/amber/emerald. Red exists only for destructive and error text (`red-600`),
   never as a filled button.
+
+  Those step names are **not fixed hex values**. Every palette utility resolves through a
+  CSS custom property — `tailwind.config.ts` maps `slate-500` to
+  `rgb(var(--c-slate-500) / <alpha-value>)` — and `tokens/colors.css` redefines the whole
+  ramp under `:root[data-theme="dark"]`. So `text-slate-500` is "muted text", not
+  "#64748b", and it stays muted in both themes. See **Themes** below.
 - **Type.** System stack only — no webfont, a deliberate PWA start-up decision. Scale is
   10/12/14/16/18/24/30px. 14px semibold is the row title; 12px is metadata; **16px is the
   fixed input size** (smaller makes iOS Safari zoom on focus). 24–30px headline numbers get
@@ -185,6 +191,40 @@ plan and held to everywhere.
   `slate-300` for input borders and dashed empty states. Semantic banners use the 200-step
   of their own hue (`sky-200`, `red-200`, `emerald-200`).
 
+## Themes
+
+The app ships light and dark, plus a "system" choice that follows the OS. It is the one
+setting that stays device-local rather than syncing — a theme belongs to the surroundings,
+not the person.
+
+**How it resolves.** `lib/theme.ts` owns the choice (`system | light | dark`, stored at
+`gigsy:theme`); `system` is resolved against `prefers-color-scheme`. CSS and the
+`theme-color` meta tag only ever see the resolved value, `light` or `dark`. An inline
+script in `index.html` stamps `data-theme` on `<html>` **before first paint**, so there is
+no flash of the wrong theme — which is why that script is inline and duplicated rather
+than imported. `Settings → Appearance` is the control.
+
+**How to write themed CSS.** Two ways, both correct:
+
+1. **Tailwind palette utilities** — `bg-white`, `text-slate-500`, `bg-amber-50`. These are
+   already theme-aware, because the config routes them through `--c-*` properties that
+   `tokens/colors.css` redefines under `[data-theme="dark"]`. This is what component code
+   uses, and it needs no `dark:` variants.
+2. **Semantic tokens** from `tokens/semantic.css`, for hand-written CSS outside Tailwind:
+   `--surface-card`, `--surface-bar`, `--surface-sunken`, `--surface-scrim`, `--bg-app`,
+   `--border-default`, `--border-strong`, `--border-dashed`, `--text-strong`, `--text-body`,
+   `--text-muted`, `--text-faint`, `--text-inverse`, `--accent`, `--accent-hover`,
+   `--accent-ring`, `--accent-soft-bg`, `--accent-soft-border`, `--accent-soft-text`,
+   `--good-text`, `--danger-text`, `--warn-bg`, `--info-bg`, and the four
+   `--status-*-bg`. Prefer these to naming a step by hand — they say what a value is *for*.
+
+**The one real trap:** a raw hex in a `.css` file is not themed. It will look correct in
+light and wrong in dark, and nothing will warn you. `darkMode` is configured as
+`["selector", '[data-theme="dark"]']`, so a `dark:` variant also works if you genuinely
+need one — but reaching for the token is almost always the better answer.
+
+Check both themes before calling any visual change done.
+
 ## Iconography
 
 **Gigsy has no icon set.** There is no icon font, no SVG sprite, no Lucide/Heroicons
@@ -222,5 +262,13 @@ design territory: ask before introducing an icon library, and if one is unavoida
   system stack. No Google Fonts fallback is needed or wanted.
 - **Icons:** none substituted — see above. Nothing was invented.
 - **Logo:** copied from the repo, not redrawn.
-- **Dark theme:** `darkMode: "class"` is configured in `tailwind.config.ts` but no dark
-  values exist anywhere in the codebase. No dark tokens are defined here.
+- **Dark theme:** shipped. `tokens/colors.css` redefines the palette under
+  `:root[data-theme="dark"]`, `index.html` stamps the attribute before first paint, and
+  `Settings → Appearance` offers system/light/dark. See **Themes** above for how to write
+  CSS that works in both.
+
+  *This bullet previously said no dark values existed anywhere in the codebase. That was
+  true when this document was written and stopped being true later; it was found during
+  Phase 13, after CSS had been written against it and had to be corrected in review. If
+  you are reading this document to decide how something works, check the code too — a
+  design system that describes an app it no longer matches is worse than no document.*
