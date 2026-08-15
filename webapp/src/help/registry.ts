@@ -2,6 +2,10 @@
  * The single discovery mechanism — the help menu, the Playwright suite
  * and any future generator all read this and nothing else.
  */
+import { addExpense } from "./scenarios/add-expense.ts";
+import { captureReceipt } from "./scenarios/capture-receipt.ts";
+import { connectCalendar } from "./scenarios/connect-calendar.ts";
+import { createClient } from "./scenarios/create-client.ts";
 import { createGig } from "./scenarios/create-gig.ts";
 import { setUpEmailCapture } from "./scenarios/email-capture.ts";
 import { findAGig } from "./scenarios/find-a-gig.ts";
@@ -18,9 +22,18 @@ export const helpScenarios: HelpScenario[] = [
   // finding: the form is what "Find a gig and open it" hands over to.
   createGig,
   findAGig,
+  // "Clients & money": the client comes first because an expense can be
+  // tied to a gig, and a gig to a client — the same order the data has.
+  createClient,
+  addExpense,
+  // "Capture": the camera first, the email address second. The photo is
+  // the route anyone can use immediately; forwarding needs a deployment
+  // that has email capture switched on.
+  captureReceipt,
+  setUpEmailCapture,
   configureNotifications,
   configureWorkingHours,
-  setUpEmailCapture,
+  connectCalendar,
   installApp,
 ];
 

@@ -16,10 +16,14 @@ import { useHelp } from "./HelpProvider.tsx";
 
 /** Key order is section order in the menu (see `groupScenarios`), so
  *  "Gigs" sits between the first-run topics and the settings ones —
- *  where the work itself is. */
+ *  where the work itself is. "Clients & money" and "Capture" follow it
+ *  for the same reason: the paperwork around a gig, then the two
+ *  shortcuts that avoid typing it, and only then configuration. */
 const CATEGORY_LABELS: Record<HelpCategory, string> = {
   "getting-started": "Getting started",
   gigs: "Gigs",
+  money: "Clients & money",
+  capture: "Capture",
   settings: "Settings",
   installation: "Installing Gigsy",
 };

@@ -102,6 +102,51 @@ export const HelpTarget = {
   PaymentNotes: element("payment-notes"),
   PaymentConfirmation: element("payment-confirmation"),
   PaymentSave: element("payment-save"),
+
+  // ── the client form (ClientEdit.tsx) ──
+  // Input, Textarea and Button — every one an `element`. `client-jobs`
+  // and `client-delete` are deliberately absent: both are `!isNew`-only,
+  // so neither exists on `/clients/new`, which is where `create-client`
+  // starts and the only place a tour can walk this form without a saved
+  // record to walk it on.
+  ClientName: element("client-name"),
+  ClientContact: element("client-contact"),
+  ClientNotes: element("client-notes"),
+  ClientSave: element("client-save"),
+
+  // ── the expense form (ExpenseEdit.tsx) ──
+  // `expense-reimbursable` is a bare 16px <input type="checkbox">, not a
+  // Toggle — nothing is sr-only and there is no painted sibling to walk
+  // to, so it is `element` like ServiceCompleted. Checked against
+  // ExpenseEdit.tsx, per this file's rule.
+  ExpenseAmount: element("expense-amount"),
+  ExpenseCategory: element("expense-category"),
+  ExpenseGig: element("expense-gig"),
+  ExpenseNotes: element("expense-notes"),
+  ExpenseReimbursable: element("expense-reimbursable"),
+  ExpenseSave: element("expense-save"),
+
+  // ── the calendar card (Dashboard.tsx's CalendarSection) ──
+  // `calendar-section` is the whole <Card>; it is absent entirely while
+  // the status query is loading or has failed, which is why
+  // `connect-calendar` highlights it first and lets that step be the one
+  // that waits.
+  //
+  // `calendar-action` is one <Button> whose label is "Connect" before
+  // the calendar is linked and "Sync now" after — the id names the slot,
+  // not either label, so it resolves in both states.
+  //
+  // `calendar-disconnect` only exists while connected, which is what
+  // makes it a usable branch condition for "is this account linked".
+  CalendarSection: element("calendar-section"),
+  CalendarAction: element("calendar-action"),
+  CalendarDisconnect: element("calendar-disconnect"),
+
+  // ── photo capture (Capture.tsx) ──
+  // NOT `capture-input`: that is the `type="file"` input, and it carries
+  // `className="hidden"`. It cannot be spotlighted, and driving it would
+  // mean a help scenario uploading a file — see scenarios/capture.ts.
+  CaptureStart: element("capture-start"),
 } as const;
 
 export type WeekdayIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6;

@@ -94,9 +94,14 @@ function CalendarSection() {
               : "Put confirmed gigs on your calendar automatically."}
           </p>
         </div>
+        {/* One button, two jobs — its label is "Connect" until the
+            calendar is linked and "Sync now" afterwards. The test id
+            names the slot rather than either label, so a help scenario
+            can point at it in both states (help/targets.ts). */}
         <Button
           variant="soft"
           className="shrink-0"
+          data-testid="calendar-action"
           disabled={offline || connect.isPending || syncNow.isPending}
           onClick={() => {
             setError(null);
