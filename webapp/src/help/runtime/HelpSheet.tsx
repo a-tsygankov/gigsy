@@ -7,6 +7,13 @@
  * the bottom, rounded top corners, its own scroll region, safe-area
  * padding. `z-50` — one below HelpUnavailableBanner's `z-[51]`, so a
  * failure message raised while this is open is never covered by it.
+ *
+ * Colour does NOT follow HiddenConsole. sky-100/sky-200 are the help
+ * surface (--surface-help in src/styles/tokens/semantic.css); on the
+ * card white every other panel uses, a sheet that slides up over the
+ * screen it is explaining reads as part of that screen. Both steps are
+ * tokenised, so the tint inverts with the theme instead of stranding a
+ * pale blue sheet on a dark app.
  */
 import { useEffect, useRef } from "react";
 import { HelpMenu } from "./HelpMenu.tsx";
@@ -38,7 +45,7 @@ export function HelpSheet({ onClose }: { onClose: () => void }) {
       aria-labelledby="help-sheet-heading"
       data-testid="help-sheet"
       className="fixed inset-x-0 bottom-0 z-50 max-h-[75dvh] overflow-y-auto rounded-t-2xl
-                 border-t border-slate-300 bg-white p-4 shadow-2xl
+                 border-t border-sky-200 bg-sky-100 p-4 shadow-2xl
                  pb-[calc(1rem+env(safe-area-inset-bottom))]"
     >
       <div className="flex items-center justify-between">

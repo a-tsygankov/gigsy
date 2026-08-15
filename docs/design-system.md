@@ -141,6 +141,19 @@ plan and held to everywhere.
   slate/sky/amber/emerald. Red exists only for destructive and error text (`red-600`),
   never as a filled button.
 
+- **Two surfaces, not one.** Everything the app *is* sits on the card surface. Everything
+  the app says *about itself* sits on the **help surface** — `sky-100` with a `sky-200`
+  border (`--surface-help` / `--border-help`): the help sheet, the tour popover and its
+  arrow, the "help unavailable" banner, and the Help group on Settings. On the card
+  surface a walkthrough popover reads as one more panel of the thing it is explaining.
+  Sky rather than the emerald accent, because accent means "act on this" and help is
+  information; step 100 rather than 50, because `sky-50` lands within a few channel values
+  of `--bg-app` in light and reads as a printing error rather than a decision.
+
+  The tint costs the muted step its contrast — `slate-500` measures 4.19:1 there, under
+  the 4.5 small text needs — so secondary text on the help surface is `slate-600` (6.6:1
+  light, 9.5:1 dark). `SettingGroup` carries this as `tone="help"`.
+
   Those step names are **not fixed hex values**. Every palette utility resolves through a
   CSS custom property — `tailwind.config.ts` maps `slate-500` to
   `rgb(var(--c-slate-500) / <alpha-value>)` — and `tokens/colors.css` redefines the whole
@@ -215,6 +228,7 @@ than imported. `Settings → Appearance` is the control.
    `--border-default`, `--border-strong`, `--border-dashed`, `--text-strong`, `--text-body`,
    `--text-muted`, `--text-faint`, `--text-inverse`, `--accent`, `--accent-hover`,
    `--accent-ring`, `--accent-soft-bg`, `--accent-soft-border`, `--accent-soft-text`,
+   `--surface-help`, `--border-help`,
    `--good-text`, `--danger-text`, `--warn-bg`, `--info-bg`, and the four
    `--status-*-bg`. Prefer these to naming a step by hand — they say what a value is *for*.
 
@@ -222,6 +236,14 @@ than imported. `Settings → Appearance` is the control.
 light and wrong in dark, and nothing will warn you. `darkMode` is configured as
 `["selector", '[data-theme="dark"]']`, so a `dark:` variant also works if you genuinely
 need one — but reaching for the token is almost always the better answer.
+
+**Its quieter twin:** a Tailwind utility naming a step that has no `--c-*` token —
+`text-red-700` when only red-50/200/500/600 are defined. It looks like the themed path,
+but Tailwind's `extend` leaves the undefined steps as literal hex, so it fails exactly
+the same way. Only the steps present in `tokens/colors.css` are themed. Four of these had
+accumulated across the app before anything checked;
+`design-tokens.test.ts → "every colour utility in the app resolves to a tokenised step"`
+now walks `src/` and fails on any orphan.
 
 Check both themes before calling any visual change done.
 

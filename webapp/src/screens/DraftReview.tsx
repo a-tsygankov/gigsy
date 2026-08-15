@@ -175,7 +175,7 @@ export function DraftReview() {
             {kind === "gig" &&
               (matchedClient !== undefined ? (
                 <p
-                  className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800"
+                  className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700"
                   data-testid="match-banner"
                 >
                   Matched existing client: <strong>{matchedClient.name}</strong>
@@ -185,7 +185,7 @@ export function DraftReview() {
               ) : (
                 clientName.trim() !== "" && (
                   <p
-                    className="rounded-xl bg-sky-50 p-3 text-sm text-sky-800"
+                    className="rounded-xl bg-sky-50 p-3 text-sm text-sky-700"
                     data-testid="match-banner"
                   >
                     New client will be created: <strong>{clientName.trim()}</strong>

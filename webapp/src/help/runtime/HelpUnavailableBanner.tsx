@@ -38,7 +38,10 @@ export function HelpUnavailableBanner({
       // for the same strip of screen is a real, if rare, possibility,
       // and whichever one the user was actively mid-action on should
       // win.
-      className="fixed inset-x-0 bottom-0 z-[51] border-t border-slate-200 bg-white/95
+      // sky, like HelpSheet and the tour popover: this is help failing,
+      // not the app failing, and the tint is what carries that. Kept at
+      // /95 so it stays the same translucent scrim UpdateBar is.
+      className="fixed inset-x-0 bottom-0 z-[51] border-t border-sky-200 bg-sky-100/95
                  px-4 py-3 backdrop-blur pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
     >
       <div className="mx-auto flex max-w-lg items-center gap-3">

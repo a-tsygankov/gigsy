@@ -2,7 +2,7 @@ import type { LogEntry } from "../lib/logger.ts";
 
 const LEVEL_STYLES: Record<LogEntry["level"], string> = {
   info: "text-slate-500",
-  warn: "text-amber-600",
+  warn: "text-amber-700",
   error: "text-red-600",
 };
 
