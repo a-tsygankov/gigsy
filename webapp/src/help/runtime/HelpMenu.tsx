@@ -6,6 +6,11 @@
  * navigated the user off whatever screen this menu lives on before it
  * fails, so that message is HelpUnavailableBanner's job, rendered by
  * HelpProvider at the app root instead. See that file's doc comment.
+ *
+ * Secondary text is slate-600 rather than the slate-500 the rest of the
+ * app uses for the same job. Both of this menu's homes — HelpSheet and
+ * the Help settings group — sit on --surface-help, where slate-500
+ * measures 4.19:1 and misses the 4.5 small text needs.
  */
 import { useMemo, useState } from "react";
 import { Button, Input, Select } from "../../components/index.ts";
@@ -119,11 +124,11 @@ function VariantPicker({
 
       <p className="text-sm font-semibold text-slate-900">{scenario.title}</p>
       {scenario.description !== undefined && (
-        <p className="text-xs text-slate-500">{scenario.description}</p>
+        <p className="text-xs text-slate-600">{scenario.description}</p>
       )}
 
       <label className="block space-y-1">
-        <span className="text-xs font-semibold text-slate-500">
+        <span className="text-xs font-semibold text-slate-600">
           Your device and browser
         </span>
         <Select
@@ -190,12 +195,12 @@ export function HelpMenu() {
       />
 
       {grouped.length === 0 && (
-        <p className="text-xs text-slate-500">No help topic matches that.</p>
+        <p className="text-xs text-slate-600">No help topic matches that.</p>
       )}
 
       {grouped.map(({ category, scenarios }) => (
         <div key={category} className="space-y-1">
-          <p className="text-xs font-semibold text-slate-500">
+          <p className="text-xs font-semibold text-slate-600">
             {CATEGORY_LABELS[category]}
           </p>
           {scenarios.map((scenario) => (

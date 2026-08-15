@@ -14,11 +14,12 @@
  * can drift without failing the suite.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import colors from "tailwindcss/colors";
 
 const tokensDir = fileURLToPath(new URL("../styles/tokens/", import.meta.url));
+const srcDir = fileURLToPath(new URL("../", import.meta.url));
 
 /** Variables from a token file. `stopAt` truncates before a later
  *  block — colors.css now carries a dark override whose values would
@@ -90,11 +91,53 @@ describe("design tokens", () => {
   });
 
 
+  /**
+   * The failure this catches is invisible in light mode and total in
+   * dark: an untokenised step (`text-red-700` when only red-50/200/500/
+   * 600 are defined) falls through to Tailwind's literal hex, which
+   * cannot invert. The screen then renders one element light-on-light,
+   * and only on the theme nobody develops in. Four of these had already
+   * accumulated across the app before this test existed.
+   */
+  it("every colour utility in the app resolves to a tokenised step", () => {
+    const hues = "slate|emerald|sky|amber|red";
+    const used = new Map<string, string[]>();
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir)) {
+        const full = dir + entry;
+        if (statSync(full).isDirectory()) {
+          walk(full + "/");
+          continue;
+        }
+        if (!/\.tsx?$/.test(entry) || /\.test\.tsx?$/.test(entry)) continue;
+        const source = readFileSync(full, "utf8");
+        const pattern = new RegExp(`[a-z-]+-((?:${hues})-\\d{2,3})\\b`, "g");
+        for (const [, step] of source.matchAll(pattern)) {
+          const where = used.get(step!) ?? [];
+          if (!where.includes(full)) where.push(full);
+          used.set(step!, where);
+        }
+      }
+    };
+    walk(srcDir);
+
+    expect(used.size).toBeGreaterThan(20); // the walk actually found source
+    const orphans = [...used].filter(([step]) => palette[`--c-${step}`] === undefined);
+    expect(
+      orphans.map(([step, where]) => `${step} (${where.join(", ")})`),
+      "colour steps with no --c-* token cannot follow the theme",
+    ).toEqual([]);
+  });
+
   it("core aliases the components consume are present", () => {
     const semantic = cssVars("semantic.css");
     for (const required of [
       "--bg-app",
       "--surface-card",
+      // Help draws itself on its own surface so a walkthrough is never
+      // mistaken for the app it is walking through.
+      "--surface-help",
+      "--border-help",
       "--accent",
       "--accent-hover",
       "--accent-ring",
@@ -110,6 +153,31 @@ describe("design tokens", () => {
     ]) {
       expect(semantic[required], `missing ${required}`).toBeDefined();
     }
+  });
+
+  /**
+   * The whole point of the help surface is that it is NOT the card
+   * surface. Aliasing them to the same step would leave every help
+   * screen looking exactly as it did, with nothing failing to say so.
+   */
+  it("the help surface is distinguishable from the card surface", () => {
+    const semantic = cssVars("semantic.css");
+    expect(semantic["--surface-help"]).not.toBe(semantic["--surface-card"]);
+    expect(semantic["--surface-help"]).not.toBe(semantic["--bg-app"]);
+    expect(semantic["--border-help"]).not.toBe(semantic["--border-default"]);
+  });
+
+  it("the tour popover draws itself on the help surface", () => {
+    // Driver.js paints its arrow as four one-sided borders, so an
+    // overlooked side leaves a card-white spike on a tinted popover.
+    // Comments stripped first — this file explains at length why it is
+    // NOT on --surface-card, and the explanation is not a declaration.
+    const help = readFileSync(
+      fileURLToPath(new URL("../styles/help.css", import.meta.url)),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(help).not.toContain("--surface-card");
+    expect(help.match(/var\(--surface-help\)/g)?.length).toBe(5); // body + 4 arrow sides
   });
 
   it("radius, spacing, and type scales match the utilities the app uses", () => {

@@ -50,6 +50,22 @@ export function SettingRow({
 }
 
 /**
+ * Which surface a group is drawn on. `card` is every group on the
+ * Settings screen; `help` is the one that isn't a setting at all —
+ * see --surface-help in src/styles/tokens/semantic.css. A prop rather
+ * than a second component, because the only thing that differs is the
+ * three colours below, and a fork would drift on the other twelve.
+ */
+export type SettingGroupTone = "card" | "help";
+
+const TONES: Record<SettingGroupTone, { shell: string; description: string }> = {
+  card: { shell: "border-slate-200 bg-white", description: "text-slate-500" },
+  // slate-600, not slate-500: the tinted surface costs the muted step
+  // its contrast (see HelpMenu.tsx).
+  help: { shell: "border-sky-200 bg-sky-100", description: "text-slate-600" },
+};
+
+/**
  * Settings grouped under a heading, hairline-separated.
  *
  * Separators come from the group rather than the row so the last row
@@ -60,21 +76,23 @@ export function SettingGroup({
   title,
   description,
   children,
+  tone = "card",
   "data-testid": testId,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
+  tone?: SettingGroupTone;
   "data-testid"?: string;
 }) {
   return (
     <section
-      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+      className={`rounded-2xl border p-4 shadow-sm ${TONES[tone].shell}`}
       data-testid={testId}
     >
       <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
       {description !== undefined && (
-        <p className="mt-0.5 text-xs text-slate-500">{description}</p>
+        <p className={`mt-0.5 text-xs ${TONES[tone].description}`}>{description}</p>
       )}
       <div className="mt-1 divide-y divide-slate-100">{children}</div>
     </section>

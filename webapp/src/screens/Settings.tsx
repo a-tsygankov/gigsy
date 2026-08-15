@@ -189,7 +189,7 @@ export function Settings() {
             slots would be thirteen places to forget one. */}
         {saveError !== null && (
           <p
-            className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700"
+            className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600"
             data-testid="settings-save-error"
           >
             That change didn't save, so it's been put back. Check your

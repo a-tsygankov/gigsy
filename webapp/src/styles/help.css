@@ -1,12 +1,17 @@
-/* Driver.js ships its own popover look. Gigsy has one surface style and
-   one button style (docs/design-system.md); an unrestyled popover reads
-   as another product's UI dropped onto the screen. Every colour below
-   is a semantic token (src/styles/tokens/semantic.css) rather than a
-   literal — those tokens repoint themselves under [data-theme="dark"]
-   (src/styles/tokens/colors.css), which a hardcoded hex value cannot. */
+/* Driver.js ships its own popover look. Gigsy has one button style and
+   two surfaces (docs/design-system.md); an unrestyled popover reads as
+   another product's UI dropped onto the screen. Every colour below is a
+   semantic token (src/styles/tokens/semantic.css) rather than a literal
+   — those tokens repoint themselves under [data-theme="dark"]
+   (src/styles/tokens/colors.css), which a hardcoded hex value cannot.
+
+   --surface-help, not --surface-card: the popover sits ON the screen it
+   is describing, often overlapping a card, and on the card surface the
+   two become one continuous panel with a spotlight cut out of it. The
+   tint is what says the popover is the narrator rather than the app. */
 .gigsy-help-popover.driver-popover {
-  background-color: var(--surface-card);
-  border: 1px solid var(--border-default);
+  background-color: var(--surface-help);
+  border: 1px solid var(--border-help);
   border-radius: var(--radius-xl); /* Card's own radius (Card.tsx), not a bigger one */
   box-shadow: var(--shadow-sm);
   color: var(--text-strong);
@@ -23,7 +28,9 @@
 .gigsy-help-popover .driver-popover-description {
   font-size: var(--text-xs);
   line-height: var(--leading-relaxed);
-  color: var(--text-muted);
+  /* --text-body, not --text-muted: slate-500 measures 4.19:1 against
+     the tinted surface, under the 4.5 body copy needs. */
+  color: var(--text-body);
 }
 
 .gigsy-help-popover .driver-popover-navigation-btns button {
@@ -66,7 +73,9 @@
 
 .gigsy-help-popover .driver-popover-progress-text {
   font-size: var(--text-xs);
-  color: var(--text-faint);
+  /* Same reason as the description, one step further: slate-400 was
+     already thin on a white card and the tint costs it more. */
+  color: var(--text-muted);
 }
 
 /* Driver's own base rule (`.driver-popover-arrow{border:5px solid #fff}`)
@@ -80,16 +89,16 @@
    and touching only the one longhand each side rule leaves alone — the
    visible edge — lets the two sets of rules add rather than fight. */
 .gigsy-help-popover .driver-popover-arrow-side-top {
-  border-top-color: var(--surface-card);
+  border-top-color: var(--surface-help);
 }
 .gigsy-help-popover .driver-popover-arrow-side-bottom {
-  border-bottom-color: var(--surface-card);
+  border-bottom-color: var(--surface-help);
 }
 .gigsy-help-popover .driver-popover-arrow-side-left {
-  border-left-color: var(--surface-card);
+  border-left-color: var(--surface-help);
 }
 .gigsy-help-popover .driver-popover-arrow-side-right {
-  border-right-color: var(--surface-card);
+  border-right-color: var(--surface-help);
 }
 
 /* The spotlight must not rely on colour alone: the cutout itself
