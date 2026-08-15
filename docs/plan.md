@@ -156,7 +156,13 @@ The phone is the database; the Worker/D1 is backup + multi-device sync.
 ## 8. Fast capture (Phase 5)
 
 - Cloudflare **Email Workers**: per-user forwarding address
-  (`u-<token>@<domain>`), `email()` handler parses body + attachments.
+  (`u-<token>@<domain>`), `email()` handler parses the body — the
+  plain-text part, or the HTML one reduced to text via HTMLRewriter —
+  plus up to two image attachments. PDFs are named on the draft rather
+  than read: Gemini and Anthropic need different document blocks, so
+  supporting them would push provider knowledge back into the call site
+  `providers.ts` keeps clean. Anything skipped is stated on the draft,
+  because a draft built from body text alone reads as complete.
   Prereq: a zone with Email Routing enabled (open item — domain TBD).
 - Extraction pipeline: `ExtractionProvider` interface with
   `gemini` (primary, free tier) and `anthropic` implementations chosen
