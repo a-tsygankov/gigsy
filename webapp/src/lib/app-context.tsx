@@ -91,6 +91,13 @@ export function useData(): OfflineDataService {
   return ctx.stack.data;
 }
 
+/** The engine itself, for the one thing indicators need to *do*: ask
+ * for another attempt after it has given up. Null while signed out. */
+export function useSyncEngine(): SyncEngine | null {
+  const ctx = useContext(AppContext);
+  return ctx?.stack?.engine ?? null;
+}
+
 /** Sync engine state for indicators (null while signed out). */
 export function useSyncState(): SyncState | null {
   const ctx = useContext(AppContext);

@@ -12,9 +12,19 @@
  * server (and not pending) were deleted on another device.
  *
  * Triggers: `online` event, an after-write debounce
- * (notifyLocalChange), and explicit syncNow. Scheduling and
- * online-detection are injected — unit tests never touch timers or
- * real browser events.
+ * (notifyLocalChange), a bounded exponential backoff after a failed
+ * attempt, and explicit syncNow. Scheduling and online-detection are
+ * injected — unit tests never touch timers or real browser events.
+ *
+ * The backoff is load-bearing rather than a nicety. A failed FIRST
+ * sync used to be terminal: start() ran one attempt, and the only
+ * things that could schedule another were a local edit or an `online`
+ * event. So a user whose first pull failed — token expired mid-flight,
+ * flaky connection at app start, cold worker — sat in front of an
+ * empty app, and the only ways out were both non-obvious. When the
+ * retries do run out the state says so (`stalled`), because an app
+ * showing nothing is indistinguishable from an account holding
+ * nothing, and silence is the worst of the available answers.
  */
 import { appLog } from "./logger.ts";
 import type { LocalStore } from "./local-store.ts";
@@ -48,6 +58,11 @@ export interface SyncState {
   online: boolean;
   syncing: boolean;
   pendingCount: number;
+  /** Consecutive failed sync attempts; back to 0 the moment one lands. */
+  failedAttempts: number;
+  /** Retries are spent. Whatever is on screen is all we have, and it
+   * stays that way until the user or a reconnect asks again. */
+  stalled: boolean;
 }
 
 export interface SyncEngineOptions {
@@ -57,6 +72,10 @@ export interface SyncEngineOptions {
   isOnline?: () => boolean;
   /** Event target for online/offline (default: window when present). */
   events?: Pick<EventTarget, "addEventListener" | "removeEventListener"> | null;
+  /** Delay before the first retry; each further failure doubles it. */
+  retryBaseMs?: number;
+  /** Retries a failed sync gets before the engine declares itself stalled. */
+  maxRetries?: number;
 }
 
 const defaultSchedule = (fn: () => void, ms: number): (() => void) => {
@@ -64,16 +83,39 @@ const defaultSchedule = (fn: () => void, ms: number): (() => void) => {
   return () => clearTimeout(handle);
 };
 
+// 2s doubling five times ≈ 62s of trying before giving up — long
+// enough to ride out a cold worker or a token rotation, short enough
+// that the user is told rather than left guessing.
+const DEFAULT_RETRY_BASE_MS = 2_000;
+const DEFAULT_MAX_RETRIES = 5;
+
 export class SyncEngine {
-  private state: SyncState = { online: true, syncing: false, pendingCount: 0 };
+  private state: SyncState = {
+    online: true,
+    syncing: false,
+    pendingCount: 0,
+    failedAttempts: 0,
+    stalled: false,
+  };
   private listeners = new Set<() => void>();
   private cancelScheduled: (() => void) | null = null;
+  /** Kept apart from the debounce slot on purpose: a pending write must
+   * not be pushed out to the far end of the backoff ladder, and a
+   * backoff must not be cancelled by an unrelated edit. */
+  private cancelRetry: (() => void) | null = null;
+  private syncInFlight = false;
   private readonly schedule: (fn: () => void, ms: number) => () => void;
   private readonly debounceMs: number;
+  private readonly retryBaseMs: number;
+  private readonly maxRetries: number;
   private readonly isOnline: () => boolean;
   private readonly events: SyncEngineOptions["events"];
   private readonly onOnline = () => {
     this.setState({ online: true });
+    // A reconnect is fresh evidence, so the ladder starts over — an
+    // engine that gave up while the link was down must not stay given
+    // up once it is back.
+    this.resetBackoff();
     void this.syncNow();
   };
   private readonly onOffline = () => this.setState({ online: false });
@@ -85,6 +127,8 @@ export class SyncEngine {
   ) {
     this.schedule = options.schedule ?? defaultSchedule;
     this.debounceMs = options.debounceMs ?? 800;
+    this.retryBaseMs = options.retryBaseMs ?? DEFAULT_RETRY_BASE_MS;
+    this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.isOnline =
       options.isOnline ??
       (() => (typeof navigator === "undefined" ? true : navigator.onLine));
@@ -129,6 +173,9 @@ export class SyncEngine {
     this.events?.removeEventListener("online", this.onOnline);
     this.events?.removeEventListener("offline", this.onOffline);
     this.cancelScheduled?.();
+    this.cancelScheduled = null;
+    this.cancelRetry?.();
+    this.cancelRetry = null;
   }
 
   /** Call after any local mutation: refreshes the pending badge now,
@@ -141,19 +188,87 @@ export class SyncEngine {
     }, this.debounceMs);
   }
 
+  /**
+   * Drain then pull, at most one at a time.
+   *
+   * Single-flighted because the triggers overlap by nature — the
+   * backoff, the post-write debounce and the `online` event can all
+   * land in the same instant, and two concurrent drains would post the
+   * same ops twice.
+   */
   async syncNow(): Promise<void> {
-    await this.drain();
-    await this.pull();
+    if (this.syncInFlight) return;
+    this.syncInFlight = true;
+    let ok = false;
+    try {
+      const drained = await this.drain();
+      // Deliberately not short-circuited: a drain can fail on one poison
+      // request while the pull would have hydrated the app just fine.
+      ok = (await this.pull()) && drained;
+    } finally {
+      // Released BEFORE settling, so the retry it may schedule is not
+      // swallowed as a duplicate of the attempt that just ended.
+      this.syncInFlight = false;
+      this.settleSync(ok);
+    }
+  }
+
+  /** Explicit "try again" — the stalled badge, and anything else that
+   * counts as the user asking. Restarts the ladder from the first rung. */
+  async retryNow(): Promise<void> {
+    this.resetBackoff();
+    await this.syncNow();
+  }
+
+  // ── retry ────────────────────────────────────────────────────────
+  private resetBackoff(): void {
+    this.cancelRetry?.();
+    this.cancelRetry = null;
+    if (this.state.failedAttempts !== 0 || this.state.stalled) {
+      this.setState({ failedAttempts: 0, stalled: false });
+    }
+  }
+
+  /** Book the outcome of one sync and decide whether another follows. */
+  private settleSync(ok: boolean): void {
+    if (ok) {
+      this.resetBackoff();
+      return;
+    }
+    if (!this.isOnline()) {
+      // The offline badge already explains this, and `online` fires a
+      // fresh sync the moment the link returns. Spending the budget
+      // against a link we know is down would only exhaust it before
+      // there is anything to talk to.
+      return;
+    }
+
+    const attempt = this.state.failedAttempts + 1;
+    if (attempt > this.maxRetries) {
+      appLog.warn("sync failed — out of retries", { attempts: attempt });
+      this.setState({ failedAttempts: attempt, stalled: true });
+      return;
+    }
+    // 1×, 2×, 4×… — a server that is down stays down for a while, and
+    // a phone that retries every second is a phone with a flat battery.
+    const delayMs = this.retryBaseMs * 2 ** (attempt - 1);
+    appLog.info("sync failed — retrying", { attempt, delayMs });
+    this.setState({ failedAttempts: attempt, stalled: false });
+    this.cancelRetry?.();
+    this.cancelRetry = this.schedule(() => void this.syncNow(), delayMs);
   }
 
   // ── drain ────────────────────────────────────────────────────────
-  async drain(): Promise<void> {
+  /** True when the attempt reached the server; false leaves every op
+   * queued for the next one. */
+  async drain(): Promise<boolean> {
     const ops = await this.store.pendingOps();
     if (ops.length === 0) {
       this.setState({ pendingCount: 0 });
-      return;
+      return true;
     }
     this.setState({ syncing: true });
+    let reached = true;
     try {
       const wireOps: SyncOp[] = ops.map((op) => ({
         entity: op.entity,
@@ -182,8 +297,10 @@ export class SyncEngine {
       }
       this.setState({ online: true });
     } catch (e) {
-      // Network/auth failure: every op stays queued for the next run.
-      appLog.info("sync drain failed — will retry", { error: String(e) });
+      // Network/auth failure: every op stays queued for the next run,
+      // which settleSync is now responsible for scheduling.
+      reached = false;
+      appLog.info("sync drain failed", { error: String(e) });
       this.setState({ online: this.isOnline() });
     } finally {
       this.setState({
@@ -191,6 +308,7 @@ export class SyncEngine {
         pendingCount: await this.store.pendingCount(),
       });
     }
+    return reached;
   }
 
   private async refreshFromServer(
@@ -212,15 +330,19 @@ export class SyncEngine {
   }
 
   // ── pull ─────────────────────────────────────────────────────────
-  async pull(): Promise<void> {
+  /** True when every list came back. False means the local store is
+   * still whatever it was — possibly empty, on a first run. */
+  async pull(): Promise<boolean> {
     try {
       await this.pullEntity("gig", await this.api.listGigs());
       await this.pullEntity("client", await this.api.listClients());
       await this.pullEntity("expense", await this.api.listExpenses());
       await this.pullEntity("service", await this.api.listServices());
       await this.pullEntity("payment", await this.api.listPayments());
+      return true;
     } catch (e) {
-      appLog.info("sync pull failed — will retry", { error: String(e) });
+      appLog.info("sync pull failed", { error: String(e) });
+      return false;
     }
   }
 
