@@ -15,11 +15,23 @@ import { DraftsRepo } from "../repos/drafts.ts";
 export const DEFAULT_DAILY_CAP = 50;
 
 /**
- * A generous ceiling for a forwarded booking email, and far below
- * Cloudflare's own inbound limit. Its job is to stop someone pasting a
- * novel — or an attachment-laden thread — into an extraction call.
+ * The largest message we will accept at all.
+ *
+ * This bounds R2 storage and parse cost — nothing more. It used to do a
+ * second job as well, capping what reached the model, which only worked
+ * while the handler read plain text and no attachment could ever fit. A
+ * single phone photo is past 256KB, so that ceiling rejected exactly
+ * the mail this feature is for. What we pay a model to read is now
+ * bounded separately: MAX_EXTRACT_TEXT_CHARS below, and the
+ * per-attachment and count caps in attachments.ts.
  */
-export const MAX_EMAIL_BYTES = 256 * 1024;
+export const MAX_EMAIL_BYTES = 3 * 1024 * 1024;
+
+/**
+ * The most body text sent for extraction. A forwarded thread can be
+ * enormous and the booking is always near the top.
+ */
+export const MAX_EXTRACT_TEXT_CHARS = 12_000;
 
 export function startOfUtcDayMs(now: number = Date.now()): number {
   const d = new Date(now);

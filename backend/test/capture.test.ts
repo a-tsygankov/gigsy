@@ -7,6 +7,7 @@ import { api } from "./helpers/api.ts";
 import { issueAccessToken } from "../src/auth/tokens.ts";
 import { makeCaptureRouter } from "../src/routes/capture.ts";
 import { StubProvider } from "../src/capture/providers.ts";
+import { createDraftFromCapture } from "../src/capture/capture-service.ts";
 import type { Bindings } from "../src/env.ts";
 
 const U1 = "user-1";
@@ -198,5 +199,77 @@ describe("GET /api/capture/address", () => {
     const res = await SELF.fetch("https://localhost/api/capture/address");
 
     expect(res.status).toBe(401);
+  });
+});
+
+describe("notesSuffix", () => {
+  /**
+   * What a capture could not read has to be stated on the draft
+   * itself. The raw email is one tap away, but nothing would prompt
+   * anyone to go and look: a draft built from body text alone reads
+   * as complete even when the PDF holding the real booking went
+   * unread.
+   */
+  const SUFFIX = "Not read: booking.pdf (application/pdf).";
+
+  function providerReturning(extracted: Record<string, unknown>) {
+    return { extract: async () => extracted as never };
+  }
+
+  it("appends the suffix to what the model returned", async () => {
+    const draft = await createDraftFromCapture(env as Bindings, U1, {
+      source: "email",
+      rawBytes: new Uint8Array([1, 2, 3]),
+      rawContentType: "message/rfc822",
+      provider: providerReturning({
+        kind: "gig",
+        clientName: "Acme",
+        notes: "Six hour shift",
+      }),
+      input: { text: "whatever" },
+      notesSuffix: SUFFIX,
+    });
+
+    expect(draft).not.toBe("extraction-failed");
+    const extracted = JSON.parse(
+      (draft as Exclude<typeof draft, "extraction-failed">).extractedJson,
+    ) as { notes: string };
+    expect(extracted.notes).toContain("Six hour shift");
+    expect(extracted.notes).toContain("booking.pdf");
+  });
+
+  it("uses the suffix as the whole note when the model returned none", async () => {
+    const draft = await createDraftFromCapture(env as Bindings, U1, {
+      source: "email",
+      rawBytes: new Uint8Array([1, 2, 3]),
+      rawContentType: "message/rfc822",
+      provider: providerReturning({ kind: "gig", clientName: "Acme" }),
+      input: { text: "whatever" },
+      notesSuffix: SUFFIX,
+    });
+
+    const extracted = JSON.parse(
+      (draft as Exclude<typeof draft, "extraction-failed">).extractedJson,
+    ) as { notes: string };
+    expect(extracted.notes).toBe(SUFFIX);
+  });
+
+  it("leaves the note alone when nothing was skipped", async () => {
+    const draft = await createDraftFromCapture(env as Bindings, U1, {
+      source: "email",
+      rawBytes: new Uint8Array([1, 2, 3]),
+      rawContentType: "message/rfc822",
+      provider: providerReturning({
+        kind: "gig",
+        clientName: "Acme",
+        notes: "Six hour shift",
+      }),
+      input: { text: "whatever" },
+    });
+
+    const extracted = JSON.parse(
+      (draft as Exclude<typeof draft, "extraction-failed">).extractedJson,
+    ) as { notes: string };
+    expect(extracted.notes).toBe("Six hour shift");
   });
 });

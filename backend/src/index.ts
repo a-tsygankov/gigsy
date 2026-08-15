@@ -12,7 +12,6 @@ import { pushRouter } from "./routes/push.ts";
 import { settingsRouter } from "./routes/settings.ts";
 import { paymentsRouter } from "./routes/payments.ts";
 import { syncRouter } from "./routes/sync.ts";
-import PostalMime from "postal-mime";
 import { reportsRouter } from "./routes/reports.ts";
 import { draftsRouter } from "./routes/drafts.ts";
 import { makeCaptureRouter } from "./routes/capture.ts";
@@ -22,11 +21,7 @@ import { makeAvailabilityLinkRouter } from "./routes/availability-link.ts";
 import { runCalendarCron } from "./calendar/cron.ts";
 import { runPushCron } from "./push/cron.ts";
 import { makeAuthRouter } from "./routes/auth.ts";
-import { UsersRepo } from "./repos/users.ts";
-import { providerFromEnv } from "./capture/providers.ts";
-import { createDraftFromCapture } from "./capture/capture-service.ts";
-import { userIdFromAddress } from "./capture/address.ts";
-import { hasCaptureBudget, MAX_EMAIL_BYTES } from "./capture/limits.ts";
+import { handleCapturedEmail } from "./capture/email-capture.ts";
 import type { AuthVars } from "./middleware/auth.ts";
 
 const app = new Hono<{ Bindings: Bindings; Variables: AuthVars }>();
@@ -100,60 +95,6 @@ export default {
   // Activation is dashboard-side once a domain with Email Routing
   // exists (still-open handoff item) — the handler itself is live.
   async email(message, env, _ctx) {
-    const userId = userIdFromAddress(message.to);
-    if (userId === null) {
-      message.setReject("Unknown recipient");
-      return;
-    }
-    const user = await UsersRepo.for(env.DB).get(userId);
-    if (user === null) {
-      message.setReject("Unknown recipient");
-      return;
-    }
-
-    const rawBytes = new Uint8Array(await new Response(message.raw).arrayBuffer());
-
-    // Too big to be a booking email. Rejected at the edge rather than
-    // stored, because the point of the cap is to not pay to read it.
-    if (rawBytes.length > MAX_EMAIL_BYTES) {
-      message.setReject("Message too large");
-      log.warn("email capture rejected: too large", {
-        userId: user.id,
-        bytes: rawBytes.length,
-      });
-      return;
-    }
-
-    const parsed = await PostalMime.parse(rawBytes);
-    const text = [parsed.subject ?? "", parsed.text ?? ""].join("\n\n").trim();
-
-    // Out of budget: still keep the mail, just do not pay to read it.
-    // Rejecting here would lose someone's booking to a quota they
-    // cannot see, which is the one outcome worse than an unparsed draft.
-    const withinBudget = await hasCaptureBudget(env, user.id);
-    const provider = withinBudget
-      ? providerFromEnv(env)
-      : { extract: async () => null };
-
-    const result = await createDraftFromCapture(env, user.id, {
-      source: "email",
-      rawBytes,
-      rawContentType: "message/rfc822",
-      provider,
-      input: { kind: "text", text },
-      // Never silently drop a user's mail: a failed extraction still
-      // yields a reviewable draft pointing at the original.
-      fallbackExtracted: {
-        kind: "unknown",
-        notes: withinBudget
-          ? "Extraction failed — open the original email below."
-          : "Daily capture limit reached — this was saved unread. Open the original email below.",
-      },
-    });
-    if (result === "extraction-failed") {
-      log.warn("email capture failed", { userId: user.id });
-    } else {
-      log.info("email captured", { userId: user.id, draftId: result.id });
-    }
+    await handleCapturedEmail(message, env);
   },
 } satisfies ExportedHandler<Bindings>;

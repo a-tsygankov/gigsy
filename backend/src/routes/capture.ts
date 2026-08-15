@@ -5,7 +5,8 @@ import { DraftsRepo } from "../repos/drafts.ts";
 import { serializeDraft } from "./drafts.ts";
 import { providerFromEnv } from "../capture/providers.ts";
 import type { ExtractionProvider } from "../capture/extraction.ts";
-import { createDraftFromCapture, toBase64 } from "../capture/capture-service.ts";
+import { createDraftFromCapture } from "../capture/capture-service.ts";
+import { toBase64 } from "../lib/base64.ts";
 import { hasCaptureBudget } from "../capture/limits.ts";
 import { captureAddressFor } from "../capture/address.ts";
 
@@ -50,7 +51,7 @@ export function makeCaptureRouter(
         rawBytes: bytes,
         rawContentType: mimeType,
         provider: providerFactory(c.env),
-        input: { kind: "image", mimeType, dataBase64: toBase64(bytes) },
+        input: { media: [{ mimeType, dataBase64: toBase64(bytes) }] },
       });
       if (result === "extraction-failed") {
         return c.json({ error: "extraction failed — try again" }, 502);

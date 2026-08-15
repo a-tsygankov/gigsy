@@ -25,6 +25,12 @@ export interface CaptureRequest {
    * placeholder (email capture: never silently drop a user's mail).
    * Absent → the caller surfaces the failure (photo capture: 502). */
   fallbackExtracted?: ExtractedDataT;
+  /** Appended to the extracted notes: what this capture could not read
+   * (a PDF, an oversize image). A draft built from body text alone
+   * looks complete, so the omission has to be stated on the draft
+   * itself — the raw original is one tap away, but nothing would
+   * prompt the user to go and look. */
+  notesSuffix?: string;
 }
 
 export async function createDraftFromCapture(
@@ -50,6 +56,16 @@ export async function createDraftFromCapture(
     }
   }
 
+  if (request.notesSuffix !== undefined && request.notesSuffix !== "") {
+    extracted = {
+      ...extracted,
+      notes:
+        extracted.notes != null && extracted.notes !== ""
+          ? `${extracted.notes}\n\n${request.notesSuffix}`
+          : request.notesSuffix,
+    };
+  }
+
   const draftId = crypto.randomUUID();
   const rawR2Key = `u/${userId}/captures/${draftId}`;
   await env.RECEIPTS.put(rawR2Key, request.rawBytes, {
@@ -63,13 +79,4 @@ export async function createDraftFromCapture(
     extractedJson: JSON.stringify(extracted),
     now: Date.now(),
   });
-}
-
-export function toBase64(bytes: Uint8Array): string {
-  let bin = "";
-  const CHUNK = 8192;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(bin);
 }
