@@ -11,9 +11,15 @@ import type { Bindings } from "../env.ts";
 import { log } from "../logger.ts";
 import { UsersRepo } from "../repos/users.ts";
 import { userIdFromAddress } from "./address.ts";
+import { attachmentBytes, selectAttachments } from "./attachments.ts";
 import { createDraftFromCapture } from "./capture-service.ts";
 import type { ExtractionProvider } from "./extraction.ts";
-import { hasCaptureBudget, MAX_EMAIL_BYTES } from "./limits.ts";
+import { htmlToText } from "./html-text.ts";
+import {
+  hasCaptureBudget,
+  MAX_EMAIL_BYTES,
+  MAX_EXTRACT_TEXT_CHARS,
+} from "./limits.ts";
 import { providerFromEnv } from "./providers.ts";
 
 /** Just the parts of ForwardableEmailMessage this needs — so a test can
@@ -54,7 +60,23 @@ export async function handleCapturedEmail(
   }
 
   const parsed = await PostalMime.parse(rawBytes);
-  const text = [parsed.subject ?? "", parsed.text ?? ""].join("\n\n").trim();
+
+  // Prefer the plain-text part; fall back to the HTML one, which is all
+  // a booking platform usually sends.
+  const plain = (parsed.text ?? "").trim();
+  const body = plain !== "" ? plain : await htmlToText(parsed.html ?? "");
+  const text = [parsed.subject ?? "", body]
+    .join("\n\n")
+    .trim()
+    .slice(0, MAX_EXTRACT_TEXT_CHARS);
+
+  const selection = selectAttachments(
+    parsed.attachments.map((part) => ({
+      filename: part.filename,
+      mimeType: part.mimeType,
+      bytes: attachmentBytes(part),
+    })),
+  );
 
   // Out of budget: still keep the mail, just do not pay to read it.
   // Rejecting here would lose someone's booking to a quota they
@@ -69,7 +91,15 @@ export async function handleCapturedEmail(
     rawBytes,
     rawContentType: "message/rfc822",
     provider,
-    input: { text },
+    input: { text, media: selection.media },
+    // Spread rather than `notesSuffix: undefined`, which
+    // exactOptionalPropertyTypes rejects: an optional property may be
+    // absent, but not explicitly undefined.
+    ...(selection.skipped.length > 0
+      ? {
+          notesSuffix: `Not read: ${selection.skipped.join("; ")}. Open the original email below.`,
+        }
+      : {}),
     // Never silently drop a user's mail: a failed extraction still
     // yields a reviewable draft pointing at the original.
     fallbackExtracted: {
