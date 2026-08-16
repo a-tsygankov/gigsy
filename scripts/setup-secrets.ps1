@@ -117,8 +117,14 @@ function ConvertTo-Base64Url([byte[]]$Bytes) {
 }
 
 function New-RandomKey {
+    # GetBytes on an instance, not the static Fill(): Fill() is .NET
+    # Core only, so it throws MethodNotFound under Windows PowerShell
+    # 5.1 (.NET Framework). Create()+GetBytes() exists on both, and
+    # this script should not silently require pwsh 7 -- it fails after
+    # the GitHub secrets are already set, leaving the run half done.
     $bytes = [byte[]]::new(32)
-    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
     return [Convert]::ToBase64String($bytes)
 }
 
