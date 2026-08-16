@@ -41,9 +41,9 @@ export function SyncBadge({
         onClick={onRetry}
         data-testid="sync-error"
         title="Couldn't reach the server — tap to try again"
-        className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700
-                   transition-colors hover:bg-red-200 focus:outline-none
-                   focus-visible:ring-2 focus-visible:ring-red-500"
+        className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px]
+                   font-medium text-red-600 transition-colors hover:bg-red-200
+                   focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
       >
         sync failed — retry
       </button>

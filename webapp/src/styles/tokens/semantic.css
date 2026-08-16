@@ -8,6 +8,16 @@
   --surface-scrim:rgb(var(--c-slate-50) / 0.9);   /* header, backdrop-blur */
   --surface-bar:rgb(var(--c-white) / 0.95);    /* tab bar */
 
+  /* Help is the app talking ABOUT itself, and every other surface in
+     the product is the app being itself. On --surface-card the two are
+     the same material, so a walkthrough popover reads as one more panel
+     of the thing it is explaining. Sky rather than the emerald accent:
+     accent means "act on this", and help is information. The step is
+     100, not 50 — 50 is within a few channel values of --bg-app in
+     light and reads as a printing error rather than a decision. */
+  --surface-help:rgb(var(--c-sky-100));
+  --border-help:rgb(var(--c-sky-200));
+
   --text-strong:rgb(var(--c-slate-900));
   --text-body:rgb(var(--c-slate-700));
   --text-muted:rgb(var(--c-slate-500));
