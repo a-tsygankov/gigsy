@@ -271,6 +271,58 @@ export const calendarCleanup = sqliteTable(
   }),
 );
 
+/**
+ * An append-only record of what happened — mirrors
+ * migrations/0012_activity_events.sql.
+ *
+ * Every other table here says what the data IS. This one says what was
+ * done to it, which nothing previously recorded: refresh tokens are
+ * delete-on-read, the log buffer is per-isolate and in memory, and
+ * reads left no trace. gigsy-analytics reads this to answer "who
+ * signed in, when, and what did they do" instead of inferring it from
+ * whatever timestamps happened to survive.
+ *
+ * Written only through src/activity/recorder.ts, and never updated.
+ * The single delete is the retention prune (src/activity/prune.ts).
+ */
+export const ACTIVITY_KINDS = [
+  "auth.login",
+  "auth.refused",
+  "auth.refresh",
+  "api.request",
+  "capture.received",
+] as const;
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+
+export const activityEvents = sqliteTable(
+  "activity_events",
+  {
+    id: text("id").primaryKey(),
+    /** NULL before we know who is asking — a refused sign-in is the
+     *  reason this is nullable. No foreign key for the same reason. */
+    userId: text("user_id"),
+    ts: integer("ts").notNull(),
+    kind: text("kind").$type<ActivityKind>().notNull(),
+    method: text("method"),
+    path: text("path"),
+    status: integer("status"),
+    durationMs: integer("duration_ms"),
+    entityTable: text("entity_table"),
+    entityId: text("entity_id"),
+    /** Small JSON blob for the rest — the only unbounded field on a
+     *  table that gets a row per request, so keep it that way. */
+    detailJson: text("detail_json"),
+    /** Country only, never the address: enough to tell a CI runner
+     *  from a phone, which is all this is for. */
+    ipCountry: text("ip_country"),
+    userAgent: text("user_agent"),
+  },
+  (t) => ({
+    userTsIdx: index("idx_activity_events_user_ts").on(t.userId, t.ts),
+    tsIdx: index("idx_activity_events_ts").on(t.ts),
+  }),
+);
+
 /** A browser/device subscription (Phase 10). Keyed by the push
  * service's own endpoint, so re-subscribing replaces rather than
  * duplicates. */

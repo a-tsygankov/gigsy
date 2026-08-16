@@ -20,6 +20,8 @@ import { makeAvailabilityRouter } from "./routes/availability.ts";
 import { makeAvailabilityLinkRouter } from "./routes/availability-link.ts";
 import { runCalendarCron } from "./calendar/cron.ts";
 import { runPushCron } from "./push/cron.ts";
+import { recordActivity } from "./activity/middleware.ts";
+import { runActivityPrune } from "./activity/prune.ts";
 import { makeAuthRouter } from "./routes/auth.ts";
 import { handleCapturedEmail } from "./capture/email-capture.ts";
 import type { AuthVars } from "./middleware/auth.ts";
@@ -42,6 +44,12 @@ app.use("*", async (c, next) => {
     durationMs: Date.now() - start,
   });
 });
+
+// One activity_events row per request, written after the response is
+// formed and handed to waitUntil. Unlike the log line above, this one
+// persists — it is what gigsy-analytics reads instead of guessing at
+// behaviour from whatever row timestamps survived.
+app.use("*", recordActivity());
 
 app.get("/api/health", (c) =>
   c.json({ ok: true, env: c.env.ENVIRONMENT, ts: Date.now() }),
@@ -88,6 +96,9 @@ export default {
     ctx.waitUntil(
       runCalendarCron(env).then(() => runPushCron(env)),
     );
+    // Independent of the sync passes above, and cheap: usually it
+    // finds nothing to delete.
+    ctx.waitUntil(runActivityPrune(env));
   },
 
   // Email capture (docs/plan.md §8): Cloudflare Email Routing

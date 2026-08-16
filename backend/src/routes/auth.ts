@@ -21,6 +21,7 @@ import {
 import { RefreshTokenStore } from "../auth/refresh-store.ts";
 import { isAllowedEmail, parseAllowlist } from "../auth/allowlist.ts";
 import { UsersRepo } from "../repos/users.ts";
+import { ActivityRecorder } from "../activity/recorder.ts";
 import { log } from "../logger.ts";
 
 export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
@@ -94,11 +95,22 @@ export function makeAuthRouter(deps: AuthDeps = defaultAuthDeps) {
       // The same gate as the Google path: who may use a deployment
       // should not depend on which door they came through.
       if (!isAllowedEmail(email, c.env.ALLOWED_EMAILS)) {
+        // Recorded like the Google path's refusal: who may use a
+        // deployment should not depend on which door they came
+        // through, and neither should what it remembers about them.
+        await ActivityRecorder.for(c.env.DB).record(
+          { userId: null, kind: "auth.refused", detail: { email, via: "test" } },
+          Date.now(),
+        );
         return c.json({ error: "not_invited" }, 403);
       }
       const now = Date.now();
       const user = await UsersRepo.for(c.env.DB).upsertByEmail(email, now);
       const session = await issueSession(c.env, user.id, now);
+      await ActivityRecorder.for(c.env.DB).record(
+        { userId: user.id, kind: "auth.login", detail: { via: "test" } },
+        now,
+      );
       return c.json({ ...session, user: { id: user.id, email: user.email } });
     })
     .post("/google", zValidator("json", GoogleLogin), async (c) => {
@@ -116,6 +128,19 @@ export function makeAuthRouter(deps: AuthDeps = defaultAuthDeps) {
       // table with everyone who ever tried.
       if (!isAllowedEmail(claims.email, c.env.ALLOWED_EMAILS)) {
         log.warn("sign-in refused: not on the allowlist", { email: claims.email });
+        // No userId: the refusal happens before a row exists, which is
+        // the whole reason activity_events.user_id is nullable. The
+        // address goes in the detail because it IS the finding.
+        await ActivityRecorder.for(c.env.DB).record(
+          {
+            userId: null,
+            kind: "auth.refused",
+            detail: { email: claims.email, via: "google" },
+            ipCountry: c.req.header("cf-ipcountry") ?? null,
+            userAgent: c.req.header("user-agent") ?? null,
+          },
+          Date.now(),
+        );
         return c.json({ error: "not_invited" }, 403);
       }
 
@@ -144,6 +169,16 @@ export function makeAuthRouter(deps: AuthDeps = defaultAuthDeps) {
       }
 
       const session = await issueSession(c.env, user.id, now);
+      await ActivityRecorder.for(c.env.DB).record(
+        {
+          userId: user.id,
+          kind: "auth.login",
+          detail: { via: "google", calendarConsent: authCode !== undefined },
+          ipCountry: c.req.header("cf-ipcountry") ?? null,
+          userAgent: c.req.header("user-agent") ?? null,
+        },
+        now,
+      );
       return c.json({ ...session, user: { id: user.id, email: user.email } });
     })
     .post("/refresh", zValidator("json", Refresh), async (c) => {
@@ -154,6 +189,14 @@ export function makeAuthRouter(deps: AuthDeps = defaultAuthDeps) {
         now,
       );
       if (userId === null) return c.json({ error: "unauthorized" }, 401);
-      return c.json(await issueSession(c.env, userId, now));
+      const session = await issueSession(c.env, userId, now);
+      // Recorded because rotation destroys the evidence: the row that
+      // proved this session existed is deleted by `consume` above, so
+      // without this the sign-in leaves nothing behind at all.
+      await ActivityRecorder.for(c.env.DB).record(
+        { userId, kind: "auth.refresh" },
+        now,
+      );
+      return c.json(session);
     });
 }
