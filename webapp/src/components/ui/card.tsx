@@ -1,3 +1,9 @@
+/**
+ * shadcn/ui Card. Convention for every shadcn component in this folder:
+ * write `border-border` explicitly, never a bare `border` — this app has
+ * no global `* { @apply border-border }` rule, so a bare `border` falls
+ * back to Tailwind's stock gray-200 and never repaints in dark theme.
+ */
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
@@ -9,7 +15,7 @@ const Card = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "rounded-xl border bg-card text-card-foreground shadow",
+      "rounded-xl border border-border bg-card text-card-foreground shadow",
       className
     )}
     {...props}

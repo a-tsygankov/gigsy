@@ -70,7 +70,9 @@ const config: Config = {
         primary: pair("primary"),
         secondary: pair("secondary"),
         muted: pair("muted"),
-        accent: pair("accent"),
+        /* `shadcn-accent`, because semantic.css owns a different `--accent`.
+           The Tailwind key stays `accent`, so the classes are unchanged. */
+        accent: pair("shadcn-accent"),
         destructive: pair("destructive"),
         border: shadcnColor("border"),
         input: shadcnColor("input"),
