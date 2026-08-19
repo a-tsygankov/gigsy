@@ -308,3 +308,18 @@ test("a gig with unsent changes is marked, and the mark clears on sync", async (
     timeout: 20_000,
   });
 });
+
+// 09:00 to 12:18 is 198 minutes; an 18-minute break leaves 180 worked,
+// which at $50/h is $150.00 — proves the whole chain (lib/gig-pay.ts's
+// workedMinutes → expectedCents) reaches the screen, not just the model.
+test("an hourly gig prices itself from the time worked", async ({ page }) => {
+  await page.goto("/gigs/new");
+  await page.getByTestId("gig-pay-type").selectOption("hourly");
+  await page.getByTestId("gig-rate").fill("50");
+  await page.getByTestId("gig-work-start-date").fill("2027-03-04");
+  await page.getByTestId("gig-work-start-time").fill("09:00");
+  await page.getByTestId("gig-work-end-date").fill("2027-03-04");
+  await page.getByTestId("gig-work-end-time").fill("12:18");
+  await page.getByTestId("gig-break").fill("18");
+  await expect(page.getByTestId("gig-expected-pay")).toContainText("$150.00");
+});

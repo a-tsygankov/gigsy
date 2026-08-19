@@ -86,7 +86,7 @@ export const createGig: HelpScenario = {
       target: HelpTarget.GigDurationHours,
       title: "Duration",
       description:
-        "How long the job runs, in hours and minutes. It is what stops the calendar guessing four hours, and what your public availability page subtracts from your free time.",
+        "How long the job runs, in hours and minutes. It is what stops the calendar guessing four hours, what your public availability page subtracts from your free time, and — on an hourly gig — what the expected pay is calculated from until you record the time you actually worked.",
     },
     {
       action: "highlight",
@@ -104,10 +104,17 @@ export const createGig: HelpScenario = {
     },
     {
       action: "highlight",
+      target: HelpTarget.GigPayType,
+      title: "Paid by",
+      description:
+        "A fixed fee pays what you agreed regardless of how long the job runs; an hourly rate prices it from rate × time instead, and swaps the Offered field below for a Rate ($ per hour) field, since a gig is never both at once. Switch it here whenever the deal changes.",
+    },
+    {
+      action: "highlight",
       target: HelpTarget.GigOffered,
       title: "Offered ($)",
       description:
-        "What the job pays — what was agreed, not what has arrived. While the gig is a lead or confirmed, this is what the dashboard adds up as Expected. Leave it blank if it hasn't been agreed yet; a zero is rejected, blank is the way to say \"not set\".",
+        "What a fixed-fee job pays — what was agreed, not what has arrived. While the gig is a lead or confirmed, this is what the dashboard adds up as Expected. Leave it blank if it hasn't been agreed yet; a zero is rejected, blank is the way to say \"not set\".",
     },
     {
       action: "highlight",
@@ -115,6 +122,27 @@ export const createGig: HelpScenario = {
       title: "Paid ($)",
       description:
         "What has actually landed. The gap between Offered and Paid on a completed gig is exactly what \"Unpaid — waiting on clients\" on the dashboard and \"Still owed\" in Reports are made of, so leaving this blank until the money is real is what keeps those numbers true.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigWorkStart,
+      title: "Started",
+      description:
+        "When the shift actually began — as opposed to the date and time near the top, which is what was agreed. On an hourly gig, once this and Finished are both filled in, Gigsy prices the shift on the real time worked instead of the booked duration.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigWorkEnd,
+      title: "Finished",
+      description:
+        "When it actually ended. Leave it blank while the shift is still in progress — a start with no finish yet is what open work looks like, not a mistake.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigBreak,
+      title: "Off-time breaks (minutes)",
+      description:
+        "Minutes not worked inside that span — a lunch break, a gap between two client visits. Subtracted before an hourly gig is priced; it has no effect on a fixed fee.",
     },
     {
       action: "highlight",

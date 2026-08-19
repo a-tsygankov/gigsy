@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
-import { GIG_STATUSES, type GigInput, type GigStatus } from "../lib/types.ts";
+import { GIG_STATUSES, type GigInput, type GigStatus, type PayType } from "../lib/types.ts";
+import { expectedCents, workedMinutes, type PayableGig } from "../lib/gig-pay.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { formatMoney } from "../lib/format.ts";
 import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
@@ -32,8 +33,13 @@ interface FormState {
   dateTime: string; // datetime-local value
   durationMinutes: string; // "" = not set
   location: string;
+  payType: PayType;
+  hourlyRate: string; // dollars text, hourly rate
   offered: string; // dollars text
   paid: string;
+  workStart: string; // datetime-local value
+  workEnd: string; // datetime-local value
+  breakMinutes: string; // "" = not set
   notes: string;
 }
 
@@ -44,8 +50,13 @@ const BLANK: FormState = {
   dateTime: "",
   durationMinutes: "",
   location: "",
+  payType: "fixed",
+  hourlyRate: "",
   offered: "",
   paid: "",
+  workStart: "",
+  workEnd: "",
+  breakMinutes: "",
   notes: "",
 };
 
@@ -68,6 +79,7 @@ export function GigEdit() {
 
   const [form, setForm] = useState<FormState>(BLANK);
   const [moneyError, setMoneyError] = useState<string | null>(null);
+  const [workError, setWorkError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   useEffect(() => {
@@ -80,6 +92,11 @@ export function GigEdit() {
       durationMinutes:
         gig.data.durationMinutes !== null ? String(gig.data.durationMinutes) : "",
       location: gig.data.location ?? "",
+      payType: gig.data.payType,
+      hourlyRate:
+        gig.data.hourlyRateCents !== null
+          ? centsToInput(gig.data.hourlyRateCents)
+          : "",
       offered:
         gig.data.amountOfferedCents !== null
           ? centsToInput(gig.data.amountOfferedCents)
@@ -88,6 +105,9 @@ export function GigEdit() {
         gig.data.amountPaidCents !== null
           ? centsToInput(gig.data.amountPaidCents)
           : "",
+      workStart: msToLocalInput(gig.data.workStartedAt),
+      workEnd: msToLocalInput(gig.data.workEndedAt),
+      breakMinutes: gig.data.breakMinutes !== null ? String(gig.data.breakMinutes) : "",
       notes: gig.data.notes ?? "",
     });
   }, [gig.data]);
@@ -137,6 +157,27 @@ export function GigEdit() {
         )
       : null;
 
+  /** The live readout: what has been entered so far, priced. Recomputed
+   *  from form state rather than from the saved record, so it answers
+   *  while you are still typing. */
+  const draftPay: PayableGig = {
+    payType: form.payType,
+    hourlyRateCents: form.hourlyRate.trim() === "" ? null : parseMoney(form.hourlyRate),
+    amountOfferedCents: form.offered.trim() === "" ? null : parseMoney(form.offered),
+    durationMinutes: form.durationMinutes === "" ? null : Number(form.durationMinutes),
+    workStartedAt: localInputToMs(form.workStart),
+    workEndedAt: localInputToMs(form.workEnd),
+    breakMinutes: form.breakMinutes === "" ? null : Number(form.breakMinutes),
+  };
+  const worked = workedMinutes(draftPay);
+  const expected = expectedCents(draftPay);
+  const payLine =
+    expected === null
+      ? null
+      : worked !== null
+        ? `Worked ${formatDuration(worked)} → ${formatMoney(expected)}`
+        : `Expected ${formatMoney(expected)}`;
+
   /** Coordinates come from the device; the worker turns them into a
    * place name. A failed lookup still fills the field with the raw
    * coordinates — better than nothing when you're in a car park. */
@@ -184,7 +225,34 @@ export function GigEdit() {
       setMoneyError("Amounts must be greater than zero — leave blank when not set.");
       return;
     }
+    if (form.payType === "hourly" && parseMoney(form.hourlyRate) === null) {
+      setMoneyError("An hourly gig needs a rate.");
+      return;
+    }
     setMoneyError(null);
+
+    const workStartedAt = localInputToMs(form.workStart);
+    const workEndedAt = localInputToMs(form.workEnd);
+    const breakMinutes = form.breakMinutes.trim() === "" ? null : Number(form.breakMinutes);
+    // Mirrors backend/src/domain/schemas.ts's superRefine, so a mistyped
+    // work log fails here rather than as a 400 after "Save" — the same
+    // reasoning as the hourly-rate guard above.
+    if (workEndedAt !== null && workStartedAt === null) {
+      setWorkError("Work can't end without a start time.");
+      return;
+    }
+    if (workStartedAt !== null && workEndedAt !== null) {
+      if (workEndedAt <= workStartedAt) {
+        setWorkError("Finished must be after Started.");
+        return;
+      }
+      if (breakMinutes !== null && breakMinutes * 60_000 >= workEndedAt - workStartedAt) {
+        setWorkError("The break can't fill the whole shift.");
+        return;
+      }
+    }
+    setWorkError(null);
+
     save.mutate({
       clientId: form.clientId === "" ? null : form.clientId,
       title: form.title.trim() === "" ? null : form.title.trim(),
@@ -193,7 +261,18 @@ export function GigEdit() {
       durationMinutes:
         form.durationMinutes === "" ? null : Number(form.durationMinutes),
       location: form.location.trim() === "" ? null : form.location.trim(),
-      amountOfferedCents: offered,
+      payType: form.payType,
+      hourlyRateCents: form.payType === "hourly" ? parseMoney(form.hourlyRate) : null,
+      workStartedAt,
+      workEndedAt,
+      breakMinutes,
+      // amountOfferedCents is the fee on a fixed gig; on an hourly gig
+      // it is an OVERRIDE of rate × time (lib/gig-pay.ts), and this
+      // screen has no control that sets one — the Offered field above
+      // is only rendered for a fixed gig. Forcing it to null here is
+      // what keeps a value typed before switching to hourly from being
+      // saved as an override nobody meant to set.
+      amountOfferedCents: form.payType === "hourly" ? null : offered,
       amountPaidCents: paid,
       notes: form.notes.trim() === "" ? null : form.notes.trim(),
     });
@@ -294,7 +373,28 @@ export function GigEdit() {
               )}
             </Field>
 
-            <div className="grid grid-cols-2 gap-3">
+            <Field label="Paid by">
+              <Select
+                data-testid="gig-pay-type"
+                value={form.payType}
+                onChange={(e) => set("payType", e.target.value as PayType)}
+              >
+                <option value="fixed">A fixed fee</option>
+                <option value="hourly">An hourly rate</option>
+              </Select>
+            </Field>
+
+            {form.payType === "hourly" ? (
+              <Field label="Rate ($ per hour)" error={moneyError}>
+                <Input
+                  data-testid="gig-rate"
+                  inputMode="decimal"
+                  placeholder="50.00"
+                  value={form.hourlyRate}
+                  onChange={(e) => set("hourlyRate", e.target.value)}
+                />
+              </Field>
+            ) : (
               <Field label="Offered ($)" error={moneyError}>
                 <Input
                   data-testid="gig-offered"
@@ -304,16 +404,50 @@ export function GigEdit() {
                   onChange={(e) => set("offered", e.target.value)}
                 />
               </Field>
-              <Field label="Paid ($)">
-                <Input
-                  data-testid="gig-paid"
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  value={form.paid}
-                  onChange={(e) => set("paid", e.target.value)}
-                />
-              </Field>
-            </div>
+            )}
+
+            <Field label="Paid ($)">
+              <Input
+                data-testid="gig-paid"
+                inputMode="decimal"
+                placeholder="0.00"
+                value={form.paid}
+                onChange={(e) => set("paid", e.target.value)}
+              />
+            </Field>
+
+            <SectionHeading>Work done</SectionHeading>
+            <Field label="Started">
+              <DateTimeField
+                testId="gig-work-start"
+                value={form.workStart}
+                onChange={(v) => set("workStart", v)}
+              />
+            </Field>
+            <Field label="Finished">
+              <DateTimeField
+                testId="gig-work-end"
+                value={form.workEnd}
+                onChange={(v) => set("workEnd", v)}
+              />
+            </Field>
+            <Field label="Off-time breaks (minutes)" error={workError}>
+              <Input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                className="w-24"
+                data-testid="gig-break"
+                placeholder="0"
+                value={form.breakMinutes}
+                onChange={(e) => set("breakMinutes", e.target.value)}
+              />
+            </Field>
+            {payLine !== null && (
+              <p className="text-sm text-slate-600" data-testid="gig-expected-pay">
+                {payLine}
+              </p>
+            )}
 
             <Field label="Notes">
               <Textarea
