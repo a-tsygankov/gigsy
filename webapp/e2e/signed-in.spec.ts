@@ -145,7 +145,11 @@ test("a gig duration and a billable expense survive a server round-trip", async 
   await page.getByRole("link", { name: "Gigs" }).click();
   await page.getByRole("link", { name: "Add gig" }).click();
   await page.getByLabel("Location").fill(marker);
+  // A non-round duration — 3h20m — is the entire point of replacing
+  // the old fixed-length `<select>` with DurationField, so both halves
+  // need to survive the round trip, not just the hours.
   await page.getByTestId("gig-duration-hours").fill("3");
+  await page.getByTestId("gig-duration-minutes").fill("20");
   await page.getByRole("button", { name: "Save gig" }).click();
 
   // Let the save land first: click() returns once the click is
@@ -156,6 +160,7 @@ test("a gig duration and a billable expense survive a server round-trip", async 
 
   await page.getByText(marker).click();
   await expect(page.getByTestId("gig-duration-hours")).toHaveValue("3");
+  await expect(page.getByTestId("gig-duration-minutes")).toHaveValue("20");
 
   // …and an expense flagged as the client's to cover.
   await page.getByRole("link", { name: "Expenses" }).click();

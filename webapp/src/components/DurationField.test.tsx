@@ -98,4 +98,14 @@ describe("DurationField", () => {
     setValue(hours, "-5");
     expect(onChange).toHaveBeenCalledWith("10");
   });
+
+  it("floors a fractional half instead of emitting a non-integer total", () => {
+    const onChange = vi.fn();
+    // Same non-zeroish setup as the negative-clamp case above: 70
+    // minutes = 1h10m, so minutes starts at "10".
+    const el = render({ testId: "d", value: "70", onChange });
+    const hours = el.querySelector<HTMLInputElement>("[data-testid='d-hours']")!;
+    setValue(hours, "1.5");
+    expect(onChange).toHaveBeenCalledWith("70");
+  });
 });

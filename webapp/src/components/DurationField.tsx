@@ -49,23 +49,32 @@ function isZeroish(part: string): boolean {
  */
 function join(hours: string, minutes: string): string {
   if (isZeroish(hours) && isZeroish(minutes)) return "";
-  return String(clampToZero(hours) * 60 + clampToZero(minutes));
+  return String(clampToWholeNonNegative(hours) * 60 + clampToWholeNonNegative(minutes));
 }
 
 /**
  * `min`/`max` on the inputs below are affordances for the desktop
  * spinner and the mobile numeric keyboard only — nothing about
- * `type="number"` stops a typed "-5" reaching this handler. This clamp
- * is the actual guard; without it a negative half reaches the API as a
- * negative total and gets a 400 instead of a clear in-form correction.
+ * `type="number"` stops a typed "-5" or "1.5" reaching this handler.
+ * This clamp corrects exactly those two cases: a negative half floors
+ * to 0, and a fractional half floors to a whole number, because the
+ * write schema (backend/src/domain/schemas.ts) requires
+ * `durationMinutes` to be a positive integer and rejects either one
+ * with a 400.
  *
- * Only clamps below zero — 75 minutes is left as 75, not rolled into
- * 1h15m, because normalising mid-typing would rewrite digits out from
- * under whoever is still typing them. `partsOf` does that rollover
- * once the value is stored, which is the point it stops moving.
+ * It does *not* enforce that schema's 24-hour ceiling — `max={24}` on
+ * the hours input above is display-only, and a value like 25 still
+ * reaches the API unchanged, where the ceiling is that schema's job to
+ * enforce, not this field's.
+ *
+ * Only clamps below zero and to whole numbers — 75 minutes is left as
+ * 75, not rolled into 1h15m, because normalising mid-typing would
+ * rewrite digits out from under whoever is still typing them. `partsOf`
+ * does that rollover once the value is stored, which is the point it
+ * stops moving.
  */
-function clampToZero(part: string): number {
-  return Math.max(0, Number(part) || 0);
+function clampToWholeNonNegative(part: string): number {
+  return Math.max(0, Math.floor(Number(part) || 0));
 }
 
 export function DurationField({ value, onChange, testId }: DurationFieldProps) {
