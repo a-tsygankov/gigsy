@@ -93,6 +93,11 @@ describe("LocalStore CRUD + outbox", () => {
       location: null,
       dateTime: null,
       durationMinutes: null,
+      payType: "fixed",
+      hourlyRateCents: null,
+      workStartedAt: null,
+      workEndedAt: null,
+      breakMinutes: null,
       calendarEventId: null,
       amountOfferedCents: 5000,
       amountPaidCents: 5000,
@@ -260,15 +265,57 @@ describe("the outbox payload carries everything the server accepts", () => {
     expect(Object.keys(op?.payload as object).sort()).toEqual([
       "amountOfferedCents",
       "amountPaidCents",
+      "breakMinutes",
       "clientId",
       "dateTime",
       "durationMinutes",
+      "hourlyRateCents",
       "location",
       "notes",
+      "payType",
       "source",
       "status",
       "title",
+      "workEndedAt",
+      "workStartedAt",
     ]);
+  });
+
+  it("sends an hourly gig's rate and work log to both the record and the outbox payload", async () => {
+    // Same bug class as durationMinutes/reimbursable (see the header
+    // comment on OutboxPayload): these five fields were added together,
+    // so a screen that logs a shift must have both halves land, not
+    // just the local copy the screen itself reads back.
+    const { store } = makeStore();
+    await store.putGig(G1, {
+      status: "confirmed",
+      payType: "hourly",
+      hourlyRateCents: 5000,
+      workStartedAt: 1_000,
+      workEndedAt: 15_000,
+      breakMinutes: 5,
+    });
+
+    const gig = await store.getGig(G1);
+    expect(gig?.payType).toBe("hourly");
+    expect(gig?.hourlyRateCents).toBe(5000);
+    expect(gig?.workStartedAt).toBe(1_000);
+    expect(gig?.workEndedAt).toBe(15_000);
+    expect(gig?.breakMinutes).toBe(5);
+
+    const op = (await store.pendingOps()).find((o) => o.entity === "gig");
+    const payload = op?.payload as {
+      payType?: string;
+      hourlyRateCents?: number | null;
+      workStartedAt?: number | null;
+      workEndedAt?: number | null;
+      breakMinutes?: number | null;
+    };
+    expect(payload.payType).toBe("hourly");
+    expect(payload.hourlyRateCents).toBe(5000);
+    expect(payload.workStartedAt).toBe(1_000);
+    expect(payload.workEndedAt).toBe(15_000);
+    expect(payload.breakMinutes).toBe(5);
   });
 
   it("sends the expense's reimbursable flag", async () => {
