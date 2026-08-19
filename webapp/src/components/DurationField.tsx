@@ -55,12 +55,9 @@ function join(hours: string, minutes: string): string {
 /**
  * `min`/`max` on the inputs below are affordances for the desktop
  * spinner and the mobile numeric keyboard only — nothing about
- * `type="number"` stops a typed "-5" reaching this handler (the same
- * lesson `step` on a `datetime-local` taught GigEdit.tsx, which is why
- * the money fields parse plain text by hand instead of trusting the
- * native input to constrain anything). This clamp is the actual guard;
- * without it a negative half reaches the API as a negative total and
- * gets a 400 instead of a clear in-form correction.
+ * `type="number"` stops a typed "-5" reaching this handler. This clamp
+ * is the actual guard; without it a negative half reaches the API as a
+ * negative total and gets a 400 instead of a clear in-form correction.
  *
  * Only clamps below zero — 75 minutes is left as 75, not rolled into
  * 1h15m, because normalising mid-typing would rewrite digits out from
