@@ -260,6 +260,43 @@ describe("POST /api/sync", () => {
     expect(gig.title).toBe("Costco tasting");
   });
 
+  // Same failure mode as the title test above, but for the pay/work-log
+  // fields added alongside it — the hand-written upsert object in
+  // sync.ts has to list these five by name too.
+  it("carries hourly pay and work-log fields through the upsert", async () => {
+    const PAID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const body = await sync(U1, [
+      {
+        entity: "gig",
+        op: "upsert",
+        id: PAID,
+        modifiedAt: 5000,
+        payload: {
+          status: "confirmed",
+          payType: "hourly",
+          hourlyRateCents: 3000,
+          workStartedAt: 1_000_000_000,
+          workEndedAt: 1_000_000_000 + 4 * 3_600_000,
+          breakMinutes: 30,
+        },
+      },
+    ]);
+    expect(body.results[0]?.status).toBe("applied");
+
+    const gig = (await (await api(U1, "GET", `/api/gigs/${PAID}`)).json()) as {
+      payType: string;
+      hourlyRateCents: number | null;
+      workStartedAt: number | null;
+      workEndedAt: number | null;
+      breakMinutes: number | null;
+    };
+    expect(gig.payType).toBe("hourly");
+    expect(gig.hourlyRateCents).toBe(3000);
+    expect(gig.workStartedAt).toBe(1_000_000_000);
+    expect(gig.workEndedAt).toBe(1_000_000_000 + 4 * 3_600_000);
+    expect(gig.breakMinutes).toBe(30);
+  });
+
   it("400s on a malformed batch", async () => {
     const res = await api(U1, "POST", "/api/sync", { ops: [{ entity: "cat" }] });
     expect(res.status).toBe(400);

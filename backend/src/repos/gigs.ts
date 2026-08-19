@@ -3,6 +3,7 @@ import { and, desc, eq, gt, gte, inArray, isNotNull, lte } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import { calendarCleanup, gigs, type GigStatus } from "../db/schema.ts";
 import { MAX_GIG_DURATION_MS, type TimedGig } from "../domain/gig-time.ts";
+import type { PayType } from "../domain/gig-pay.ts";
 import type { UpsertResult, WriteStamps } from "./clients.ts";
 
 export type GigRecord = typeof gigs.$inferSelect;
@@ -16,6 +17,11 @@ export interface GigData {
   location: string | null;
   dateTime: number | null;
   durationMinutes: number | null;
+  payType: PayType;
+  hourlyRateCents: number | null;
+  workStartedAt: number | null;
+  workEndedAt: number | null;
+  breakMinutes: number | null;
   amountOfferedCents: number | null;
   amountPaidCents: number | null;
   notes: string | null;
