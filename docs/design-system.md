@@ -247,6 +247,50 @@ now walks `src/` and fails on any orphan.
 
 Check both themes before calling any visual change done.
 
+### shadcn/ui
+
+shadcn components reference their own variable names — `--background`,
+`--primary`, and so on — not Gigsy's. `tokens/shadcn.css` defines each of
+them as an alias for a `--c-*` triplet, so the palette above stays the only
+place a colour is chosen and the dark block in `colors.css` stays the only
+place the theme switches; no second palette to keep in step. Adding a
+shadcn component that needs a variable not yet aliased means adding it to
+`shadcn.css` **and** to the `REQUIRED` list in
+`src/lib/design-tokens.test.ts` — an undefined CSS variable renders as
+transparent, with no error to find.
+
+Two of the bridge's names carry a `--shadcn-` prefix; the rest don't.
+`semantic.css` already defines `--accent`, as a finished `rgb(...)` colour
+rather than a triplet — a second file defining the same name would make
+the winner depend on import order, and the loser would fail as a
+transparent element nowhere near where the bug lives. The bridge sidesteps
+this by naming its own `--shadcn-accent` / `--shadcn-accent-foreground`;
+`tailwind.config.ts` points the `accent` Tailwind key at those, so
+component code still writes `bg-accent` and `text-accent-foreground` and
+never sees the rename.
+
+Three things to know before adding a shadcn component:
+
+- **Rewrite a bare `border` as `border-border`.** Stock shadcn relies on a
+  global `@layer base { * { @apply border-border } }`, deliberately absent
+  here — it would restyle every border in the app. Left alone, `border`
+  resolves to Tailwind's stock grey and never repaints in dark theme. The
+  same caution applies to any other bare utility a component assumes that
+  global layer will redirect.
+- **`pnpm dlx shadcn@latest add …` writes into a literal `@/` directory.**
+  It reads the root `tsconfig.json`, which carries project references and
+  no `paths` — the alias is only declared in `tsconfig.app.json`. Move the
+  generated file into `src/components/ui/`.
+- **`Card` now names two different things.** `src/components/Card.tsx` is
+  the app's own card — barrel-exported, used on every screen.
+  `src/components/ui/card.tsx` is shadcn's, imported through `@/`. They are
+  one autocomplete slip apart; reach for the app's own `Card` by default,
+  and only for shadcn's on a screen that has deliberately adopted it.
+
+Adoption is incremental: shadcn is used on the gig detail screens from
+Phase 3 onward. The core components in `src/components/` are unchanged and
+remain the vocabulary everywhere else.
+
 ## Iconography
 
 **Gigsy has no icon set.** There is no icon font, no SVG sprite, no Lucide/Heroicons
