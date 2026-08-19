@@ -16,9 +16,15 @@
  *
  * DUPLICATED from backend/src/domain/gig-pay.ts as far as
  * `expectedCents`. Both copies are pinned by
- * fixtures/gig-pay-vectors.json; change them together. What follows
- * `expectedCents` — `storedOrDerivedExpectedCents` — is webapp-only and
- * has no backend counterpart; see its own comment.
+ * fixtures/gig-pay-vectors.json; change them together.
+ *
+ * `storedOrDerivedExpectedCents` is webapp-only and has no backend
+ * counterpart; see its own comment. `outstandingCents`/`isPaid` DO
+ * exist in both files and share the same vectors, but are no longer
+ * byte-identical below this header: this copy routes through
+ * `storedOrDerivedExpectedCents`, the backend copy calls
+ * `expectedCents()` directly. That is deliberate, not drift — see the
+ * comment on `outstandingCents` below for why.
  *
  * One claim in the body below is true only of the backend copy, and is
  * left as-is here rather than edited, because editing it would make the
@@ -120,4 +126,49 @@ export function storedOrDerivedExpectedCents(
   gig: PayableGig & { expectedCents: number | null },
 ): number | null {
   return gig.expectedCents ?? expectedCents(gig);
+}
+
+/**
+ * A gig plus what has landed against it. Also mirrored from the
+ * backend copy of this file, with one deliberate divergence — see
+ * `outstandingCents` below.
+ */
+export interface PaidGig extends PayableGig {
+  amountPaidCents: number | null;
+  expectedCents: number | null;
+}
+
+/**
+ * What is still owed, or null when the expectation is unknown.
+ *
+ * Never negative: overpayment is a bookkeeping curiosity, not a debt
+ * the app owes back, and a negative here would subtract from the
+ * dashboard's outstanding total and hide a real unpaid gig.
+ *
+ * DIVERGES from the backend copy here: this goes through
+ * `storedOrDerivedExpectedCents`, not `expectedCents()` directly. On
+ * the server the `expectedCents` column is always current (GigsRepo.upsert
+ * recomputes it on every write), so calling `expectedCents()` there is
+ * exact. Offline, a gig can be mid-edit with no synced column yet —
+ * calling `expectedCents()` directly here would let a gig row and the
+ * dashboard it feeds land on two different figures for the same gig,
+ * which is exactly what `storedOrDerivedExpectedCents` exists to
+ * prevent (see its comment above).
+ */
+export function outstandingCents(gig: PaidGig): number | null {
+  const expected = storedOrDerivedExpectedCents(gig);
+  if (expected === null) return null;
+  return Math.max(0, expected - (gig.amountPaidCents ?? 0));
+}
+
+/**
+ * Paid when nothing is outstanding.
+ *
+ * An unknown expectation is NOT paid, whatever has been received: this
+ * is what used to be a status someone set by hand, and the honest
+ * answer to "is this settled" when we don't know what it should earn is
+ * no.
+ */
+export function isPaid(gig: PaidGig): boolean {
+  return outstandingCents(gig) === 0;
 }
