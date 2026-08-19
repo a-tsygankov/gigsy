@@ -41,6 +41,7 @@ function gig(over: Partial<Gig> = {}): Gig {
     calendarEventId: null,
     amountOfferedCents: 20000,
     amountPaidCents: 15000,
+    expectedCents: null,
     notes: null,
     source: null,
     createdAt: SEP,
@@ -140,6 +141,48 @@ describe("incomeRows", () => {
       "50.00",
       "",
     ]);
+  });
+
+  it("bills an hourly gig at its computed pay, not at nothing", () => {
+    // The regression: an hourly gig is stored with amountOfferedCents
+    // null on purpose, so the CSV billed every one of them at $0.00.
+    const rows = incomeRows(
+      [
+        gig({
+          payType: "hourly",
+          hourlyRateCents: 5000,
+          durationMinutes: 480,
+          amountOfferedCents: null,
+          amountPaidCents: null,
+          expectedCents: 40000,
+        }),
+      ],
+      [],
+      [acme],
+      {},
+    );
+    expect(rows[0]?.slice(5, 8)).toEqual(["400.00", "0.00", "400.00"]);
+  });
+
+  it("bills an unsynced hourly gig from the local derivation", () => {
+    // Same gig before it has reached the server: exports work offline,
+    // which is half the reason they are generated client-side.
+    const rows = incomeRows(
+      [
+        gig({
+          payType: "hourly",
+          hourlyRateCents: 5000,
+          durationMinutes: 480,
+          amountOfferedCents: null,
+          amountPaidCents: null,
+          expectedCents: null,
+        }),
+      ],
+      [],
+      [acme],
+      {},
+    );
+    expect(rows[0]?.slice(5, 8)).toEqual(["400.00", "0.00", "400.00"]);
   });
 
   it("emits services as their own income lines, dated and attributed to their gig", () => {

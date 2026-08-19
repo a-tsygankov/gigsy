@@ -13,6 +13,7 @@ import availabilityTokensSql from "../../migrations/0010_availability_tokens.sql
 import gigTitleSql from "../../migrations/0011_gig_title.sql?raw";
 import activityEventsSql from "../../migrations/0012_activity_events.sql?raw";
 import gigPayAndWorkLogSql from "../../migrations/0013_gig_pay_and_work_log.sql?raw";
+import gigExpectedCentsSql from "../../migrations/0014_gig_expected_cents.sql?raw";
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
@@ -31,6 +32,7 @@ const MIGRATIONS = [
   gigTitleSql,
   activityEventsSql,
   gigPayAndWorkLogSql,
+  gigExpectedCentsSql,
 ];
 
 /**

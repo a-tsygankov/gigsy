@@ -125,6 +125,19 @@ export const gigs = sqliteTable(
     calendarEventId: text("calendar_event_id"),
     amountOfferedCents: integer("amount_offered_cents"),
     amountPaidCents: integer("amount_paid_cents"),
+    /**
+     * What this gig is expected to earn — expectedCents() applied to
+     * the columns below, recomputed by GigsRepo.upsert on every write
+     * (migration 0014). Server-owned like calendarEventId: it is not
+     * in GigData or GigInput, because a client-supplied figure would
+     * be a number nobody derived sitting in every money total.
+     *
+     * It exists because the aggregates cannot ask gig-pay.ts a
+     * question about a row they are summing in SQL. Everything that
+     * means "what is this gig worth" sums this column, never
+     * amountOfferedCents — which on an hourly gig is only an override.
+     */
+    expectedCents: integer("expected_cents"),
     /** 'fixed' — amountOfferedCents is the fee. 'hourly' — it is an
      *  optional override of rate × time (domain/gig-pay.ts). */
     payType: text("pay_type").$type<PayType>().notNull().default("fixed"),

@@ -53,6 +53,7 @@ function gig(id: string, over: Partial<Gig> = {}): Gig {
     calendarEventId: null,
     amountOfferedCents: null,
     amountPaidCents: null,
+    expectedCents: null,
     notes: null,
     source: null,
     createdAt: 0,

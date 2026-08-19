@@ -1,0 +1,34 @@
+-- 0014_gig_expected_cents: what a gig is expected to earn, as a column.
+--
+-- 0013 made a gig payable by the hour, where amount_offered_cents is
+-- no longer the fee but an optional OVERRIDE of rate × time. Every
+-- money total still summed amount_offered_cents — the dashboard's
+-- Expected and unpaid figures, the report's offered/per-month/
+-- per-client/still-owed, the unpaid push nudge — so an hourly gig with
+-- no override counted as nothing at all: a $50/h eight-hour shift
+-- added $0.00 to every one of them.
+--
+-- The arithmetic is deliberately NOT re-expressed in SQL. It lives in
+-- src/domain/gig-pay.ts, is duplicated in the webapp, and both copies
+-- are pinned by fixtures/gig-pay-vectors.json. A third copy, in a
+-- third language, is a third thing to keep in step — and the vectors
+-- cannot pin SQL. Instead src/repos/gigs.ts recomputes this column
+-- from that module inside upsert(), the single funnel both the CRUD
+-- route and the /api/sync batch pass through, so the stored figure
+-- cannot drift from the inputs it was derived from.
+--
+-- DERIVED AND SERVER-OWNED: never written by a client. It is absent
+-- from GigInput (src/domain/schemas.ts) for exactly the reason
+-- calendar_event_id is — a client-supplied value would put a number
+-- nobody computed into every money total, and the offline clients that
+-- feed /api/sync are the ones this app trusts least.
+ALTER TABLE gigs ADD COLUMN expected_cents INTEGER;
+
+-- Backfill. Every row in production today is pay_type 'fixed': 0013
+-- defaulted the column that way and hourly only became enterable in
+-- the release now live. On a fixed gig the expected figure IS the
+-- offer — the first line of expectedCents() — so the whole backfill is
+-- a copy. NULL copies as NULL, which is right: a gig with no offer has
+-- an unknown value, not a zero one, and zero would read as work that
+-- pays nothing.
+UPDATE gigs SET expected_cents = amount_offered_cents;

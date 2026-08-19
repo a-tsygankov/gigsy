@@ -11,6 +11,7 @@ import {
   billableMinutes,
   expectedCents,
   PAY_TYPES,
+  storedOrDerivedExpectedCents,
   workedMinutes,
   type PayableGig,
 } from "./gig-pay.ts";
@@ -29,4 +30,56 @@ describe("gig pay vectors", () => {
       expect(expectedCents(gig)).toBe(c.expectedCents);
     });
   }
+});
+
+/**
+ * The display fallback. `expectedCents` is a server-owned column that
+ * a gig only has once it has synced, so the screens read it through
+ * this and derive locally until then.
+ */
+describe("storedOrDerivedExpectedCents", () => {
+  const hourly: PayableGig = {
+    payType: "hourly",
+    hourlyRateCents: 5000,
+    amountOfferedCents: null,
+    durationMinutes: 480,
+    workStartedAt: null,
+    workEndedAt: null,
+    breakMinutes: null,
+  };
+
+  it("prefers what the server stored", () => {
+    // Deliberately NOT 40000: if the two ever disagree, the figure the
+    // aggregates are built from is the one to show.
+    expect(storedOrDerivedExpectedCents({ ...hourly, expectedCents: 12345 })).toBe(
+      12345,
+    );
+  });
+
+  it("derives locally for a gig that has not synced yet", () => {
+    expect(storedOrDerivedExpectedCents({ ...hourly, expectedCents: null })).toBe(
+      40000,
+    );
+  });
+
+  it("still reports nothing when there is nothing to say", () => {
+    // Null is not zero — an hourly gig with no time to bill on has an
+    // unknown value, and $0.00 would read as work that pays nothing.
+    expect(
+      storedOrDerivedExpectedCents({
+        ...hourly,
+        durationMinutes: null,
+        expectedCents: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("agrees with the local derivation across every shared vector", () => {
+    for (const c of vectors.cases) {
+      const gig = c.gig as PayableGig;
+      expect(storedOrDerivedExpectedCents({ ...gig, expectedCents: null })).toBe(
+        c.expectedCents,
+      );
+    }
+  });
 });

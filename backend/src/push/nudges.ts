@@ -82,10 +82,16 @@ export async function selectNudge(
     );
 
   // Oldest first — the one that has been outstanding longest.
+  //
+  // `expectedCents`, not `amountOfferedCents`: on an hourly gig the
+  // offer column is only an optional override of rate × time, so an
+  // hourly gig read as owing nothing and was never nudged about — the
+  // one case where silence costs the user money. The column is derived
+  // and kept current by GigsRepo.upsert (migration 0014).
   const owed = unpaid
     .map((gig) => ({
       gig,
-      outstanding: (gig.amountOfferedCents ?? 0) - (gig.amountPaidCents ?? 0),
+      outstanding: (gig.expectedCents ?? 0) - (gig.amountPaidCents ?? 0),
     }))
     .filter((row) => row.outstanding > 0)
     .sort((a, b) => a.gig.modifiedAt - b.gig.modifiedAt);

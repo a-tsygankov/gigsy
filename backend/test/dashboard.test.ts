@@ -6,6 +6,9 @@ import { api } from "./helpers/api.ts";
 
 const U1 = "user-1";
 const U2 = "user-2";
+// Hourly gigs live under their own user so the fixed-pay totals above
+// stay the exact numbers they were written as.
+const U3 = "user-3";
 const ACME = "11111111-aaaa-4aaa-8aaa-111111111111";
 const FUTURE_NEAR = "21111111-1111-4111-8111-111111111111"; // +10d confirmed
 const FUTURE_FAR = "22222222-2222-4222-8222-222222222222"; // +60d lead
@@ -42,6 +45,7 @@ beforeAll(async () => {
   await applyMigrations(env.DB);
   await seedUser(env.DB, U1);
   await seedUser(env.DB, U2);
+  await seedUser(env.DB, U3);
   await api(U1, "PUT", `/api/clients/${ACME}`, { name: "Acme" });
 
   // Future: confirmed +10d offered 20000 (+ service 5000), lead +60d 10000.
@@ -127,5 +131,49 @@ describe("GET /api/reports/dashboard", () => {
     expect(d.expectedCents).toBe(0);
     expect(d.unpaidCents).toBe(0);
     expect(d.unpaidJobs).toEqual([]);
+  });
+});
+
+// The regression this column exists for: an hourly gig carries no
+// amount_offered_cents at all (GigEdit saves it as null so the figure
+// stays computed), so every dashboard total read it as zero.
+describe("GET /api/reports/dashboard — hourly gigs", () => {
+  const HOURLY_FUTURE = "25555555-5555-4555-8555-555555555555";
+  const HOURLY_DONE = "26666666-6666-4666-8666-666666666666";
+
+  it("counts an hourly gig's computed pay as expected money", async () => {
+    await api(U3, "PUT", `/api/gigs/${HOURLY_FUTURE}`, {
+      status: "confirmed",
+      dateTime: NOW + 3 * DAY,
+      payType: "hourly",
+      hourlyRateCents: 5000,
+      durationMinutes: 480,
+    });
+    const d = await dashboard(U3);
+    expect(d.expectedCents).toBe(40000); // $50/h × 8h
+  });
+
+  it("counts an hourly gig's computed pay as outstanding when unpaid", async () => {
+    const start = Date.UTC(2026, 8, 12, 9);
+    await api(U3, "PUT", `/api/gigs/${HOURLY_DONE}`, {
+      status: "completed",
+      dateTime: NOW - 3 * DAY,
+      payType: "hourly",
+      hourlyRateCents: 5000,
+      durationMinutes: 480,
+      // Six hours actually worked, less a 30 minute break: the actuals
+      // win over the plan, so this is 5.5h not 8h.
+      workStartedAt: start,
+      workEndedAt: start + 6 * 60 * 60 * 1000,
+      breakMinutes: 30,
+    });
+    const d = await dashboard(U3);
+    expect(d.unpaidCents).toBe(27500);
+    expect(d.unpaidJobs[0]).toMatchObject({
+      gigId: HOURLY_DONE,
+      offeredCents: 27500,
+      paidCents: 0,
+      outstandingCents: 27500,
+    });
   });
 });

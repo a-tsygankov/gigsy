@@ -34,6 +34,17 @@ export interface Gig {
   calendarEventId: string | null;
   amountOfferedCents: number | null;
   amountPaidCents: number | null;
+  /**
+   * What the SERVER says this gig is expected to earn — its offer when
+   * fixed, rate × time when hourly. Server-owned and derived: it has no
+   * counterpart in GigInput, the outbox never sends it, and it is what
+   * every backend money total sums (migration 0014).
+   *
+   * Null on a gig that has not been through the server yet, which is
+   * why the screens read it through `storedOrDerivedExpectedCents`
+   * (lib/gig-pay.ts) rather than directly.
+   */
+  expectedCents: number | null;
   notes: string | null;
   source: string | null;
   createdAt: number;
