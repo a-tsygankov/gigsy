@@ -8,7 +8,7 @@ import { describe, it, expect } from "vitest";
 import { buttonClasses } from "./Button.tsx";
 import { cardClasses } from "./Card.tsx";
 import { inputShellClasses, shellWith, textareaClasses } from "./Input.tsx";
-import { STATUS_PILL_CLASSES } from "./StatusPill.tsx";
+import { PAID_BADGE_CLASSES, STATUS_PILL_CLASSES } from "./StatusPill.tsx";
 import { TILE_TONE_CLASSES } from "./Tile.tsx";
 
 describe("buttonClasses", () => {
@@ -186,14 +186,25 @@ describe("status + tone maps", () => {
     expect(STATUS_PILL_CLASSES.lead).toContain("slate");
   });
 
-  it("gives every status its own hue — colour is the only thing distinguishing them", () => {
+  it("gives every status, and the paid badge, its own hue — colour is the only thing distinguishing them", () => {
     // `toContain("slate")` alone can't catch two statuses sharing a
     // colour; this extracts the actual bg-* utility from each class
-    // string and checks the four are pairwise distinct.
-    const hues = Object.values(STATUS_PILL_CLASSES).map(
+    // string and checks all five — the four statuses plus the paid
+    // badge, which sits beside them on the same pill — are pairwise
+    // distinct.
+    const hues = [...Object.values(STATUS_PILL_CLASSES), PAID_BADGE_CLASSES].map(
       (cls) => cls.match(/bg-(\w+)-\d+/)?.[1],
     );
     expect(new Set(hues).size).toBe(hues.length);
+  });
+
+  it("the paid badge doesn't collide with the app's error red", () => {
+    // Not covered by the pairwise-distinct check above, which only
+    // compares the badge against the four status hues — this app's
+    // red-50/red-600 error signal (Field, LogList, every screen's
+    // "Save failed" line, SyncBadge's failure state) isn't one of
+    // those, so it needs its own assertion.
+    expect(PAID_BADGE_CLASSES).not.toContain("red");
   });
 
   it("tile tones map to the money semantics", () => {
