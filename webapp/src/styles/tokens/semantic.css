@@ -38,7 +38,7 @@
   --status-lead-bg:rgb(var(--c-slate-100));--status-lead-text:rgb(var(--c-slate-600));
   --status-confirmed-bg:rgb(var(--c-sky-100));--status-confirmed-text:rgb(var(--c-sky-700));
   --status-completed-bg:rgb(var(--c-amber-100));--status-completed-text:rgb(var(--c-amber-700));
-  --status-paid-bg:rgb(var(--c-emerald-100));--status-paid-text:rgb(var(--c-emerald-700));
+  --status-cancelled-bg:rgb(var(--c-violet-100));--status-cancelled-text:rgb(var(--c-violet-700));
 
   --info-bg:rgb(var(--c-sky-50));--info-border:rgb(var(--c-sky-200));--info-text:rgb(var(--c-sky-700));
   --warn-bg:rgb(var(--c-amber-50));--warn-text:rgb(var(--c-amber-800));--warn-value:rgb(var(--c-amber-700));

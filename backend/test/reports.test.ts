@@ -58,9 +58,13 @@ beforeAll(async () => {
   await api(U1, "PUT", `/api/clients/${BRAVO}`, { name: "Bravo" });
 
   // Sep: Acme gig, offered 10000 / paid 8000, with a 2000 expense.
+  // Seeded "completed" rather than the old "paid" — migration 0015
+  // retires that status, and this 2000 shortfall now legitimately
+  // reads as owed (see the owedCents assertions below) rather than
+  // being hidden by a hand-set status that declared the matter closed.
   await api(U1, "PUT", `/api/gigs/${G1}`, {
     clientId: ACME,
-    status: "paid",
+    status: "completed",
     dateTime: SEP,
     amountOfferedCents: 10000,
     amountPaidCents: 8000,
@@ -78,7 +82,7 @@ beforeAll(async () => {
   // Oct: Acme 20000/20000, Bravo 5000/unpaid (+1000 expense), no-client 1000/1000.
   await api(U1, "PUT", `/api/gigs/${G2}`, {
     clientId: ACME,
-    status: "paid",
+    status: "completed",
     dateTime: OCT,
     amountOfferedCents: 20000,
     amountPaidCents: 20000,
@@ -91,7 +95,7 @@ beforeAll(async () => {
   });
   await api(U1, "PUT", `/api/expenses/${E2}`, { gigId: G3, amountCents: 1000 });
   await api(U1, "PUT", `/api/gigs/${G4}`, {
-    status: "paid",
+    status: "completed",
     dateTime: OCT,
     amountOfferedCents: 1000,
     amountPaidCents: 1000,
@@ -110,10 +114,13 @@ describe("GET /api/reports/summary", () => {
     expect(s.totals).toEqual({
       offeredCents: 39000,
       paidCents: 30000,
-      // Only G3 — the one `completed` gig — at 5000 offered and nothing
-      // paid. Not 9000 (offered − paid over everything), which counted
-      // shortfalls on gigs already marked `paid` as debts.
-      owedCents: 5000,
+      // Every completed gig, clamped per gig, gig plus its own
+      // services: G1 (gig 10000−8000=2000, service S1 3000−1000=2000
+      // → 4000) and G3 (5000−0=5000, no services); G2 and G4 are paid
+      // in full and contribute nothing. G1's 4000 no longer has a
+      // hand-set `paid` status left to hide it — that is what retiring
+      // the status was for.
+      owedCents: 9000,
       expensesCents: 3000,
       reimbursableCents: 0,
       netCents: 27000,
@@ -177,11 +184,11 @@ describe("GET /api/reports/summary", () => {
     expect(s.totals).toEqual({
       offeredCents: 33000,
       paidCents: 29000,
-      // Zero, where the old figure was 4000. Both of Acme's gigs are
-      // marked `paid`; the 4000 gap between offered and paid on them is
-      // a discount or a write-off, not an outstanding invoice. The
-      // status is what settles that question, not the arithmetic.
-      owedCents: 0,
+      // G1: completed and genuinely short, gig and service both — 2000
+      // (10000 offered, 8000 paid) plus S1's 2000 (3000 offered, 1000
+      // paid) — with no `paid` status left to mark it settled by hand.
+      // G2 is paid in full and contributes nothing.
+      owedCents: 4000,
       expensesCents: 2000,
       reimbursableCents: 0,
       netCents: 27000,
@@ -205,6 +212,57 @@ describe("GET /api/reports/summary", () => {
   it("400s on a malformed from param", async () => {
     const res = await api(U1, "GET", "/api/reports/summary?from=yesterday");
     expect(res.status).toBe(400);
+  });
+
+  it("excludes a cancelled gig and its service from money, but keeps its expenses", async () => {
+    // Migration 0015: a cancelled gig fell through and stops counting
+    // as money — offered, paid, owed, and its own service go with it,
+    // the same way it stops occupying time and stops holding a
+    // calendar event. Its expenses are the deliberate exception
+    // (reports.ts header comment): travel booked or materials bought
+    // before the gig cancelled were still spent, so they still reduce
+    // net. Diffed against a before/after baseline so this doesn't have
+    // to reason about every other fixture in beforeAll.
+    const before = await summary(U1);
+    const beforeOct = before.byMonth.find((m) => m.month === "2026-10");
+
+    const CANCELLED = "35555555-5555-4555-8555-555555555555";
+    const CANCELLED_SVC = "36666666-6666-4666-8666-666666666666";
+    const CANCELLED_EXP = "37777777-7777-4777-8777-777777777777";
+
+    await api(U1, "PUT", `/api/gigs/${CANCELLED}`, {
+      status: "cancelled",
+      dateTime: OCT,
+      amountOfferedCents: 999_999,
+      amountPaidCents: 999_999,
+    });
+    await api(U1, "PUT", `/api/services/${CANCELLED_SVC}`, {
+      gigId: CANCELLED,
+      description: "Would-have-been overtime",
+      amountOfferedCents: 500_000,
+      amountPaidCents: 500_000,
+    });
+    await api(U1, "PUT", `/api/expenses/${CANCELLED_EXP}`, {
+      gigId: CANCELLED,
+      amountCents: 3000,
+    });
+
+    const after = await summary(U1);
+    const afterOct = after.byMonth.find((m) => m.month === "2026-10");
+
+    // The gig and its service: invisible to money totals.
+    expect(after.totals.offeredCents).toBe(before.totals.offeredCents);
+    expect(after.totals.paidCents).toBe(before.totals.paidCents);
+    expect(after.totals.owedCents).toBe(before.totals.owedCents);
+    expect(after.byClient).toEqual(before.byClient);
+    expect(afterOct?.offeredCents).toBe(beforeOct?.offeredCents ?? 0);
+    expect(afterOct?.paidCents).toBe(beforeOct?.paidCents ?? 0);
+
+    // The expense: still counted, both in the total and in October.
+    expect(after.totals.expensesCents).toBe(before.totals.expensesCents + 3000);
+    expect(after.totals.netCents).toBe(before.totals.netCents - 3000);
+    expect(afterOct?.expensesCents).toBe((beforeOct?.expensesCents ?? 0) + 3000);
+    expect(afterOct?.netCents).toBe((beforeOct?.netCents ?? 0) - 3000);
   });
 });
 
@@ -301,15 +359,18 @@ describe("owedCents", () => {
   });
 
   it("respects the report's own filters", async () => {
-    // G3 is the only completed gig, and it belongs to Bravo in October.
+    // Bravo's only gig, G3, is completed and entirely unpaid.
     const bravo = await summary(U1, `?clientId=${BRAVO}`);
     expect(bravo.totals.owedCents).toBeGreaterThan(0);
 
+    // G1 is the only gig in September: completed, with a 2000
+    // shortfall of its own plus S1's 2000 — no `paid` status left to
+    // mark either settled by hand.
     const september = await summary(
       U1,
       `?from=${Date.UTC(2026, 8, 1)}&to=${Date.UTC(2026, 8, 30)}`,
     );
-    expect(september.totals.owedCents).toBe(0);
+    expect(september.totals.owedCents).toBe(4000);
   });
 });
 

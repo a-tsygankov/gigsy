@@ -44,11 +44,11 @@ const END_OF_DAY_MINUTE = 24 * 60;
  *
  * Leads never block: the whole point of a lead is that it is not yet a
  * commitment, and blocking on one would have the user turning down
- * work for a job they have not been given. `completed` and `paid`
- * block for their historic slot, which matters only if someone asks
- * about the past.
+ * work for a job they have not been given. `completed` blocks for its
+ * historic slot, which matters only if someone asks about the past. A
+ * `cancelled` gig fell through — it occupies nothing, past or future.
  */
-export const BUSY_STATUSES: readonly GigStatus[] = ["confirmed", "completed", "paid"];
+export const BUSY_STATUSES: readonly GigStatus[] = ["confirmed", "completed"];
 
 /**
  * Everything the public page is allowed to know.

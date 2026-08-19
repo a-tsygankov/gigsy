@@ -5,8 +5,8 @@
  */
 import { PAY_TYPES, type PayType } from "./gig-pay.ts";
 
-export type GigStatus = "lead" | "confirmed" | "completed" | "paid";
-export const GIG_STATUSES: GigStatus[] = ["lead", "confirmed", "completed", "paid"];
+export type GigStatus = "lead" | "confirmed" | "completed" | "cancelled";
+export const GIG_STATUSES: GigStatus[] = ["lead", "confirmed", "completed", "cancelled"];
 
 // Re-exported so screens have one import site for the pay vocabulary.
 export type { PayType };

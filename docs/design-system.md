@@ -148,8 +148,10 @@ plan and held to everywhere.
   text `slate-900` (strong) / `slate-700` (body) / `slate-500` (muted) / `slate-400` (faint).
   **Accent: emerald-600** (`#059669`) — it means money and work: primary buttons, the FAB,
   the active tab, paid amounts. Status hues are the only other saturated colours:
-  slate/sky/amber/emerald. Red exists only for destructive and error text (`red-600`),
-  never as a filled button.
+  slate/sky/amber/violet. (Migration 0015 retired `paid` as a gig status and added
+  `cancelled`, which took violet rather than emerald — emerald already means "act on
+  this"/positive money everywhere else, backwards for a job that fell through.) Red
+  exists only for destructive and error text (`red-600`), never as a filled button.
 
 - **Two surfaces, not one.** Everything the app *is* sits on the card surface. Everything
   the app says *about itself* sits on the **help surface** — `sky-100` with a `sky-200`

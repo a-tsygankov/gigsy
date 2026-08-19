@@ -136,7 +136,7 @@ columns on an entity that already syncs.
 **Done when:** an hourly gig round-trips through the API and the offline
 outbox; the `gig-pay` vectors pass identically in both suites.
 
-## Phase 3 — Job definition separated from work results (migration `0014`)
+## Phase 3 — Job definition separated from work results (migration `0015`)
 
 `GigEdit.tsx` is 489 lines holding four responsibilities: the
 definition form, the results fields, the services list and the payments
@@ -156,7 +156,7 @@ start-stop transition, honouring `prefers-reduced-motion` per
 
 Status becomes `lead | confirmed | completed | cancelled`:
 
-- Migration `0014` maps existing `paid` rows to `completed`.
+- Migration `0015` maps existing `paid` rows to `completed`. (`0014` went to the derived `expected_cents` column, added after Phase 2 shipped.)
 - `cancelled` is excluded from `BUSY_STATUSES`
   (`backend/src/services/availability.ts:51`), from calendar sync, and
   from report and dashboard totals.
@@ -169,7 +169,7 @@ Status becomes `lead | confirmed | completed | cancelled`:
 without writing the other's fields; a cancelled gig disappears from
 availability and reports.
 
-## Phase 4 — Payments across multiple gigs (migration `0015`)
+## Phase 4 — Payments across multiple gigs (migration `0016`)
 
 New table:
 

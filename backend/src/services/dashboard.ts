@@ -1,6 +1,8 @@
 /**
  * Dashboard aggregates (user feature spec, 2026-08-08):
- * - completedCount — gigs `completed|paid`, all time.
+ * - completedCount — gigs `completed`, all time. `paid` is no longer a
+ *   status (migration 0015): a gig that was `paid` reads `completed`
+ *   now, and paid-ness is a fact about the money, not the count here.
  * - expectedCents — promised money still ahead: the expected pay of
  *   `lead|confirmed` gigs (optionally windowed by future date) plus
  *   their services' offered amounts. The window applies ONLY here —
@@ -65,7 +67,7 @@ export async function dashboardSummary(
   const completed = await d1
     .prepare(
       `SELECT COUNT(*) AS n FROM gigs
-       WHERE user_id = ?1 AND status IN ('completed', 'paid')`,
+       WHERE user_id = ?1 AND status = 'completed'`,
     )
     .bind(userId)
     .first<{ n: number }>();

@@ -274,7 +274,7 @@ describe("mergeSettings", () => {
 describe("gig list view", () => {
   it("accepts a complete saved view", () => {
     const parsed = SettingsPatchSchema.safeParse({
-      gigListStatuses: ["lead", "paid"],
+      gigListStatuses: ["lead", "cancelled"],
       gigListSort: "amount",
       gigListHidePast: true,
       gigListClientId: "abc123",

@@ -14,6 +14,7 @@ import gigTitleSql from "../../migrations/0011_gig_title.sql?raw";
 import activityEventsSql from "../../migrations/0012_activity_events.sql?raw";
 import gigPayAndWorkLogSql from "../../migrations/0013_gig_pay_and_work_log.sql?raw";
 import gigExpectedCentsSql from "../../migrations/0014_gig_expected_cents.sql?raw";
+import gigStatusCancelledSql from "../../migrations/0015_gig_status_cancelled.sql?raw";
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
@@ -43,26 +44,55 @@ export const MIGRATIONS_BEFORE_EXPECTED_CENTS = [
 
 export const EXPECTED_CENTS_MIGRATION = gigExpectedCentsSql;
 
-const MIGRATIONS = [...MIGRATIONS_BEFORE_EXPECTED_CENTS, EXPECTED_CENTS_MIGRATION];
+// Split again at 0015, for the same reason: it's the second migration
+// in this repo that runs once against rows that already exist, and the
+// bug it actually had (a FOREIGN KEY constraint failure the moment any
+// payment, service or expense pointed at a gig) only shows up when
+// there is something in those tables to violate. Every other suite
+// applies migrations to an empty database, which is exactly the shape
+// of test that let the bug through the first time.
+export const MIGRATIONS_BEFORE_STATUS_CANCELLED = [
+  ...MIGRATIONS_BEFORE_EXPECTED_CENTS,
+  EXPECTED_CENTS_MIGRATION,
+];
+
+export const STATUS_CANCELLED_MIGRATION = gigStatusCancelledSql;
+
+const MIGRATIONS = [
+  ...MIGRATIONS_BEFORE_STATUS_CANCELLED,
+  STATUS_CANCELLED_MIGRATION,
+];
 
 /**
- * Run migration SQL the way the D1 migration runner does: comment lines
- * dropped, then split on the statement terminator. Exported so a test
- * can apply a prefix of the list, seed rows, and then apply the rest.
+ * Comment lines dropped, then split on the statement terminator — the
+ * way the D1 migration runner turns one migration file into the
+ * individual statements it executes. Exported on its own (not just
+ * folded into applyMigrationSql) so a test can slice the list itself:
+ * apply the first N statements to stand in for a batch that failed
+ * partway through, then apply the whole file again to check whether it
+ * self-heals.
+ */
+export function splitMigrationStatements(sql: string): string[] {
+  return sql
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n")
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * Run migration SQL the way the D1 migration runner does. Exported so a
+ * test can apply a prefix of the list, seed rows, and then apply the
+ * rest.
  */
 export async function applyMigrationSql(
   db: D1Database,
   migrations: readonly string[],
 ): Promise<void> {
   for (const sql of migrations) {
-    const statements = sql
-      .split("\n")
-      .filter((line) => !line.trim().startsWith("--"))
-      .join("\n")
-      .split(";")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    for (const stmt of statements) {
+    for (const stmt of splitMigrationStatements(sql)) {
       await db.prepare(stmt).run();
     }
   }

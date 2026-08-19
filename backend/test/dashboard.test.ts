@@ -9,11 +9,18 @@ const U2 = "user-2";
 // Hourly gigs live under their own user so the fixed-pay totals above
 // stay the exact numbers they were written as.
 const U3 = "user-3";
+// Cancelled gigs and the retired 'paid' status get their own user too,
+// so their totals don't have to be reconciled against U1's fixture.
+const U4 = "user-4";
 const ACME = "11111111-aaaa-4aaa-8aaa-111111111111";
 const FUTURE_NEAR = "21111111-1111-4111-8111-111111111111"; // +10d confirmed
 const FUTURE_FAR = "22222222-2222-4222-8222-222222222222"; // +60d lead
 const COMPLETED = "23333333-3333-4333-8333-333333333333"; // -5d completed
-const PAID = "24444444-4444-4444-8444-444444444444"; // -10d paid
+// -10d, fully paid. Migration 0015 collapses the old status "paid"
+// into "completed"; this fixture is what that status used to look
+// like, seeded as "completed" directly since "paid" is no longer
+// accepted.
+const PAID_IN_FULL = "24444444-4444-4444-8444-444444444444";
 const SVC_FUTURE = "31111111-1111-4111-8111-111111111111";
 const SVC_UNPAID = "32222222-2222-4222-8222-222222222222";
 
@@ -46,6 +53,7 @@ beforeAll(async () => {
   await seedUser(env.DB, U1);
   await seedUser(env.DB, U2);
   await seedUser(env.DB, U3);
+  await seedUser(env.DB, U4);
   await api(U1, "PUT", `/api/clients/${ACME}`, { name: "Acme" });
 
   // Future: confirmed +10d offered 20000 (+ service 5000), lead +60d 10000.
@@ -82,9 +90,9 @@ beforeAll(async () => {
     amountPaidCents: 1000,
     isCompleted: true,
   });
-  await api(U1, "PUT", `/api/gigs/${PAID}`, {
+  await api(U1, "PUT", `/api/gigs/${PAID_IN_FULL}`, {
     clientId: ACME,
-    status: "paid",
+    status: "completed",
     dateTime: NOW - 10 * DAY,
     amountOfferedCents: 8000,
     amountPaidCents: 8000,
@@ -92,7 +100,7 @@ beforeAll(async () => {
 });
 
 describe("GET /api/reports/dashboard", () => {
-  it("counts completed jobs (completed + paid)", async () => {
+  it("counts every completed gig, including what used to be marked paid", async () => {
     const d = await dashboard(U1);
     expect(d.completedCount).toBe(2);
   });
@@ -175,5 +183,47 @@ describe("GET /api/reports/dashboard — hourly gigs", () => {
       paidCents: 0,
       outstandingCents: 27500,
     });
+  });
+});
+
+// Migration 0015: 'paid' stops being a settable status, and 'cancelled'
+// becomes one. U4 keeps these fixtures isolated from U1's shared totals
+// above.
+describe("GET /api/reports/dashboard — cancelled gigs, and 'paid' retired", () => {
+  const SOLO_COMPLETED = "27777777-7777-4777-8777-777777777777";
+  const REJECTED_PAID = "28888888-8888-4888-8888-888888888888";
+  const CANCELLED = "29999999-9999-4999-8999-999999999999";
+
+  it("counts completed gigs only — 'paid' is no longer a status", async () => {
+    await api(U4, "PUT", `/api/gigs/${SOLO_COMPLETED}`, {
+      status: "completed",
+      amountOfferedCents: 15000,
+    });
+
+    const d = await dashboard(U4);
+    expect(d.completedCount).toBe(1);
+  });
+
+  it("rejects an attempt to set status to 'paid'", async () => {
+    const res = await api(U4, "PUT", `/api/gigs/${REJECTED_PAID}`, {
+      status: "paid",
+      amountOfferedCents: 1000,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("ignores cancelled gigs entirely", async () => {
+    // Each `it` here rolls back to the beforeAll snapshot (db.ts), so
+    // this is U4's only gig — a plain 0 proves cancelling contributes
+    // neither to the completed count nor to expected money, rather
+    // than merely failing to change a total seeded by another test.
+    await api(U4, "PUT", `/api/gigs/${CANCELLED}`, {
+      status: "cancelled",
+      amountOfferedCents: 15000,
+    });
+
+    const d = await dashboard(U4);
+    expect(d.completedCount).toBe(0);
+    expect(d.expectedCents).toBe(0);
   });
 });
