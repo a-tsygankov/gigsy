@@ -42,4 +42,8 @@ describe("time strings", () => {
   it("has no value without a date — a time alone is not a moment", () => {
     expect(joinLocalInput("", "14:18")).toBe("");
   });
+
+  it("splits an unset value into two empty halves", () => {
+    expect(splitLocalInput("")).toEqual({ date: "", time: "" });
+  });
 });

@@ -22,10 +22,10 @@ export function localInputToMs(value: string): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
-/** The two halves an `<input type="date">` and a time <select> hold. */
+/** The two halves an `<input type="date">` and an `<input type="time">` hold. */
 export function splitLocalInput(value: string): { date: string; time: string } {
   const [date = "", rest = ""] = value.split("T");
-  // Some browsers hand back seconds; the select speaks HH:mm only.
+  // Some browsers hand back seconds; the time input speaks HH:mm only.
   return { date, time: rest.slice(0, 5) };
 }
 
