@@ -145,7 +145,7 @@ test("a gig duration and a billable expense survive a server round-trip", async 
   await page.getByRole("link", { name: "Gigs" }).click();
   await page.getByRole("link", { name: "Add gig" }).click();
   await page.getByLabel("Location").fill(marker);
-  await page.getByTestId("gig-duration").selectOption("180");
+  await page.getByTestId("gig-duration-hours").fill("3");
   await page.getByRole("button", { name: "Save gig" }).click();
 
   // Let the save land first: click() returns once the click is
@@ -155,7 +155,7 @@ test("a gig duration and a billable expense survive a server round-trip", async 
   await page.reload();
 
   await page.getByText(marker).click();
-  await expect(page.getByTestId("gig-duration")).toHaveValue("180");
+  await expect(page.getByTestId("gig-duration-hours")).toHaveValue("3");
 
   // …and an expense flagged as the client's to cover.
   await page.getByRole("link", { name: "Expenses" }).click();
@@ -187,12 +187,12 @@ test("reopening a just-edited gig shows the new values", async ({ page }) => {
 
   // Edit it: change the duration, save, reopen immediately.
   await page.getByText(marker).click();
-  await page.getByTestId("gig-duration").selectOption("300");
+  await page.getByTestId("gig-duration-hours").fill("5");
   await page.getByRole("button", { name: "Save gig" }).click();
   await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
 
   await page.getByText(marker).click();
-  await expect(page.getByTestId("gig-duration")).toHaveValue("300");
+  await expect(page.getByTestId("gig-duration-hours")).toHaveValue("5");
 });
 
 /**
@@ -246,7 +246,7 @@ test("a gig date and time are stored together and come back", async ({
   const marker = `gig-time-${Date.now()}`;
   await page.getByLabel("Location").fill(marker);
   await page.getByTestId("gig-datetime-date").fill("2027-03-04");
-  await page.getByTestId("gig-datetime-time").selectOption("10:45");
+  await page.getByTestId("gig-datetime-time").fill("10:45");
   await page.getByRole("button", { name: "Save gig" }).click();
   await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
 

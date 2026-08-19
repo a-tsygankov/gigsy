@@ -61,14 +61,16 @@ export const HelpTarget = {
 
   // ── the gig form (GigEdit.tsx) ──
   // Every one of these is an Input, Select, Textarea or Button, so every
-  // one is `element`. DateTimeField splits one labelled field across two
-  // controls and suffixes the id it is given, hence the two entries.
+  // one is `element`. DateTimeField and DurationField each split one
+  // labelled field across two controls and suffix the id they are given,
+  // hence the two entries apiece.
   GigTitle: element("gig-title"),
   GigClient: element("gig-client"),
   GigStatus: element("gig-status"),
   GigDate: element("gig-datetime-date"),
   GigTime: element("gig-datetime-time"),
-  GigDuration: element("gig-duration"),
+  GigDurationHours: element("gig-duration-hours"),
+  GigDurationMinutes: element("gig-duration-minutes"),
   GigLocation: element("gig-location"),
   GigUseCurrentLocation: element("use-current-location"),
   GigOffered: element("gig-offered"),

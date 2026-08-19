@@ -79,14 +79,14 @@ export const createGig: HelpScenario = {
       target: HelpTarget.GigTime,
       title: "…and the time",
       description:
-        "A short list rather than a wheel of every minute: times run on the quarter hour, so 14:18 isn't something you can pick by accident. It stays greyed out until there is a date to attach it to. A gig that already carries an odd time — one read off a client's email — keeps that exact time in the list.",
+        "Any minute of the hour — 14:07 if that is when you start. The time is what the calendar event and your public availability page are built from, so it is worth getting right.",
     },
     {
       action: "highlight",
-      target: HelpTarget.GigDuration,
+      target: HelpTarget.GigDurationHours,
       title: "Duration",
       description:
-        "How long you'll be there, and the reason it matters: this is the end time your calendar and your availability page honour. Leave it unset and both assume four hours, so a two-hour tasting quietly fences off an afternoon you could have sold. The end time appears under the box once the date and the length are both set.",
+        "How long the job runs, in hours and minutes. It is what stops the calendar guessing four hours, and on an hourly gig it is what the expected pay is calculated from until you record the time you actually worked.",
     },
     {
       action: "highlight",

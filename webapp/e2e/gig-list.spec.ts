@@ -222,22 +222,16 @@ test("Clear filters stays cleared after a reload", async ({ page }) => {
 });
 
 /**
- * Quarter-hour times.
+ * The gig time control accepts any minute.
  *
- * Two earlier attempts asserted the wrong thing. `step={900}` was
- * checked as an attribute, which says nothing about what the control
- * accepts — iOS ignores it and shows all sixty minutes. Snapping the
- * value afterwards was then asserted by filling the field, which proved
- * the value got corrected but not that the picker had stopped offering
- * 14:18.
- *
- * So this asserts the containment directly: the control's own options
- * are the whole claim, because a <select> cannot produce a value it
- * does not contain, on any platform.
+ * `DateTimeField` renders a native `<input type="time">`, not a
+ * quarter-hour `<select>` — there is no grid left to prove the
+ * containment of. What still needs proving here is what a plain time
+ * input does NOT give for free: it starts disabled with no date to
+ * attach to, it fills in a visible default rather than dropping a date
+ * picked before the hour, and clearing the date clears the moment.
  */
-test("the gig time control offers quarter hours and nothing else", async ({
-  page,
-}) => {
+test("the gig time control accepts any minute", async ({ page }) => {
   await page.getByRole("link", { name: "Gigs" }).click();
   await page.getByRole("link", { name: "Add gig" }).click();
 
@@ -250,26 +244,13 @@ test("the gig time control offers quarter hours and nothing else", async ({
   await date.fill("2026-09-14");
   await expect(time).toBeEnabled();
 
-  const values = await time.locator("option").evaluateAll((options) =>
-    options.map((o) => (o as HTMLOptionElement).value),
-  );
-  expect(values).toHaveLength(96);
-  expect(values.slice(0, 5)).toEqual([
-    "00:00",
-    "00:15",
-    "00:30",
-    "00:45",
-    "01:00",
-  ]);
-  // The point of the whole change: no minute outside the grid exists.
-  expect(values.filter((v) => !/^\d{2}:(00|15|30|45)$/.test(v))).toEqual([]);
-
   // Picking a date before a time fills one in rather than dropping the
   // date on the floor.
   await expect(time).toHaveValue("09:00");
 
-  await time.selectOption("14:15");
-  await expect(time).toHaveValue("14:15");
+  // The point of the change: a minute that was never on the old grid.
+  await time.fill("14:18");
+  await expect(time).toHaveValue("14:18");
 
   // Two controls where there was one, on a phone. The filter row was
   // caught doing exactly this — a horizontally scrollable page also

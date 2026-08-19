@@ -11,17 +11,13 @@ import {
   Button,
   CardLink,
   DateTimeField,
+  DurationField,
   Field,
   Input,
   SectionHeading,
   Select,
   Textarea,
 } from "../components/index.ts";
-
-/** Shift lengths that cover real gig work. A select rather than a time
- * picker: pickers are the slowest control on a phone, and the end time
- * is shown underneath as confirmation. */
-const DURATIONS = [60, 90, 120, 180, 240, 300, 360, 480];
 
 function formatDuration(minutes: number): string {
   const h = Math.floor(minutes / 60);
@@ -131,7 +127,7 @@ export function GigEdit() {
     },
   });
 
-  // Shown under the duration select so "3h" is legible as a clock time.
+  // Shown under the duration field so "3h" is legible as a clock time.
   const startMs = localInputToMs(form.dateTime);
   const endsAt =
     startMs !== null && form.durationMinutes !== ""
@@ -251,10 +247,11 @@ export function GigEdit() {
             </Field>
 
             <Field label="Date & time">
-              {/* Not `datetime-local`: its picker cannot be held to
-                  quarter hours on any platform, and iOS ignores `step`
-                  entirely. DateTimeField offers a time <select> that
-                  contains nothing else. */}
+              {/* Not `datetime-local`: on a phone that collapses date and
+                  time into a single combined wheel, and the date half of
+                  that wheel is worse than the calendar a bare date input
+                  gives. Two controls also let a date be picked before the
+                  hour is known — the common order a gig gets entered in. */}
               <DateTimeField
                 testId="gig-datetime"
                 value={form.dateTime}
@@ -263,21 +260,14 @@ export function GigEdit() {
             </Field>
 
             <Field label="Duration">
-              <Select
-                data-testid="gig-duration"
+              <DurationField
+                testId="gig-duration"
                 value={form.durationMinutes}
-                onChange={(e) => set("durationMinutes", e.target.value)}
-              >
-                <option value="">Not set</option>
-                {DURATIONS.map((m) => (
-                  <option key={m} value={m}>
-                    {formatDuration(m)}
-                  </option>
-                ))}
-              </Select>
+                onChange={(v) => set("durationMinutes", v)}
+              />
               {endsAt !== null && (
                 <span className="mt-1 block text-xs text-slate-500">
-                  Ends {endsAt}
+                  {formatDuration(Number(form.durationMinutes))} · ends {endsAt}
                 </span>
               )}
             </Field>

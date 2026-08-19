@@ -89,9 +89,8 @@ test("it never shows what fills the busy time", async ({ page, browser }) => {
   const soon = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
   soon.setHours(11, 0, 0, 0);
   const pad = (n: number) => String(n).padStart(2, "0");
-  // Date and time are two controls now — the time is a quarter-hour
-  // <select>, because no native datetime picker can be held to the grid.
-  // 11:00 above is already on it.
+  // Date and time are two controls — the time is a native
+  // <input type="time">, so any minute is enterable directly.
   const localDate = `${soon.getFullYear()}-${pad(soon.getMonth() + 1)}-${pad(soon.getDate())}`;
   const localTime = `${pad(soon.getHours())}:${pad(soon.getMinutes())}`;
 
@@ -100,8 +99,8 @@ test("it never shows what fills the busy time", async ({ page, browser }) => {
   await page.getByLabel("Location").fill(secret);
   await page.getByLabel("Status").selectOption("confirmed");
   await page.getByTestId("gig-datetime-date").fill(localDate);
-  await page.getByTestId("gig-datetime-time").selectOption(localTime);
-  await page.getByTestId("gig-duration").selectOption("120");
+  await page.getByTestId("gig-datetime-time").fill(localTime);
+  await page.getByTestId("gig-duration-hours").fill("2");
   await page.getByLabel("Offered ($)").fill("2500");
   await page.getByRole("button", { name: "Save gig" }).click();
 
