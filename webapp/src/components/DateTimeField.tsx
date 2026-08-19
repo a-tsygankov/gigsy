@@ -20,19 +20,44 @@
  * There is no minute grid — see lib/datetime.ts. The time input carries
  * no `step`, so every minute is enterable; 14:07 is a real gig start.
  */
-import { useRef, useState } from "react";
+import { Suspense, lazy, useRef, useState } from "react";
 import { Button, Input } from "./index.ts";
-import { Calendar } from "@/components/ui/calendar.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { inputShellClasses } from "./Input.tsx";
 import {
-  dateToLocalDate,
   formatLocalMoment,
   joinLocalInput,
   localDateToDate,
   localInputToMs,
   splitLocalInput,
 } from "../lib/datetime.ts";
+
+/** The calendar is fetched on demand — see DateTimeCalendar.tsx for why.
+ *  Named so the trigger can warm it before the popover needs it; the
+ *  module registry makes the second call free. */
+const importCalendar = () => import("./DateTimeCalendar.tsx");
+const DateTimeCalendar = lazy(importCalendar);
+
+/** The calendar's own footprint, reserved before it arrives.
+ *
+ *  Seven 40px day cells plus 12px of padding either side is 304px wide;
+ *  a six-week month is 362px tall (24 padding + 40 caption + 16 gap +
+ *  16 weekday row + six 44px weeks). Held as a MINIMUM, so two things
+ *  stay still: the panel does not resize when the real calendar
+ *  replaces the placeholder, and it does not resize when you page from
+ *  a five-week month into a six-week one. */
+const CALENDAR_BOX = "min-h-[362px] min-w-[304px]";
+
+/** Shown only on a cold first open, and sized by CALENDAR_BOX above, so
+ *  it holds the panel's shape rather than collapsing it. The pulse is
+ *  the product's single keyframe animation (ListSkeleton uses it too). */
+function CalendarPlaceholder() {
+  return (
+    <div className="p-3" aria-hidden data-testid="datetime-calendar-loading">
+      <div className="h-[338px] animate-pulse rounded-md bg-slate-200/70" />
+    </div>
+  );
+}
 
 /** Where a date lands when a time has not been chosen yet.
  *
@@ -95,6 +120,12 @@ export function DateTimeField({ value, onChange, testId, label }: DateTimeFieldP
           // a stored moment against.
           data-value={value}
           aria-label={label}
+          // Start fetching the calendar as the finger goes down or the
+          // field takes focus, so the module is nearly always there by
+          // the time the panel opens and the placeholder below is never
+          // seen. Both, because a keyboard never sends a pointer event.
+          onPointerDown={() => void importCalendar()}
+          onFocus={() => void importCalendar()}
           className={`${inputShellClasses} flex items-center justify-between gap-2 text-left`}
         >
           <span className={ms === null ? "text-slate-400" : undefined}>
@@ -111,11 +142,17 @@ export function DateTimeField({ value, onChange, testId, label }: DateTimeFieldP
         align="start"
         className="w-auto p-0"
         aria-label={label}
+        tabIndex={-1}
         // Radix focuses the first focusable child, which is the previous
         // month arrow — so a keyboard user opens a date picker and lands
         // on navigation, several tabs from any day. Land on the day
         // instead: the one already chosen, or today.
+        //
+        // On a cold first open there is no day yet — the calendar module
+        // is still in flight — so focus parks on the panel and
+        // DateTimeCalendar's mount effect finishes the job.
         onOpenAutoFocus={(event) => {
+          event.preventDefault();
           const day =
             content.current?.querySelector<HTMLButtonElement>(
               "td[data-selected='true'] button",
@@ -123,32 +160,22 @@ export function DateTimeField({ value, onChange, testId, label }: DateTimeFieldP
             content.current?.querySelector<HTMLButtonElement>(
               "td[data-today='true'] button",
             );
-          if (day === undefined || day === null) return;
-          event.preventDefault();
-          day.focus();
+          (day ?? content.current)?.focus();
         }}
       >
-        <div data-testid={sub("calendar")}>
-          <Calendar
-            mode="single"
-            // `required` so tapping the chosen day again cannot silently
-            // empty the field. Clearing is a deliberate act — the button
-            // below says so.
-            required
-            captionLayout="dropdown"
-            startMonth={startMonth}
-            endMonth={endMonth}
-            selected={selected ?? undefined}
-            // Spread, not `defaultMonth={selected ?? undefined}`:
-            // `exactOptionalPropertyTypes` rejects an explicit undefined
-            // for an optional prop. Omitting it is also the honest
-            // version — an empty field has no day to open on, so the
-            // calendar opens on this month.
-            {...(selected === null ? {} : { defaultMonth: selected })}
-            onSelect={(day) => {
-              onChange(joinLocalInput(dateToLocalDate(day), time || DEFAULT_TIME));
-            }}
-          />
+        <div className={CALENDAR_BOX}>
+          <Suspense fallback={<CalendarPlaceholder />}>
+            <DateTimeCalendar
+              testId={sub("calendar")}
+              selected={selected}
+              startMonth={startMonth}
+              endMonth={endMonth}
+              shouldTakeFocus={() => document.activeElement === content.current}
+              onSelectDay={(day) => {
+                onChange(joinLocalInput(day, time || DEFAULT_TIME));
+              }}
+            />
+          </Suspense>
         </div>
 
         {/* The time box takes the space that is left rather than a fixed

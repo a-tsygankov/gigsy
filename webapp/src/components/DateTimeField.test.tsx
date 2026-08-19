@@ -50,8 +50,26 @@ function inPopover<T extends Element>(testId: string): T | null {
   return document.querySelector<T>(`[data-testid='${testId}']`);
 }
 
-function open(): void {
-  act(() => trigger().click());
+/**
+ * Open the popover AND wait for the calendar to arrive.
+ *
+ * The calendar is a dynamic import (DateTimeCalendar.tsx), so opening no
+ * longer puts it in the DOM in the same tick. An async `act` flushes the
+ * import and the render it causes; the loop is because resolving the
+ * module and committing its output are separate turns of the microtask
+ * queue, not one.
+ */
+async function open(): Promise<void> {
+  // Load the module for real first. `act` only flushes microtasks, and
+  // the dynamic import is a file read — without this the calendar never
+  // arrives inside the loop below however many turns it is given.
+  await import("./DateTimeCalendar.tsx");
+  await act(async () => {
+    trigger().click();
+  });
+  for (let turn = 0; turn < 10 && inPopover("f-calendar") === null; turn++) {
+    await act(async () => {});
+  }
 }
 
 /**
@@ -82,18 +100,18 @@ describe("DateTimeField", () => {
     expect(trigger().dataset["value"]).toBe("");
   });
 
-  it("keeps the calendar and the time input behind the trigger until it is opened", () => {
+  it("keeps the calendar and the time input behind the trigger until it is opened", async () => {
     render({ testId: "f", value: "2026-09-12T14:18", onChange: () => {} });
     expect(inPopover("f-time")).toBeNull();
     expect(inPopover("f-calendar")).toBeNull();
-    open();
+    await open();
     expect(inPopover("f-time")).not.toBeNull();
     expect(inPopover("f-calendar")).not.toBeNull();
   });
 
-  it("renders a time input, not a select", () => {
+  it("renders a time input, not a select", async () => {
     render({ testId: "f", value: "2026-09-12T14:18", onChange: () => {} });
-    open();
+    await open();
     const time = inPopover<HTMLInputElement>("f-time")!;
     expect(time.tagName).toBe("INPUT");
     expect(time.type).toBe("time");
@@ -104,17 +122,17 @@ describe("DateTimeField", () => {
     expect(time.getAttribute("step")).toBeNull();
   });
 
-  it("emits the joined value when the time changes to an off-quarter minute", () => {
+  it("emits the joined value when the time changes to an off-quarter minute", async () => {
     const onChange = vi.fn();
     render({ testId: "f", value: "2026-09-12T09:00", onChange });
-    open();
+    await open();
     setValue(inPopover<HTMLInputElement>("f-time")!, "14:07");
     expect(onChange).toHaveBeenCalledWith("2026-09-12T14:07");
   });
 
-  it("marks the stored day as selected in the calendar", () => {
+  it("marks the stored day as selected in the calendar", async () => {
     render({ testId: "f", value: "2026-09-12T14:18", onChange: () => {} });
-    open();
+    await open();
     // The cell carries react-day-picker's selection state; the button
     // inside it carries the day this app tags it with.
     const cell = inPopover<HTMLElement>("f-calendar")!
@@ -123,10 +141,10 @@ describe("DateTimeField", () => {
     expect(cell?.getAttribute("data-selected")).toBe("true");
   });
 
-  it("fills 09:00 when a day is picked before a time", () => {
+  it("fills 09:00 when a day is picked before a time", async () => {
     const onChange = vi.fn();
     render({ testId: "f", value: "", onChange });
-    open();
+    await open();
     // Empty value means the calendar opens on today's month, so the day
     // clicked has to be one of today's month's own days.
     const someDay = new Date();
@@ -140,10 +158,10 @@ describe("DateTimeField", () => {
     expect(onChange).toHaveBeenCalledWith(`${iso}T09:00`);
   });
 
-  it("keeps the time already set when a different day is picked", () => {
+  it("keeps the time already set when a different day is picked", async () => {
     const onChange = vi.fn();
     render({ testId: "f", value: "2026-09-12T14:18", onChange });
-    open();
+    await open();
     act(() => {
       inPopover<HTMLElement>("f-calendar")!
         .querySelector<HTMLButtonElement>("[data-day-iso='2026-09-15']")!
@@ -152,24 +170,24 @@ describe("DateTimeField", () => {
     expect(onChange).toHaveBeenCalledWith("2026-09-15T14:18");
   });
 
-  it("clears the whole value, never just the time", () => {
+  it("clears the whole value, never just the time", async () => {
     const onChange = vi.fn();
     render({ testId: "f", value: "2026-09-12T14:18", onChange });
-    open();
+    await open();
     act(() => inPopover<HTMLButtonElement>("f-clear")!.click());
     expect(onChange).toHaveBeenCalledWith("");
   });
 
-  it("disables the time until there is a day to attach it to", () => {
+  it("disables the time until there is a day to attach it to", async () => {
     render({ testId: "f", value: "", onChange: () => {} });
-    open();
+    await open();
     expect(inPopover<HTMLInputElement>("f-time")!.disabled).toBe(true);
   });
 
-  it("closes on Done, leaving the value alone", () => {
+  it("closes on Done, leaving the value alone", async () => {
     const onChange = vi.fn();
     render({ testId: "f", value: "2026-09-12T14:18", onChange });
-    open();
+    await open();
     act(() => inPopover<HTMLButtonElement>("f-done")!.click());
     expect(inPopover("f-time")).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
