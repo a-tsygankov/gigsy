@@ -21,11 +21,20 @@ import type { HelpScenario } from "../types.ts";
  * here needs the form to change state to explain the next field, so
  * nothing here changes it.
  *
- * No branch: `/gigs/new` is `isNew` (GigEdit.tsx's `const isNew = id
- * === "new"`), which renders every field unconditionally and skips the
- * gig query entirely, so there is no second legitimate state to branch
- * on. The delete button below is the one `!isNew`-only block left, and
- * it is deliberately not part of this walkthrough.
+ * `/gigs/new` is `isNew` (GigEdit.tsx's `const isNew = id === "new"`),
+ * which skips the gig query entirely; the delete button below is the one
+ * `!isNew`-only block on the form, and it is deliberately not part of
+ * this walkthrough.
+ *
+ * One conditional IS on screen here: the form shows Offered ($) or Rate
+ * ($ per hour) depending on `form.payType` (GigEdit.tsx). That still
+ * isn't a second state for this scenario to branch on, because the form
+ * loads with `payType: "fixed"` (GigEdit.tsx's `BLANK`) and nothing in
+ * this walkthrough touches Paid by — every `highlight` step here leaves
+ * state untouched, per the paragraph above — so `payType` never leaves
+ * "fixed" and Offered ($) is what's on screen for the entire run. A
+ * `GigRate` target would only ever resolve if the tour itself switched
+ * pay types, which the highlight-only rule above rules out.
  *
  * The services and payments sections ARE part of it. They used to be
  * `!isNew` too, which meant the first gig anybody made was the one gig

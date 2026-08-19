@@ -94,4 +94,22 @@ describe("OfflineDataService", () => {
       data.putGig(G1, { amountOfferedCents: 15000, amountPaidCents: null }),
     ).resolves.toMatchObject({ amountOfferedCents: 15000 });
   });
+
+  it("rejects a zero or negative hourly rate before it can reach the outbox", async () => {
+    // Same poison-drop risk as the amount fields above: a bad
+    // hourlyRateCents synced to the backend's positiveCents schema
+    // errors there, and sync-engine.ts drops the whole op — silently
+    // destroying the rest of the edit along with it.
+    const { data, store, engine } = makeService();
+
+    await expect(
+      data.putGig(G1, { payType: "hourly", hourlyRateCents: 0 }),
+    ).rejects.toThrow(/positive/);
+    await expect(
+      data.putGig(G1, { payType: "hourly", hourlyRateCents: -5000 }),
+    ).rejects.toThrow(/positive/);
+
+    expect(await store.pendingCount()).toBe(0);
+    expect(engine.notifyLocalChange).not.toHaveBeenCalled();
+  });
 });
