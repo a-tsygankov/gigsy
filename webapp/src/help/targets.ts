@@ -78,8 +78,11 @@ export const HelpTarget = {
   // switched to hourly, and this scenario is highlight-only (see
   // create-gig.ts's header) — it never performs that switch, so a step
   // targeting gig-rate would wait out `waitForElement` and fail the walk
-  // every run. GigOffered stays the one pay-amount step; its own note
-  // below covers why it still resolves on this always-fixed-on-load form.
+  // every run. GigOffered stays the one pay-amount step; it resolves
+  // because the form loads with `payType: "fixed"` (GigEdit.tsx's
+  // `BLANK`) and this highlight-only walkthrough never touches Paid by,
+  // so Offered ($) — never Rate ($ per hour) — is what's on screen for
+  // the whole run (see create-gig.ts's header for the full reasoning).
   GigOffered: element("gig-offered"),
   GigPaid: element("gig-paid"),
   GigWorkStart: element("gig-work-start-date"),

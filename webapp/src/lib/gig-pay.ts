@@ -16,6 +16,20 @@
  *
  * DUPLICATED from backend/src/domain/gig-pay.ts. Both copies are pinned
  * by fixtures/gig-pay-vectors.json; change them together.
+ *
+ * One claim in the body below is true only of the backend copy, and is
+ * left as-is here rather than edited, because editing it would make the
+ * two copies diverge: the comment above the rounding step in
+ * `expectedCents` says a negative `hourlyRateCents` "cannot be stored"
+ * because the write schema types it `positiveCents` (domain/schemas.ts).
+ * That schema is the backend's validated write path. This copy runs
+ * against raw draft form state on every keystroke (GigEdit.tsx's
+ * `draftPay`), before OfflineDataService.assertPositive (data-service.ts)
+ * or the backend ever see it — so here, unlike in the backend, a zero or
+ * negative rate can and does reach `expectedCents` while the user is
+ * still typing. `Math.round` still returns a signed result for it; that
+ * is fine for a live preview, and GigEdit itself now refuses to submit
+ * such a rate (see the guard in `submit()`).
  */
 
 export const PAY_TYPES = ["fixed", "hourly"] as const;

@@ -95,6 +95,7 @@ export class OfflineDataService {
     this.assertPositive({
       amountOfferedCents: input.amountOfferedCents,
       amountPaidCents: input.amountPaidCents,
+      hourlyRateCents: input.hourlyRateCents,
     });
     const record = await this.store.putGig(id, input);
     this.nudge();

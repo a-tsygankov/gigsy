@@ -323,3 +323,20 @@ test("an hourly gig prices itself from the time worked", async ({ page }) => {
   await page.getByTestId("gig-break").fill("18");
   await expect(page.getByTestId("gig-expected-pay")).toContainText("$150.00");
 });
+
+// A zero rate parses fine (parseMoney("0") === 0) but must still be
+// refused: saved as-is it fails the backend's positiveCents check later
+// and sync-engine.ts drops the whole op, silently losing the edit.
+test("an hourly gig with a zero rate is refused, not silently saved", async ({
+  page,
+}) => {
+  await page.goto("/gigs/new");
+  await page.getByTestId("gig-pay-type").selectOption("hourly");
+  await page.getByTestId("gig-rate").fill("0");
+  await page.getByRole("button", { name: "Save gig" }).click();
+  await expect(
+    page.getByText("The hourly rate must be greater than zero."),
+  ).toBeVisible();
+  // The save never fired — still on the form, rate field untouched.
+  await expect(page.getByTestId("gig-rate")).toHaveValue("0");
+});

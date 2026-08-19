@@ -225,9 +225,16 @@ export function GigEdit() {
       setMoneyError("Amounts must be greater than zero — leave blank when not set.");
       return;
     }
-    if (form.payType === "hourly" && parseMoney(form.hourlyRate) === null) {
-      setMoneyError("An hourly gig needs a rate.");
-      return;
+    if (form.payType === "hourly") {
+      const rate = parseMoney(form.hourlyRate);
+      if (rate === null) {
+        setMoneyError("An hourly gig needs a rate.");
+        return;
+      }
+      if (rate <= 0) {
+        setMoneyError("The hourly rate must be greater than zero.");
+        return;
+      }
     }
     setMoneyError(null);
 
