@@ -79,4 +79,23 @@ describe("DurationField", () => {
     setValue(minutes, "45");
     expect(onChange).toHaveBeenCalledWith("45");
   });
+
+  it("renders both halves empty when the stored value is not a number", () => {
+    const el = render({ testId: "d", value: "not-a-number", onChange: () => {} });
+    const hours = el.querySelector<HTMLInputElement>("[data-testid='d-hours']")!;
+    const minutes = el.querySelector<HTMLInputElement>("[data-testid='d-minutes']")!;
+    expect(hours.value).toBe("");
+    expect(minutes.value).toBe("");
+  });
+
+  it("clamps a negative half to zero instead of emitting a negative total", () => {
+    const onChange = vi.fn();
+    // 70 minutes = 1h10m, so minutes starts at "10" — a non-zeroish
+    // half, keeping this clear of the both-zeroish-collapses-to-""
+    // path exercised above.
+    const el = render({ testId: "d", value: "70", onChange });
+    const hours = el.querySelector<HTMLInputElement>("[data-testid='d-hours']")!;
+    setValue(hours, "-5");
+    expect(onChange).toHaveBeenCalledWith("10");
+  });
 });

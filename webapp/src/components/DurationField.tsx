@@ -3,8 +3,7 @@
  *
  * Replaces a `<select>` of eight fixed shift lengths. That list was
  * fine while gigs were quoted in whole hours; it cannot express the
- * 3h20m an hourly gig actually ran, and the value it holds now feeds
- * the pay calculation rather than just the calendar.
+ * 3h20m an hourly gig actually ran.
  *
  * The value is a string of total minutes because that is what the
  * form state holds either side of it ("" for unset), which keeps the
@@ -41,17 +40,35 @@ function isZeroish(part: string): boolean {
 }
 
 /**
- * If one half is cleared and the other is already reading as zero,
- * there is no way to tell "0h 0m, entered on purpose" from "clearing
- * the field, one half at a time" — collapsing both to "not set" is the
- * safer of the two failures. The alternative (a stray "0" left behind
- * from before the field was touched, surviving as a real duration) is
- * the more surprising one to ship.
+ * Collapsing a zeroish pair to "" is not a UX preference — the write
+ * schema (backend/src/domain/schemas.ts) makes durationMinutes
+ * `.positive()` when present and treats "unknown" as null: "a
+ * zero-length gig is a data-entry mistake, and 'unknown' is null."
+ * There is no valid zero-length duration on the other side of this
+ * form to lose, so "" is the only outcome the API would accept anyway.
  */
 function join(hours: string, minutes: string): string {
   if (isZeroish(hours) && isZeroish(minutes)) return "";
-  const total = (Number(hours) || 0) * 60 + (Number(minutes) || 0);
-  return String(total);
+  return String(clampToZero(hours) * 60 + clampToZero(minutes));
+}
+
+/**
+ * `min`/`max` on the inputs below are affordances for the desktop
+ * spinner and the mobile numeric keyboard only — nothing about
+ * `type="number"` stops a typed "-5" reaching this handler (the same
+ * lesson `step` on a `datetime-local` taught GigEdit.tsx, which is why
+ * the money fields parse plain text by hand instead of trusting the
+ * native input to constrain anything). This clamp is the actual guard;
+ * without it a negative half reaches the API as a negative total and
+ * gets a 400 instead of a clear in-form correction.
+ *
+ * Only clamps below zero — 75 minutes is left as 75, not rolled into
+ * 1h15m, because normalising mid-typing would rewrite digits out from
+ * under whoever is still typing them. `partsOf` does that rollover
+ * once the value is stored, which is the point it stops moving.
+ */
+function clampToZero(part: string): number {
+  return Math.max(0, Number(part) || 0);
 }
 
 export function DurationField({ value, onChange, testId }: DurationFieldProps) {
