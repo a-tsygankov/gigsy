@@ -41,7 +41,15 @@ function JobRow({ gig }: { gig: Gig }) {
             {formatMoney(money)}
           </span>
         )}
-        <StatusPill status={gig.status} />
+        {/* The "Paid"/"Completed — not paid" grouping below only
+            splits completed gigs — a lead or confirmed gig paid in
+            advance (a deposit that already covers what's expected)
+            would otherwise show no sign of it in the "Upcoming &
+            leads" group. The badge covers that case; it's redundant
+            with the group heading for the two "completed" groups, but
+            a paid gig should read the same way everywhere it appears
+            (see StatusPill.tsx). */}
+        <StatusPill status={gig.status} paid={isPaid(gig)} />
       </span>
     </CardLink>
   );

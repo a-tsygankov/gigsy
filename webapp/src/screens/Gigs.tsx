@@ -5,7 +5,7 @@ import { useData, useSyncState } from "../lib/app-context.tsx";
 import { formatMoney } from "../lib/format.ts";
 import { formatLocalMoment } from "../lib/datetime.ts";
 import { gigDisplayTitle } from "../lib/gig-title.ts";
-import { storedOrDerivedExpectedCents } from "../lib/gig-pay.ts";
+import { isPaid, storedOrDerivedExpectedCents } from "../lib/gig-pay.ts";
 import { useSettings } from "./settings/useSettings.ts";
 import {
   applyGigFilters,
@@ -207,7 +207,12 @@ export function Gigs() {
                       <p className="mt-0.5 text-xs text-slate-500">{sub.join(" · ")}</p>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
-                      <StatusPill status={gig.status} />
+                      {/* Paid-ness is derived from the money, not the
+                          status (lib/gig-pay.ts) — a confirmed gig paid
+                          in full up front has nowhere else in this row
+                          to say so, since `money` above shows the
+                          figure but not whether it is settled. */}
+                      <StatusPill status={gig.status} paid={isPaid(gig)} />
                       {money !== null && (
                         <span className="text-sm font-semibold text-slate-800">
                           {formatMoney(money)}
