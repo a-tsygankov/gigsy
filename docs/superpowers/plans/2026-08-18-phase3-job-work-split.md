@@ -4,12 +4,12 @@
 
 **Goal:** Editing what a job *is* (client, when, where, how it pays) is a different screen from recording what *happened* (started, stopped, breaks, status), and `cancelled` becomes a real status while `paid` stops being one.
 
-**Architecture:** `/gigs/:id` becomes a read-mostly detail hub with two cards — Job and Work — and the existing form moves to `/gigs/:id/edit`. Status loses `paid` and gains `cancelled`; paid-ness becomes derived from what has been paid against what is expected, which is a pure function beside the pay derivation. This is also the fix for `GigEdit.tsx`, which is 489 lines doing four jobs.
+**Architecture:** `/gigs/:id` becomes a read-mostly detail hub with two cards — Job and Work — and the existing form moves to `/gigs/:id/edit`. Status loses `paid` and gains `cancelled`; paid-ness becomes derived from what has been paid against what is expected, which is a pure function beside the pay derivation. This is also the fix for `GigEdit.tsx`, which is now **620 lines** doing four jobs — Phase 2 added the pay-type, rate, work-log and expected-pay controls to it.
 
 **Tech Stack:** React 18, react-router 6, TanStack Query, shadcn/ui (`Card`, `Tabs`), Motion, Vitest, Playwright, D1/Drizzle.
 
 Spec: `docs/superpowers/specs/2026-08-18-hourly-rate-worklog-design.md`
-Depends on: Phase 1 (shadcn foundation), Phase 2 (`gig-pay.ts`, work-log fields).
+Depends on: Phase 1 (shadcn foundation), Phase 2 (`gig-pay.ts`, work-log fields), the `expected_cents` column (migration `0014`), and the combined date-time picker.
 
 > **Component tests in this repo do not use `@testing-library/react`.** It is
 > not a dependency and must not be added. Follow `DateTimeField.test.tsx` /
@@ -25,7 +25,7 @@ Depends on: Phase 1 (shadcn foundation), Phase 2 (`gig-pay.ts`, work-log fields)
 
 | File | Responsibility | Change |
 |---|---|---|
-| `backend/migrations/0014_gig_status_cancelled.sql` | **New.** `paid` → `completed`, allow `cancelled` | Create |
+| `backend/migrations/0015_gig_status_cancelled.sql` | **New.** `paid` → `completed`, allow `cancelled` | Create |
 | `backend/src/db/schema.ts` | `GIG_STATUSES` | Replace `paid` with `cancelled` |
 | `backend/src/services/availability.ts:51` | `BUSY_STATUSES` | Drop `paid`, keep `cancelled` out |
 | `backend/src/services/dashboard.ts:54,78,95` | Dashboard SQL | Statuses |
@@ -45,7 +45,7 @@ Depends on: Phase 1 (shadcn foundation), Phase 2 (`gig-pay.ts`, work-log fields)
 ## Task 1: Statuses — `paid` out, `cancelled` in
 
 **Files:**
-- Create: `backend/migrations/0014_gig_status_cancelled.sql`
+- Create: `backend/migrations/0015_gig_status_cancelled.sql`
 - Modify: `backend/src/db/schema.ts:102`, `backend/src/services/availability.ts:51`, `backend/src/services/dashboard.ts`, `backend/src/services/reports.ts:283`, `backend/src/calendar/sync-service.ts`
 
 - [ ] **Step 1: Write the failing tests**
@@ -89,7 +89,7 @@ Expected: FAIL — `cancelled` is not an accepted status, so seeding rejects it.
 
 - [ ] **Step 3: Write the migration**
 
-Create `backend/migrations/0014_gig_status_cancelled.sql`:
+Create `backend/migrations/0015_gig_status_cancelled.sql`:
 
 ```sql
 -- 'paid' stops being a status; 'cancelled' becomes one.
@@ -145,7 +145,7 @@ Expected: PASS. Any test that seeds `status: "paid"` needs updating to `"complet
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/migrations/0014_gig_status_cancelled.sql backend/src backend/test
+git add backend/migrations/0015_gig_status_cancelled.sql backend/src backend/test
 git commit -m "feat(gigs): cancelled replaces paid as a status"
 ```
 
@@ -257,6 +257,20 @@ export function isPaid(gig: PaidGig): boolean {
   return outstandingCents(gig) === 0;
 }
 ```
+
+**One thing changed since this plan was written.** `expectedCents` is now
+also a server-owned column on `gigs` (migration `0014`), and the webapp
+already has `storedOrDerivedExpectedCents(gig)` — prefer the stored figure,
+fall back to deriving locally for a gig whose edit has not synced yet. The
+two functions above must go through that helper in the **webapp copy**, not
+call `expectedCents()` directly, or a gig row will use one number while the
+dashboard it feeds uses another. That helper deliberately has no backend
+counterpart: on the server the column *is* the answer, so the backend copy
+calls `expectedCents()` as written above.
+
+Since `storedOrDerivedExpectedCents` takes `PayableGig & { expectedCents }`,
+the webapp's `PaidGig` needs that field too. Add `expectedCents: number | null`
+to the fixture's `paidCases` gigs so both suites still run the same vectors.
 
 - [ ] **Step 5: Run both suites**
 
@@ -405,6 +419,28 @@ In `webapp/src/App.tsx`, replace the single gig route with:
 
 Order matters: `/gigs/new` must precede `/gigs/:id` or "new" is read as an id.
 
+- [ ] **Step 2b: Know what you are moving**
+
+`GigEdit.tsx` now carries these controls, all added after this plan was
+written. Every one of them has to land on one side of the split, so decide
+per control rather than sweeping:
+
+| Test id | Belongs to |
+|---|---|
+| `gig-title`, `gig-client`, `gig-location`, `gig-notes` | Job |
+| `gig-datetime` (the combined picker) | Job — this is the PLAN |
+| `gig-duration-hours` | Job — planned length |
+| `gig-pay-type`, `gig-rate` / `gig-offered` | Job — how it pays |
+| `gig-status` | **Work** |
+| `gig-work-start`, `gig-work-end`, `gig-break` | **Work** |
+| `gig-expected-pay` | **Work** — it reports on the actuals |
+| `gig-paid` | Job for now; Phase 4 deletes it |
+
+Note `gig-datetime` is a single control since the date-time picker landed —
+one trigger opening a popover, with `-calendar` / `-time` / `-clear` /
+`-done` inside it and a `label` prop for its accessible name. The help
+registry has `GigDateTime`, not the old `GigDate` / `GigTime` pair.
+
 - [ ] **Step 3: Write `JobCard`**
 
 Create `webapp/src/screens/gigs/JobCard.tsx` — read-only, one `<Card>`, rows for client, title, when (date + planned duration), location, how it pays (fee, or rate), notes. A single "Edit" button linking to `/gigs/${gig.id}/edit`, `data-testid="gig-edit"`.
@@ -416,7 +452,7 @@ Create `webapp/src/screens/gigs/JobCard.tsx` — read-only, one `<Card>`, rows f
  * Read-only on purpose. This half of a gig changes when the client
  * changes it — rarely, and deliberately — while the half below it
  * changes on the day, in a hurry, with one thumb. Putting both in one
- * form is what made the old screen 489 lines and made it possible to
+ * form is what made the old screen 620 lines and made it possible to
  * knock the start time sideways while recording that you finished late.
  */
 ```
@@ -440,6 +476,28 @@ Pay line, from Phase 2's helpers:
 const worked = workedMinutes(gig);
 const expected = expectedCents(gig);
 ```
+
+- [ ] **Step 4b: Give the hourly override a home**
+
+The spec promised `Computed $189.17 · Override` with the field clearable.
+Phase 2 shipped without it: on an hourly gig the Offered control is not
+rendered at all, and `GigEdit`'s `submit()` deliberately forces
+`amountOfferedCents: null` so a value typed while the gig was still
+fixed-fee cannot ride along as an invisible override. That was the right
+call then — an override nobody can see is worse than no override — but it
+leaves `amountOfferedCents` unreachable on hourly gigs, and the shared
+fixture still pins a vector ("an override wins over the computed value")
+that no UI can currently produce.
+
+The Work card is where it belongs, because an override is a statement about
+what this gig actually earned, not about what was agreed. Build it there:
+show the computed figure, and let the user replace it with an explicit
+amount and clear it back to computed. Keep `submit()`'s force-null for the
+Job form, which still has no business setting it.
+
+If you conclude the override is better deferred again, say so and record why
+in this plan — but do not leave the fixture pinning a state the product
+cannot reach without saying so.
 
 - [ ] **Step 5: Write `GigDetail`**
 

@@ -19,7 +19,7 @@ Depends on: Phase 3 (`isPaid`, `outstandingCents`).
 
 | File | Responsibility | Change |
 |---|---|---|
-| `backend/migrations/0015_payment_allocations.sql` | **New.** Table + backfill | Create |
+| `backend/migrations/0016_payment_allocations.sql` | **New.** Table + backfill | Create |
 | `backend/src/db/schema.ts` | Drizzle mirror | Add `paymentAllocations` |
 | `backend/src/repos/allocations.ts` | **New.** User-scoped CRUD | Create |
 | `backend/src/services/paid-totals.ts` | **New.** Recompute `amountPaidCents` | Create |
@@ -37,7 +37,7 @@ Depends on: Phase 3 (`isPaid`, `outstandingCents`).
 ## Task 1: The table and the backfill
 
 **Files:**
-- Create: `backend/migrations/0015_payment_allocations.sql`
+- Create: `backend/migrations/0016_payment_allocations.sql`
 - Modify: `backend/src/db/schema.ts`
 
 - [ ] **Step 1: Write the migration**
@@ -148,7 +148,7 @@ export const paymentAllocations = sqliteTable(
 - [ ] **Step 4: Commit**
 
 ```bash
-git add backend/migrations/0015_payment_allocations.sql backend/src/db/schema.ts
+git add backend/migrations/0016_payment_allocations.sql backend/src/db/schema.ts
 git commit -m "feat(db): payment allocations table and backfill"
 ```
 
