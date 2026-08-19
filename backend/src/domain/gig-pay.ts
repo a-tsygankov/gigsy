@@ -16,6 +16,14 @@
  *
  * DUPLICATED in webapp/src/lib/gig-pay.ts. Both copies are pinned by
  * fixtures/gig-pay-vectors.json; change them together.
+ *
+ * One deliberate divergence: `outstandingCents`/`isPaid` below call
+ * `expectedCents()` directly, because on the server `expectedCents` is
+ * a stored column (migration 0014) that GigsRepo.upsert keeps in sync
+ * with this same formula — the column IS the answer here. The webapp
+ * copy instead goes through `storedOrDerivedExpectedCents`, because a
+ * client-side gig can be mid-edit with no synced column yet. See that
+ * function's comment in webapp/src/lib/gig-pay.ts for why.
  */
 
 export const PAY_TYPES = ["fixed", "hourly"] as const;
@@ -78,4 +86,34 @@ export function expectedCents(gig: PayableGig): number | null {
   // and a second opinion on the same rule is a second thing to keep in
   // step.
   return Math.round((gig.hourlyRateCents * minutes) / 60);
+}
+
+/** A gig plus what has landed against it. */
+export interface PaidGig extends PayableGig {
+  amountPaidCents: number | null;
+}
+
+/**
+ * What is still owed, or null when the expectation is unknown.
+ *
+ * Never negative: overpayment is a bookkeeping curiosity, not a debt
+ * the app owes back, and a negative here would subtract from the
+ * dashboard's outstanding total and hide a real unpaid gig.
+ */
+export function outstandingCents(gig: PaidGig): number | null {
+  const expected = expectedCents(gig);
+  if (expected === null) return null;
+  return Math.max(0, expected - (gig.amountPaidCents ?? 0));
+}
+
+/**
+ * Paid when nothing is outstanding.
+ *
+ * An unknown expectation is NOT paid, whatever has been received: this
+ * is what used to be a status someone set by hand, and the honest
+ * answer to "is this settled" when we don't know what it should earn is
+ * no.
+ */
+export function isPaid(gig: PaidGig): boolean {
+  return outstandingCents(gig) === 0;
 }

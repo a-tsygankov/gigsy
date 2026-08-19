@@ -64,5 +64,37 @@
       "billableMinutes": 240,
       "expectedCents": null
     }
+  ],
+  "paidCases": [
+    {
+      "name": "nothing paid against a known expectation is outstanding in full",
+      "gig": { "payType": "fixed", "hourlyRateCents": null, "amountOfferedCents": 15000, "amountPaidCents": null, "durationMinutes": 240, "workStartedAt": null, "workEndedAt": null, "breakMinutes": null, "expectedCents": 15000 },
+      "outstandingCents": 15000,
+      "isPaid": false
+    },
+    {
+      "name": "paid in full",
+      "gig": { "payType": "fixed", "hourlyRateCents": null, "amountOfferedCents": 15000, "amountPaidCents": 15000, "durationMinutes": 240, "workStartedAt": null, "workEndedAt": null, "breakMinutes": null, "expectedCents": 15000 },
+      "outstandingCents": 0,
+      "isPaid": true
+    },
+    {
+      "name": "overpaid still counts as paid and never goes negative",
+      "gig": { "payType": "fixed", "hourlyRateCents": null, "amountOfferedCents": 15000, "amountPaidCents": 16000, "durationMinutes": 240, "workStartedAt": null, "workEndedAt": null, "breakMinutes": null, "expectedCents": 15000 },
+      "outstandingCents": 0,
+      "isPaid": true
+    },
+    {
+      "name": "a deposit leaves the balance outstanding",
+      "gig": { "payType": "hourly", "hourlyRateCents": 5000, "amountOfferedCents": null, "amountPaidCents": 5000, "durationMinutes": 180, "workStartedAt": null, "workEndedAt": null, "breakMinutes": null, "expectedCents": 15000 },
+      "outstandingCents": 10000,
+      "isPaid": false
+    },
+    {
+      "name": "an unknown expectation is not a paid gig, whatever has been paid",
+      "gig": { "payType": "hourly", "hourlyRateCents": 5000, "amountOfferedCents": null, "amountPaidCents": 5000, "durationMinutes": null, "workStartedAt": null, "workEndedAt": null, "breakMinutes": null, "expectedCents": null },
+      "outstandingCents": null,
+      "isPaid": false
+    }
   ]
 }

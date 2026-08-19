@@ -10,10 +10,13 @@ import vectors from "../../../fixtures/gig-pay-vectors.json";
 import {
   billableMinutes,
   expectedCents,
+  isPaid,
+  outstandingCents,
   PAY_TYPES,
   storedOrDerivedExpectedCents,
   workedMinutes,
   type PayableGig,
+  type PaidGig,
 } from "./gig-pay.ts";
 
 describe("gig pay vectors", () => {
@@ -28,6 +31,16 @@ describe("gig pay vectors", () => {
       expect(workedMinutes(gig)).toBe(c.workedMinutes);
       expect(billableMinutes(gig)).toBe(c.billableMinutes);
       expect(expectedCents(gig)).toBe(c.expectedCents);
+    });
+  }
+});
+
+describe("paid vectors", () => {
+  for (const c of vectors.paidCases) {
+    it(c.name, () => {
+      const gig = c.gig as PaidGig;
+      expect(outstandingCents(gig)).toBe(c.outstandingCents);
+      expect(isPaid(gig)).toBe(c.isPaid);
     });
   }
 });

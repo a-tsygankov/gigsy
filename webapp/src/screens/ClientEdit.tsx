@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
 import type { Gig, ClientInput } from "../lib/types.ts";
 import { formatMoney } from "../lib/format.ts";
-import { storedOrDerivedExpectedCents } from "../lib/gig-pay.ts";
+import { isPaid, storedOrDerivedExpectedCents } from "../lib/gig-pay.ts";
 import {
   AppHeader,
   Button,
@@ -15,19 +15,6 @@ import {
   StatusPill,
   Textarea,
 } from "../components/index.ts";
-
-/**
- * Stopgap for `isPaid()` (Task 2, lib/gig-pay.ts), which doesn't exist
- * yet: paid means what has landed covers what was expected, not merely
- * "something landed". An unknown expectation is never paid, whatever
- * figure sits in amountPaidCents — the honest answer to "is this
- * settled" when we don't know what it should earn is no.
- */
-function isSettled(gig: Gig): boolean {
-  const expected = storedOrDerivedExpectedCents(gig);
-  if (expected === null) return false;
-  return (gig.amountPaidCents ?? 0) >= expected;
-}
 
 /** One row in the client's job history. */
 function JobRow({ gig }: { gig: Gig }) {
@@ -202,21 +189,21 @@ export function ClientEdit() {
                       ["lead", "confirmed"].includes(g.status),
                     )}
                   />
-                  {/* 'paid' is not a status (migration 0015). A real
-                      isPaid() predicate is a later phase (lib/gig-pay.ts);
-                      until then this splits on isSettled() below rather
-                      than on Boolean(amountPaidCents) — a $1 deposit on
-                      a $200 job is not "Paid", it's still owed. */}
+                  {/* 'paid' is not a status (migration 0015) — it's
+                      derived (lib/gig-pay.ts). isPaid() splits on what
+                      has landed against what was expected, not on
+                      Boolean(amountPaidCents) — a $1 deposit on a $200
+                      job is not "Paid", it's still owed. */}
                   <JobGroup
                     title="Completed — not paid"
                     gigs={clientGigs.filter(
-                      (g) => g.status === "completed" && !isSettled(g),
+                      (g) => g.status === "completed" && !isPaid(g),
                     )}
                   />
                   <JobGroup
                     title="Paid"
                     gigs={clientGigs.filter(
-                      (g) => g.status === "completed" && isSettled(g),
+                      (g) => g.status === "completed" && isPaid(g),
                     )}
                   />
                 </section>
