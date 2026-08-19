@@ -1,12 +1,26 @@
 /** @vitest-environment jsdom */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DateTimeField, type DateTimeFieldProps } from "./DateTimeField.tsx";
+import { dateToLocalDate } from "../lib/datetime.ts";
 
 // Same setup as HelpProvider.test.tsx: react-dom's `act` warns without
 // this, because nothing here is React Testing Library.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+beforeAll(() => {
+  // Radix's popover positions itself with floating-ui, which observes
+  // the trigger. jsdom has no ResizeObserver, and without one the
+  // popover throws on open rather than failing an assertion — so the
+  // stub exists to let the component mount at all, not to measure
+  // anything. Layout is not what these tests are about.
+  globalThis.ResizeObserver ??= class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  };
+});
 
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
@@ -26,6 +40,20 @@ afterEach(() => {
   container = null;
 });
 
+function trigger(): HTMLButtonElement {
+  return container!.querySelector<HTMLButtonElement>("[data-testid='f']")!;
+}
+
+/** The popover is portalled to <body>, so nothing inside it is reachable
+ *  through the render container. */
+function inPopover<T extends Element>(testId: string): T | null {
+  return document.querySelector<T>(`[data-testid='${testId}']`);
+}
+
+function open(): void {
+  act(() => trigger().click());
+}
+
 /**
  * React tracks controlled inputs off the native "input" event, not
  * "change" — dispatching "change" alone leaves onChange unfired in a
@@ -40,41 +68,120 @@ function setValue(el: HTMLInputElement, value: string): void {
 }
 
 describe("DateTimeField", () => {
+  it("states the moment on the trigger, unopened", () => {
+    render({ testId: "f", value: "2026-09-12T14:18", onChange: () => {} });
+    // The visible text is localised, so the assertion is on the
+    // canonical copy the trigger carries beside it.
+    expect(trigger().dataset["value"]).toBe("2026-09-12T14:18");
+    expect(trigger().textContent).toContain("Sep 12");
+  });
+
+  it("says there is no date rather than showing an empty box", () => {
+    render({ testId: "f", value: "", onChange: () => {} });
+    expect(trigger().textContent).toContain("No date yet");
+    expect(trigger().dataset["value"]).toBe("");
+  });
+
+  it("keeps the calendar and the time input behind the trigger until it is opened", () => {
+    render({ testId: "f", value: "2026-09-12T14:18", onChange: () => {} });
+    expect(inPopover("f-time")).toBeNull();
+    expect(inPopover("f-calendar")).toBeNull();
+    open();
+    expect(inPopover("f-time")).not.toBeNull();
+    expect(inPopover("f-calendar")).not.toBeNull();
+  });
+
   it("renders a time input, not a select", () => {
-    const el = render({ testId: "f", value: "2026-09-12T14:18", onChange: () => {} });
-    const time = el.querySelector<HTMLInputElement>("[data-testid='f-time']")!;
+    render({ testId: "f", value: "2026-09-12T14:18", onChange: () => {} });
+    open();
+    const time = inPopover<HTMLInputElement>("f-time")!;
     expect(time.tagName).toBe("INPUT");
     expect(time.type).toBe("time");
     expect(time.value).toBe("14:18");
+    // No step: the quarter-hour grid is gone and every minute is
+    // enterable. `step` unset is what a native time input needs for
+    // that, so its absence is the assertion.
+    expect(time.getAttribute("step")).toBeNull();
   });
 
   it("emits the joined value when the time changes to an off-quarter minute", () => {
     const onChange = vi.fn();
-    const el = render({ testId: "f", value: "2026-09-12T09:00", onChange });
-    const time = el.querySelector<HTMLInputElement>("[data-testid='f-time']")!;
-    setValue(time, "14:07");
+    render({ testId: "f", value: "2026-09-12T09:00", onChange });
+    open();
+    setValue(inPopover<HTMLInputElement>("f-time")!, "14:07");
     expect(onChange).toHaveBeenCalledWith("2026-09-12T14:07");
   });
 
-  it("clears the whole value when the date is cleared", () => {
+  it("marks the stored day as selected in the calendar", () => {
+    render({ testId: "f", value: "2026-09-12T14:18", onChange: () => {} });
+    open();
+    // The cell carries react-day-picker's selection state; the button
+    // inside it carries the day this app tags it with.
+    const cell = inPopover<HTMLElement>("f-calendar")!
+      .querySelector("[data-day-iso='2026-09-12']")!
+      .closest("td");
+    expect(cell?.getAttribute("data-selected")).toBe("true");
+  });
+
+  it("fills 09:00 when a day is picked before a time", () => {
     const onChange = vi.fn();
-    const el = render({ testId: "f", value: "2026-09-12T14:18", onChange });
-    const date = el.querySelector<HTMLInputElement>("[data-testid='f-date']")!;
-    setValue(date, "");
+    render({ testId: "f", value: "", onChange });
+    open();
+    // Empty value means the calendar opens on today's month, so the day
+    // clicked has to be one of today's month's own days.
+    const someDay = new Date();
+    someDay.setDate(15);
+    const iso = dateToLocalDate(someDay);
+    act(() => {
+      inPopover<HTMLElement>("f-calendar")!
+        .querySelector<HTMLButtonElement>(`[data-day-iso='${iso}']`)!
+        .click();
+    });
+    expect(onChange).toHaveBeenCalledWith(`${iso}T09:00`);
+  });
+
+  it("keeps the time already set when a different day is picked", () => {
+    const onChange = vi.fn();
+    render({ testId: "f", value: "2026-09-12T14:18", onChange });
+    open();
+    act(() => {
+      inPopover<HTMLElement>("f-calendar")!
+        .querySelector<HTMLButtonElement>("[data-day-iso='2026-09-15']")!
+        .click();
+    });
+    expect(onChange).toHaveBeenCalledWith("2026-09-15T14:18");
+  });
+
+  it("clears the whole value, never just the time", () => {
+    const onChange = vi.fn();
+    render({ testId: "f", value: "2026-09-12T14:18", onChange });
+    open();
+    act(() => inPopover<HTMLButtonElement>("f-clear")!.click());
     expect(onChange).toHaveBeenCalledWith("");
   });
 
-  it("fills 09:00 when a date is picked before a time", () => {
-    const onChange = vi.fn();
-    const el = render({ testId: "f", value: "", onChange });
-    const date = el.querySelector<HTMLInputElement>("[data-testid='f-date']")!;
-    setValue(date, "2026-09-12");
-    expect(onChange).toHaveBeenCalledWith("2026-09-12T09:00");
+  it("disables the time until there is a day to attach it to", () => {
+    render({ testId: "f", value: "", onChange: () => {} });
+    open();
+    expect(inPopover<HTMLInputElement>("f-time")!.disabled).toBe(true);
   });
 
-  it("disables the time until there is a date to attach it to", () => {
-    const el = render({ testId: "f", value: "", onChange: () => {} });
-    const time = el.querySelector<HTMLInputElement>("[data-testid='f-time']")!;
-    expect(time.disabled).toBe(true);
+  it("closes on Done, leaving the value alone", () => {
+    const onChange = vi.fn();
+    render({ testId: "f", value: "2026-09-12T14:18", onChange });
+    open();
+    act(() => inPopover<HTMLButtonElement>("f-done")!.click());
+    expect(inPopover("f-time")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("names the trigger for a screen reader, which a wrapping label cannot do for a button", () => {
+    render({ testId: "f", value: "", label: "Started", onChange: () => {} });
+    expect(trigger().getAttribute("aria-label")).toBe("Started");
+  });
+
+  it("tags nothing when no testId is given", () => {
+    const el = render({ value: "", onChange: () => {} });
+    expect(el.querySelector("[data-testid]")).toBeNull();
   });
 });

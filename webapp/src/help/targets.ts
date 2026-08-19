@@ -61,15 +61,19 @@ export const HelpTarget = {
 
   // ── the gig form (GigEdit.tsx) ──
   // Every one of these is an Input, Select, Textarea or Button, so every
-  // one is `element`. DateTimeField splits one labelled field across two
-  // controls and suffixes the id it is given, hence the two entries.
-  // DurationField does the same, but only its hours half has a help
+  // one is `element`. DateTimeField is one control now — a popover
+  // trigger carrying the id it is given — so a moment is one target, not
+  // a date target plus a time target. Its calendar and time input live
+  // inside the popover and have no help targets at all: this scenario is
+  // highlight-only (see scenarios/create-gig.ts's header), so it never
+  // opens the popover, and a step aiming inside a closed one would wait
+  // out `waitForElement` and fail the walk every run.
+  // DurationField still splits, but only its hours half has a help
   // target — there is no separate scenario step for the minutes input.
   GigTitle: element("gig-title"),
   GigClient: element("gig-client"),
   GigStatus: element("gig-status"),
-  GigDate: element("gig-datetime-date"),
-  GigTime: element("gig-datetime-time"),
+  GigDateTime: element("gig-datetime"),
   GigDurationHours: element("gig-duration-hours"),
   GigLocation: element("gig-location"),
   GigUseCurrentLocation: element("use-current-location"),
@@ -85,8 +89,8 @@ export const HelpTarget = {
   // the whole run (see create-gig.ts's header for the full reasoning).
   GigOffered: element("gig-offered"),
   GigPaid: element("gig-paid"),
-  GigWorkStart: element("gig-work-start-date"),
-  GigWorkEnd: element("gig-work-end-date"),
+  GigWorkStart: element("gig-work-start"),
+  GigWorkEnd: element("gig-work-end"),
   GigBreak: element("gig-break"),
   GigNotes: element("gig-notes"),
   GigSave: element("gig-save"),

@@ -78,17 +78,10 @@ export const createGig: HelpScenario = {
     },
     {
       action: "highlight",
-      target: HelpTarget.GigDate,
-      title: "Date & time — the day",
+      target: HelpTarget.GigDateTime,
+      title: "Date & time",
       description:
-        "Pick the day here. A gig with no date at all still saves, it just can't block time or sync anywhere. Choosing a date before you've touched the time sets 09:00 rather than dropping the day you just picked — the box beside it is where you change that.",
-    },
-    {
-      action: "highlight",
-      target: HelpTarget.GigTime,
-      title: "…and the time",
-      description:
-        "Any minute of the hour — 14:07 if that is when you start. The time is what the calendar event and your public availability page are built from, so it is worth getting right.",
+        "Tap this to open a calendar with a time box under it. A gig with no date at all still saves, it just can't block time or sync anywhere. Picking a day before you've touched the time sets 09:00 rather than dropping the day you just chose, and the time box takes any minute of the hour — 14:07 if that is when you start. Both are what the calendar event and your public availability page get built from, so they are worth getting right. \"Clear\" empties the whole thing; a time with no day is not a moment.",
     },
     {
       action: "highlight",
@@ -137,7 +130,7 @@ export const createGig: HelpScenario = {
       target: HelpTarget.GigWorkStart,
       title: "Started",
       description:
-        "When the shift actually began — as opposed to the date and time near the top, which is what was agreed. On an hourly gig, once this and Finished are both filled in, Gigsy prices the shift on the real time worked instead of the booked duration.",
+        "When the shift actually began — as opposed to the date and time near the top, which is what was agreed. Same control, same calendar. On an hourly gig, once this and Finished are both filled in, Gigsy prices the shift on the real time worked instead of the booked duration.",
     },
     {
       action: "highlight",

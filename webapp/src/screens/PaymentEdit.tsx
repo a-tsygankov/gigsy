@@ -8,6 +8,7 @@ import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
 import {
   AppHeader,
   Button,
+  DateTimeField,
   Field,
   Input,
   SectionHeading,
@@ -152,11 +153,14 @@ export function PaymentEdit() {
             </Field>
 
             <Field label="Received on">
-              <Input
-                data-testid="payment-paid-at"
-                type="datetime-local"
+              {/* Was a bare `<input type="datetime-local">` — the app's
+                  second answer to a question the gig form already
+                  answered with DateTimeField. There is one now. */}
+              <DateTimeField
+                testId="payment-paid-at"
+                label="Received on"
                 value={paidAt}
-                onChange={(e) => setPaidAt(e.target.value)}
+                onChange={setPaidAt}
               />
             </Field>
 

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { requireTestAuth, resetGigListView } from "./helpers/test-auth.ts";
+import { dateTimeField } from "./helpers/datetime-field.ts";
 
 /**
  * The gig list's own controls (search, status chips, clear).
@@ -224,48 +225,89 @@ test("Clear filters stays cleared after a reload", async ({ page }) => {
 /**
  * The gig time control accepts any minute.
  *
- * `DateTimeField` renders a native `<input type="time">`, not a
- * quarter-hour `<select>` — there is no grid left to prove the
- * containment of. What still needs proving here is what a plain time
- * input does NOT give for free: it starts disabled with no date to
- * attach to, it fills in a visible default rather than dropping a date
- * picked before the hour, and clearing the date clears the moment.
+ * The time half is a native `<input type="time">`, not a quarter-hour
+ * `<select>` — there is no grid left to prove the containment of. What
+ * still needs proving is what a time input does NOT give for free: it
+ * starts disabled with no day to attach to, picking a day before the
+ * hour fills a visible default rather than dropping the day, and
+ * clearing empties the whole moment rather than half of it.
  */
 test("the gig time control accepts any minute", async ({ page }) => {
   await page.getByRole("link", { name: "Gigs" }).click();
   await page.getByRole("link", { name: "Add gig" }).click();
 
-  const date = page.getByTestId("gig-datetime-date");
-  const time = page.getByTestId("gig-datetime-time");
+  const when = dateTimeField(page, "gig-datetime");
+  await when.expectValue("");
+  await when.open();
 
-  // No date yet, so there is nothing for a time to belong to.
-  await expect(time).toBeDisabled();
+  // No day yet, so there is nothing for a time to belong to.
+  await expect(when.time).toBeDisabled();
 
-  await date.fill("2026-09-14");
-  await expect(time).toBeEnabled();
+  await when.pickDay("2026-09-14");
+  await expect(when.time).toBeEnabled();
 
-  // Picking a date before a time fills one in rather than dropping the
-  // date on the floor.
-  await expect(time).toHaveValue("09:00");
+  // Picking a day before a time fills one in rather than dropping the
+  // day on the floor.
+  await expect(when.time).toHaveValue("09:00");
 
   // The point of the change: a minute that was never on the old grid.
-  await time.fill("14:18");
-  await expect(time).toHaveValue("14:18");
+  await when.setTime("14:18");
+  await expect(when.time).toHaveValue("14:18");
+  await when.expectValue("2026-09-14T14:18");
 
-  // Two controls where there was one, on a phone. The filter row was
-  // caught doing exactly this — a horizontally scrollable page also
-  // moves the fixed tab bar's hit target, so it breaks navigation, not
-  // just looks.
+  // Asserted with the popover OPEN, which is when the widest thing on
+  // the screen is on the screen. The filter row was caught doing exactly
+  // this — a horizontally scrollable page also moves the fixed tab bar's
+  // hit target, so it breaks navigation, not just looks.
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth,
     ),
   ).toBe(false);
 
-  // Clearing the date clears the moment — a time alone is not one. Disabled
+  // Clearing empties the moment — a time alone is not one. Disabled
   // alone would pass a regression that disables the control but leaves
   // 14:18 sitting in it, so the value itself is asserted too.
-  await date.fill("");
-  await expect(time).toBeDisabled();
-  await expect(time).toHaveValue("");
+  await when.clear();
+  await expect(when.time).toBeDisabled();
+  await expect(when.time).toHaveValue("");
+  await when.expectValue("");
+});
+
+/**
+ * The whole moment is reachable from the keyboard.
+ *
+ * Two native inputs were keyboard-operable for free. A popover is not:
+ * Radix focuses the first focusable child on open, which is the previous
+ * month arrow, leaving a keyboard user several tabs from any day — so
+ * DateTimeField moves that focus onto the calendar itself, and this is
+ * what says it still does.
+ */
+test("the date and time can be set without a pointer", async ({ page }) => {
+  await page.goto("/gigs/new");
+  const when = dateTimeField(page, "gig-datetime");
+
+  await when.trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(when.calendar).toBeVisible();
+
+  // Landed on a day, not on the month arrows.
+  await expect(
+    page.locator("td[data-day] button:focus"),
+  ).toHaveCount(1);
+
+  // Arrows walk the grid a week at a time; Enter takes the day, and the
+  // 09:00 default fills in exactly as it does for a tap.
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(when.trigger).toHaveAttribute("data-value", /T09:00$/);
+
+  await when.time.focus();
+  await page.keyboard.type("0930AM");
+  await expect(when.trigger).toHaveAttribute("data-value", /T09:30$/);
+
+  // Escape closes and hands focus back, so the tab order is not lost.
+  await page.keyboard.press("Escape");
+  await expect(when.calendar).toBeHidden();
+  await expect(when.trigger).toBeFocused();
 });
