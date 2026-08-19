@@ -17,7 +17,14 @@ import gigExpectedCentsSql from "../../migrations/0014_gig_expected_cents.sql?ra
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
-const MIGRATIONS = [
+//
+// Split at 0014 so a test can seed rows into the pre-0014 schema and
+// then watch that migration's backfill act on them. Applying the whole
+// list to an empty database — which is what every other suite wants —
+// exercises the ALTER but never a single UPDATE, and the backfill is
+// the one statement in this repo that runs once, against real money,
+// with no undo.
+export const MIGRATIONS_BEFORE_EXPECTED_CENTS = [
   initSql,
   refreshTokensSql,
   servicesPaymentsSql,
@@ -32,16 +39,22 @@ const MIGRATIONS = [
   gigTitleSql,
   activityEventsSql,
   gigPayAndWorkLogSql,
-  gigExpectedCentsSql,
 ];
 
+export const EXPECTED_CENTS_MIGRATION = gigExpectedCentsSql;
+
+const MIGRATIONS = [...MIGRATIONS_BEFORE_EXPECTED_CENTS, EXPECTED_CENTS_MIGRATION];
+
 /**
- * Apply the real migrations to the test D1. Called from beforeAll —
- * vitest-pool-workers' isolated storage keeps beforeAll writes for the
- * whole file and rolls back per-test writes.
+ * Run migration SQL the way the D1 migration runner does: comment lines
+ * dropped, then split on the statement terminator. Exported so a test
+ * can apply a prefix of the list, seed rows, and then apply the rest.
  */
-export async function applyMigrations(db: D1Database): Promise<void> {
-  for (const sql of MIGRATIONS) {
+export async function applyMigrationSql(
+  db: D1Database,
+  migrations: readonly string[],
+): Promise<void> {
+  for (const sql of migrations) {
     const statements = sql
       .split("\n")
       .filter((line) => !line.trim().startsWith("--"))
@@ -53,6 +66,15 @@ export async function applyMigrations(db: D1Database): Promise<void> {
       await db.prepare(stmt).run();
     }
   }
+}
+
+/**
+ * Apply the real migrations to the test D1. Called from beforeAll —
+ * vitest-pool-workers' isolated storage keeps beforeAll writes for the
+ * whole file and rolls back per-test writes.
+ */
+export async function applyMigrations(db: D1Database): Promise<void> {
+  await applyMigrationSql(db, MIGRATIONS);
 }
 
 /** FKs are enforced — every entity row needs its user first. */

@@ -29,8 +29,11 @@ export interface UnpaidJob {
   clientName: string | null;
   dateTime: number | null;
   /** The gig's expected pay — its offer when fixed, rate × time when
-   *  hourly. Named "offered" because that is what the drill-down calls
-   *  it on screen, and on a fixed gig it is exactly the offer. */
+   *  hourly. The name no longer describes the source column, and is
+   *  kept anyway: this is a shipped response field, and an installed
+   *  PWA that has not updated yet still reads `offeredCents` off the
+   *  drill-down rows. Renaming it would blank the figure on exactly
+   *  the clients slowest to update. */
   offeredCents: number;
   paidCents: number;
   servicesOfferedCents: number;
