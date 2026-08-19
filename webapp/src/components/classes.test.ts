@@ -180,7 +180,7 @@ describe("status + tone maps", () => {
       "confirmed",
       "lead",
     ]);
-    expect(STATUS_PILL_CLASSES.cancelled).toContain("red");
+    expect(STATUS_PILL_CLASSES.cancelled).toContain("violet");
     expect(STATUS_PILL_CLASSES.confirmed).toContain("sky");
     expect(STATUS_PILL_CLASSES.completed).toContain("amber");
     expect(STATUS_PILL_CLASSES.lead).toContain("slate");

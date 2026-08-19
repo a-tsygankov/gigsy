@@ -64,23 +64,35 @@ const MIGRATIONS = [
 ];
 
 /**
- * Run migration SQL the way the D1 migration runner does: comment lines
- * dropped, then split on the statement terminator. Exported so a test
- * can apply a prefix of the list, seed rows, and then apply the rest.
+ * Comment lines dropped, then split on the statement terminator — the
+ * way the D1 migration runner turns one migration file into the
+ * individual statements it executes. Exported on its own (not just
+ * folded into applyMigrationSql) so a test can slice the list itself:
+ * apply the first N statements to stand in for a batch that failed
+ * partway through, then apply the whole file again to check whether it
+ * self-heals.
+ */
+export function splitMigrationStatements(sql: string): string[] {
+  return sql
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n")
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * Run migration SQL the way the D1 migration runner does. Exported so a
+ * test can apply a prefix of the list, seed rows, and then apply the
+ * rest.
  */
 export async function applyMigrationSql(
   db: D1Database,
   migrations: readonly string[],
 ): Promise<void> {
   for (const sql of migrations) {
-    const statements = sql
-      .split("\n")
-      .filter((line) => !line.trim().startsWith("--"))
-      .join("\n")
-      .split(";")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    for (const stmt of statements) {
+    for (const stmt of splitMigrationStatements(sql)) {
       await db.prepare(stmt).run();
     }
   }

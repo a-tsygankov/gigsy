@@ -20,10 +20,16 @@ export const STATUS_PILL_CLASSES: Record<GigStatus, string> = {
   // Its own hue, not slate: sharing lead's colour would make "not yet
   // started" and "never going to happen" look identical at a glance,
   // in a component whose whole job is to carry that distinction in
-  // colour. red is the app's only other curated hue (tailwind.config.ts)
-  // and the -50/-600 pairing keeps it well short of the danger-button
-  // red used for actual errors elsewhere.
-  cancelled: "bg-red-50 text-red-600 line-through",
+  // colour. Not red either, despite "cancelled" reading as a natural
+  // fit for it: text-red-600 is this app's error signal in seventeen
+  // places (Field, LogList, every screen's "Save failed" line,
+  // SyncBadge's failure state), so a cancelled gig would look
+  // pixel-identical to a sync error. Not emerald — the app's other
+  // free curated hue — either: it is the accent/"good news" colour
+  // everywhere else (buttons, focus rings, positive money), which is
+  // backwards for a job that fell through. violet is new to the
+  // palette (colors.css) for exactly this pill.
+  cancelled: "bg-violet-100 text-violet-700 line-through",
 };
 
 export function StatusPill({ status }: { status: GigStatus }) {

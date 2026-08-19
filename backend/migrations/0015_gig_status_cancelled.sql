@@ -27,9 +27,12 @@
 -- and silently ignored — and DROP TABLE performs an implicit DELETE
 -- FROM first, which is refused the instant any of those three still
 -- points at a row about to disappear. PRAGMA defer_foreign_keys does
--- not help either: the deferred-violation counter is only decremented
--- by inserting a matching parent row back, and ALTER TABLE ... RENAME
--- inserts none.
+-- not help either — verified directly, not assumed: inside a single
+-- db.batch() it does survive to the next statement, but issued as its
+-- own statement (which is what a migration's DROP/RENAME pair actually
+-- are once split apart) it reads back false on the very next one. It
+-- has no connection to carry it forward, because each such statement
+-- is its own implicit transaction.
 --
 -- So every table with a foreign key into gigs.id is staged into a
 -- plain copy, emptied, and restored once the new gigs table exists
@@ -42,21 +45,45 @@
 -- the other option; staging is less code for tables whose own schema
 -- isn't changing here.
 --
--- Wrangler applies this whole file as one atomic batch: if any
--- statement below fails, every statement before it is rolled back too,
--- so there is no state where gigs is dropped and the stage tables are
--- not yet restored.
+-- ATOMICITY. `d1 migrations apply --local` runs this file through
+-- db.batch(), which is one transaction — verified directly against
+-- this file, not assumed. `--remote`, the one the deploy job actually
+-- runs, posts it to D1's HTTP query endpoint, which Cloudflare does
+-- not document as transactional across statements. That gap is why
+-- this file is written to be safely re-run rather than merely correct
+-- once: CREATE TABLE IF NOT EXISTS on every table this migration
+-- creates, and the rebuild's own INSERT filtered to rows it has not
+-- already copied, so re-running from the top after a partial failure
+-- repeats no destructive step and duplicates no row.
+--
+-- The one window that does NOT self-heal: between DROP TABLE gigs and
+-- the RENAME two statements later, there is no table named `gigs` —
+-- gigs_new, already fully populated and correct, is the only copy of
+-- the migrated data. A retry that starts from the top reaches its own
+-- "INSERT INTO gigs_new ... FROM gigs" and fails outright, because the
+-- source it reads from is exactly the table this window doesn't have.
+-- Nothing here is lost — gigs_new is never dropped or overwritten by a
+-- retry, only ever added to — but nothing here can finish automatically
+-- either, because the statement that would finish it needs a source
+-- table that will not exist again until a human reasons about which
+-- half of the rebuild actually completed and runs the rest by hand.
+-- Closing this fully needs either real cross-statement transactionality
+-- (the thing --remote doesn't offer) or a conditional "skip this step
+-- if gigs is already gone", which a flat, unconditional sequence of SQL
+-- statements has no way to express.
 
-CREATE TABLE gig_services_stage AS SELECT * FROM gig_services;
-CREATE TABLE payments_stage AS SELECT * FROM payments;
-CREATE TABLE expenses_stage AS SELECT * FROM expenses;
+CREATE TABLE IF NOT EXISTS gig_services_stage AS SELECT * FROM gig_services;
+CREATE TABLE IF NOT EXISTS payments_stage AS SELECT * FROM payments;
+CREATE TABLE IF NOT EXISTS expenses_stage AS SELECT * FROM expenses;
 
 -- Dependency order: gig_services references both gigs and payments.
+-- Deleting from an already-empty table (a retry's second pass) is a
+-- harmless no-op, not an error.
 DELETE FROM gig_services;
 DELETE FROM payments;
 DELETE FROM expenses;
 
-CREATE TABLE gigs_new (
+CREATE TABLE IF NOT EXISTS gigs_new (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
   client_id TEXT REFERENCES clients(id),
@@ -82,6 +109,12 @@ CREATE TABLE gigs_new (
   server_modified_at INTEGER NOT NULL DEFAULT 0
 );
 
+-- The NOT IN filter is what makes this statement itself re-runnable: a
+-- retry that reaches here with gigs_new already partly or fully
+-- populated (from an earlier attempt that got this far before failing
+-- later) copies only the rows it has not already copied, rather than
+-- either erroring on a duplicate primary key or being skipped wholesale
+-- by a table-level IF NOT EXISTS the way the CREATE above is.
 INSERT INTO gigs_new (
   id, user_id, client_id, title, status, location, date_time,
   duration_minutes, calendar_event_id, amount_offered_cents,
@@ -96,21 +129,25 @@ SELECT
   amount_offered_cents, amount_paid_cents, expected_cents, pay_type,
   hourly_rate_cents, work_started_at, work_ended_at, break_minutes,
   notes, source, created_at, modified_at, server_modified_at
-FROM gigs;
+FROM gigs
+WHERE id NOT IN (SELECT id FROM gigs_new);
 
-DROP TABLE gigs;
+DROP TABLE IF EXISTS gigs;
 ALTER TABLE gigs_new RENAME TO gigs;
 
-CREATE INDEX idx_gigs_user_date ON gigs(user_id, date_time);
-CREATE INDEX idx_gigs_user_status ON gigs(user_id, status);
-CREATE INDEX idx_gigs_client ON gigs(client_id);
-CREATE INDEX idx_gigs_user_server_modified ON gigs(user_id, server_modified_at);
+CREATE INDEX IF NOT EXISTS idx_gigs_user_date ON gigs(user_id, date_time);
+CREATE INDEX IF NOT EXISTS idx_gigs_user_status ON gigs(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_gigs_client ON gigs(client_id);
+CREATE INDEX IF NOT EXISTS idx_gigs_user_server_modified ON gigs(user_id, server_modified_at);
 
 -- Restore, reverse dependency order: payments before gig_services.
+-- Always running into a table just emptied by the DELETEs above (in
+-- this same pass), so no NOT-IN filter is needed here the way it is
+-- for gigs_new.
 INSERT INTO expenses SELECT * FROM expenses_stage;
 INSERT INTO payments SELECT * FROM payments_stage;
 INSERT INTO gig_services SELECT * FROM gig_services_stage;
 
-DROP TABLE gig_services_stage;
-DROP TABLE payments_stage;
-DROP TABLE expenses_stage;
+DROP TABLE IF EXISTS gig_services_stage;
+DROP TABLE IF EXISTS payments_stage;
+DROP TABLE IF EXISTS expenses_stage;

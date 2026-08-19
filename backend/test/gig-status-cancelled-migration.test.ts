@@ -35,6 +35,36 @@ const PAYMENT = "20000000-0000-4000-8000-000000000001";
 const SERVICE = "30000000-0000-4000-8000-000000000001";
 const EXPENSE = "40000000-0000-4000-8000-000000000001";
 
+// A fifth gig, seeded with a distinct value in EVERY column (not just
+// the four the other fixtures touch), to exercise the explicit-column
+// INSERT ... SELECT itself. That statement is the part of 0015 most
+// likely to silently misfile a value — notes/source and location/title
+// are adjacent same-type columns — and a fixture that only ever sets
+// id/status/created_at/modified_at can't catch a transposition between
+// any of the other eighteen.
+const FULL_COLUMN_GIG = "10000000-0000-4000-8000-000000000007";
+const FULL_COLUMN_CLIENT = "60000000-0000-4000-8000-000000000001";
+const FULL_COLUMN_VALUES = {
+  title: "Column Mapping Gig",
+  location: "42 Test Street",
+  dateTime: 1_000_000_000_001,
+  durationMinutes: 111,
+  calendarEventId: "evt-full-column-check",
+  amountOfferedCents: 222_222,
+  amountPaidCents: 333_333,
+  expectedCents: 444_444,
+  payType: "hourly",
+  hourlyRateCents: 555_555,
+  workStartedAt: 666_666_666_666,
+  workEndedAt: 777_777_777_777,
+  breakMinutes: 88,
+  notes: "Full column mapping notes",
+  source: "email",
+  createdAt: 999_999_999_991,
+  modifiedAt: 999_999_999_992,
+  serverModifiedAt: 999_999_999_993,
+};
+
 beforeAll(async () => {
   // Everything up to but NOT including 0015: the schema rows in
   // production were actually written against.
@@ -84,6 +114,47 @@ beforeAll(async () => {
     .bind(EXPENSE, U1, CONFIRMED)
     .run();
 
+  await env.DB.prepare(
+    `INSERT INTO clients (id, user_id, name, created_at, modified_at)
+     VALUES (?, ?, 'Column Mapping Client', 1, 1)`,
+  )
+    .bind(FULL_COLUMN_CLIENT, U1)
+    .run();
+  const v = FULL_COLUMN_VALUES;
+  await env.DB.prepare(
+    `INSERT INTO gigs (
+       id, user_id, client_id, title, status, location, date_time,
+       duration_minutes, calendar_event_id, amount_offered_cents,
+       amount_paid_cents, expected_cents, pay_type, hourly_rate_cents,
+       work_started_at, work_ended_at, break_minutes, notes, source,
+       created_at, modified_at, server_modified_at
+     ) VALUES (?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      FULL_COLUMN_GIG,
+      U1,
+      FULL_COLUMN_CLIENT,
+      v.title,
+      v.location,
+      v.dateTime,
+      v.durationMinutes,
+      v.calendarEventId,
+      v.amountOfferedCents,
+      v.amountPaidCents,
+      v.expectedCents,
+      v.payType,
+      v.hourlyRateCents,
+      v.workStartedAt,
+      v.workEndedAt,
+      v.breakMinutes,
+      v.notes,
+      v.source,
+      v.createdAt,
+      v.modifiedAt,
+      v.serverModifiedAt,
+    )
+    .run();
+
   await applyMigrationSql(env.DB, [STATUS_CANCELLED_MIGRATION]);
 });
 
@@ -94,7 +165,8 @@ describe("0015 against a database that already has children", () => {
     )
       .bind(U1)
       .first<{ n: number }>();
-    expect(row?.n).toBe(4);
+    // The four status fixtures plus the full-column one below.
+    expect(row?.n).toBe(5);
   });
 
   it("maps 'paid' to 'completed' and leaves every other status alone", async () => {
@@ -192,5 +264,78 @@ describe("0015 against a database that already has children", () => {
     expect(payments?.n).toBe(1);
     expect(gigServices?.n).toBe(1);
     expect(expenses?.n).toBe(1);
+  });
+
+  it("leaves no *_stage table behind", async () => {
+    const stage = await env.DB.prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%_stage'`,
+    ).all<{ name: string }>();
+    expect(stage.results).toEqual([]);
+  });
+
+  it("passes PRAGMA foreign_key_check", async () => {
+    const violations = await env.DB.prepare("PRAGMA foreign_key_check").all();
+    expect(violations.results).toEqual([]);
+  });
+
+  it("maps every one of the 22 columns correctly, not just the ones every other fixture sets", async () => {
+    const row = await env.DB.prepare("SELECT * FROM gigs WHERE id = ?")
+      .bind(FULL_COLUMN_GIG)
+      .first<Record<string, unknown>>();
+    expect(row).toMatchObject({
+      id: FULL_COLUMN_GIG,
+      user_id: U1,
+      client_id: FULL_COLUMN_CLIENT,
+      title: FULL_COLUMN_VALUES.title,
+      // The one column this row's INSERT deliberately disagreed with
+      // its own literal value on — 'paid' in, 'completed' out.
+      status: "completed",
+      location: FULL_COLUMN_VALUES.location,
+      date_time: FULL_COLUMN_VALUES.dateTime,
+      duration_minutes: FULL_COLUMN_VALUES.durationMinutes,
+      calendar_event_id: FULL_COLUMN_VALUES.calendarEventId,
+      amount_offered_cents: FULL_COLUMN_VALUES.amountOfferedCents,
+      amount_paid_cents: FULL_COLUMN_VALUES.amountPaidCents,
+      expected_cents: FULL_COLUMN_VALUES.expectedCents,
+      pay_type: FULL_COLUMN_VALUES.payType,
+      hourly_rate_cents: FULL_COLUMN_VALUES.hourlyRateCents,
+      work_started_at: FULL_COLUMN_VALUES.workStartedAt,
+      work_ended_at: FULL_COLUMN_VALUES.workEndedAt,
+      break_minutes: FULL_COLUMN_VALUES.breakMinutes,
+      notes: FULL_COLUMN_VALUES.notes,
+      source: FULL_COLUMN_VALUES.source,
+      created_at: FULL_COLUMN_VALUES.createdAt,
+      modified_at: FULL_COLUMN_VALUES.modifiedAt,
+      server_modified_at: FULL_COLUMN_VALUES.serverModifiedAt,
+    });
+    // toMatchObject alone would pass even if the row had EXTRA columns
+    // with wrong values under different names — belt and suspenders on
+    // the one statement most likely to transpose two adjacent columns.
+    expect(Object.keys(row!).sort()).toEqual(
+      [
+        "amount_offered_cents",
+        "amount_paid_cents",
+        "break_minutes",
+        "calendar_event_id",
+        "client_id",
+        "created_at",
+        "date_time",
+        "duration_minutes",
+        "expected_cents",
+        "hourly_rate_cents",
+        "id",
+        "location",
+        "modified_at",
+        "notes",
+        "pay_type",
+        "server_modified_at",
+        "source",
+        "status",
+        "title",
+        "user_id",
+        "work_ended_at",
+        "work_started_at",
+      ].sort(),
+    );
   });
 });

@@ -100,7 +100,7 @@ describe("design tokens", () => {
    * accumulated across the app before this test existed.
    */
   it("every colour utility in the app resolves to a tokenised step", () => {
-    const hues = "slate|emerald|sky|amber|red";
+    const hues = "slate|emerald|sky|amber|red|violet";
     const used = new Map<string, string[]>();
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir)) {

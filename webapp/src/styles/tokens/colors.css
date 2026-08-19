@@ -47,6 +47,13 @@
   --c-red-500: 239 68 68;
   --c-red-600: 220 38 38;
 
+  /* Its own hue, not a shade of red: text-red-600 is this app's error
+     signal in seventeen places (Field, LogList, every screen's "Save
+     failed" line, SyncBadge). A cancelled gig sharing it would read as
+     a sync error at a glance. */
+  --c-violet-100: 237 233 254;
+  --c-violet-700: 109 40 217;
+
   --c-white: 255 255 255;
 
   /* Two tokens that exist because one palette step cannot serve two
@@ -114,6 +121,9 @@
   --c-red-200: 127 29 29;
   --c-red-500: 248 113 113;
   --c-red-600: 252 165 165;
+
+  --c-violet-100: 46 16 101;
+  --c-violet-700: 196 181 253;
 
   /* Dark mode brightens the accent fill, and white on a bright emerald
      measures 2.54:1 — below the 4.5 a button needs. The convention that
