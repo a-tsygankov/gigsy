@@ -261,6 +261,30 @@ test("a gig date and time are stored together and come back", async ({
 });
 
 /**
+ * A payment's date survives the round trip.
+ *
+ * `payment-paid-at` is the one site whose control changed TYPE rather
+ * than shape — it was a bare `<input type="datetime-local">`, the app's
+ * second answer to a question the gig form already answered, and it had
+ * no coverage at any level before this. Now it is the same popover, so
+ * the same driver reaches it.
+ */
+test("a payment date is stored and comes back", async ({ page }) => {
+  await page.goto("/payments/new");
+  await page.getByTestId("payment-amount").fill("125.50");
+  await dateTimeField(page, "payment-paid-at").set("2027-03-04", "10:45");
+  await page.getByTestId("payment-save").click();
+
+  // Saving a new payment replaces the URL with the record's own id.
+  await expect(page).toHaveURL(/\/payments\/(?!new$)[\w-]+/, { timeout: 15_000 });
+
+  // Reopened from storage, not from the form state left behind.
+  await page.reload();
+  await dateTimeField(page, "payment-paid-at").expectValue("2027-03-04T10:45");
+  await expect(page.getByTestId("payment-amount")).toHaveValue("125.50");
+});
+
+/**
  * The dot has to be on the RIGHT row. An earlier version of this test
  * asserted only that some dot existed somewhere on the list, which is
  * why it stayed green while the query cached the pending id set under

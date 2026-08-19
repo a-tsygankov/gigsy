@@ -23,10 +23,13 @@
 > - **A moment is one control.** `DateTimeField` was a date input beside a
 >   time input, and `PaymentEdit` answered the same question with a bare
 >   `<input type="datetime-local">`. Both are now a shadcn calendar in a
->   popover plus a time box — the first floating layer in the product, and
->   the reason `components/ui/` gained `popover`, `calendar` and `button`.
->   Native pickers were what forced two different answers: they render
->   differently in every browser and do not follow `data-theme`.
+>   popover plus a time box — the first floating layer anchored to the
+>   control it belongs to (the tour popover, `HelpSheet`, `UpdateBar` and
+>   `HiddenConsole` all float, but none of them is positioned against a
+>   field), and the reason `components/ui/` gained `popover`, `calendar`
+>   and `button`. Native pickers were what forced two different answers:
+>   they render differently in every browser, and the panel each one
+>   drops down is the browser's, past the reach of `data-theme`.
 > - **`EmptyState` gained a `compact` variant** — the one-line dashed note used
 >   inside a populated screen where there is nothing to act on ("Nothing
 >   outstanding — every completed job is paid"). It replaces the same recipe

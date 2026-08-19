@@ -3,9 +3,11 @@
  * arrive on first open instead of on first paint.
  *
  * That is the entire reason this file is separate from DateTimeField:
- * react-day-picker plus the date-fns it depends on are ~290 kB of the
- * main chunk, and only three screens can open a picker at all — so
- * every other screen was paying to ship a calendar it cannot show.
+ * react-day-picker plus the date-fns it depends on build to a 77 kB
+ * chunk (22 kB gzipped), and only three screens can open a picker at
+ * all — so every other screen was paying to ship a calendar it cannot
+ * show. Moving them out took the main chunk from 674 kB to 598 kB
+ * (gzip 210 kB to 188 kB).
  * Nothing may import this statically, or it lands back in the main
  * chunk and the split silently stops working.
  *

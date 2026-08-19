@@ -193,9 +193,37 @@ describe("DateTimeField", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("names the trigger for a screen reader, which a wrapping label cannot do for a button", () => {
-    render({ testId: "f", value: "", label: "Started", onChange: () => {} });
-    expect(trigger().getAttribute("aria-label")).toBe("Started");
+  it("puts BOTH the field's name and its value in the trigger's accessible name", () => {
+    render({ testId: "f", value: "2026-09-12T09:00", label: "Started", onChange: () => {} });
+    // The name has to be explicit. `Field` wraps this in a <label>, and
+    // a wrapping label outranks an element's own contents in the
+    // accessible-name algorithm — so neither the visible text nor an
+    // sr-only span inside the button can get the moment into the name;
+    // both lose to "Started" on its own. Checked against Chromium's
+    // real computation, which reads "Started, Sat, Sep 12, 9:00 AM".
+    const name = trigger().getAttribute("aria-label") ?? "";
+    expect(name).toContain("Started");
+    expect(name).toContain("Sep 12");
+    // And the visible text is a subset of it, so voice control can act
+    // on what a person can actually read (WCAG 2.5.3).
+    expect(name).toContain(trigger().querySelector("span")?.textContent ?? " ");
+  });
+
+  it("still announces a value when no label was given", () => {
+    render({ testId: "f", value: "", onChange: () => {} });
+    expect(trigger().getAttribute("aria-label")).toBe("No date yet");
+  });
+
+  it("keeps the day when the time box is emptied", async () => {
+    const onChange = vi.fn();
+    render({ testId: "f", value: "2026-09-12T14:18", onChange });
+    await open();
+    setValue(inPopover<HTMLInputElement>("f-time")!, "");
+    // Not "2026-09-12T", which reads back as no moment at all: the
+    // trigger would say "No date yet" over a calendar still showing the
+    // 12th highlighted, and saving would drop the day without a word.
+    expect(onChange).toHaveBeenCalledWith("2026-09-12T09:00");
+    expect(onChange).not.toHaveBeenCalledWith("2026-09-12T");
   });
 
   it("tags nothing when no testId is given", () => {

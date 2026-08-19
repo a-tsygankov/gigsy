@@ -291,10 +291,10 @@ test("the date and time can be set without a pointer", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(when.calendar).toBeVisible();
 
-  // Landed on a day, not on the month arrows.
-  await expect(
-    page.locator("td[data-day] button:focus"),
-  ).toHaveCount(1);
+  // Landed on a day, not on the month arrows. Selected on the app's own
+  // `data-day-iso`, not react-day-picker's rendered `data-day` — the
+  // same reason helpers/datetime-field.ts and ui/calendar.tsx give.
+  await expect(page.locator("[data-day-iso]:focus")).toHaveCount(1);
 
   // Arrows walk the grid a week at a time; Enter takes the day, and the
   // 09:00 default fills in exactly as it does for a tap.

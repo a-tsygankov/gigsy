@@ -41,16 +41,18 @@ const DateTimeCalendar = lazy(importCalendar);
 /** The calendar's own footprint, reserved before it arrives.
  *
  *  Seven 40px day cells plus 12px of padding either side is 304px wide;
- *  a six-week month is 362px tall (24 padding + 40 caption + 16 gap +
- *  16 weekday row + six 44px weeks). Held as a MINIMUM, so two things
- *  stay still: the panel does not resize when the real calendar
- *  replaces the placeholder, and it does not resize when you page from
- *  a five-week month into a six-week one. */
+ *  a six-week month is 362px tall — 24 padding + 40 caption + 16 gap +
+ *  18 weekday row + six 44px weeks (40 plus a 4px margin), all measured
+ *  against the built app rather than reasoned about. Held as a MINIMUM,
+ *  so two things stay still: the panel does not resize when the real
+ *  calendar replaces the placeholder, and it does not resize when you
+ *  page from a five-week month into a six-week one. */
 const CALENDAR_BOX = "min-h-[362px] min-w-[304px]";
 
 /** Shown only on a cold first open, and sized by CALENDAR_BOX above, so
  *  it holds the panel's shape rather than collapsing it. The pulse is
- *  the product's single keyframe animation (ListSkeleton uses it too). */
+ *  the same one ListSkeleton uses, so a placeholder looks like a
+ *  placeholder wherever it appears. */
 function CalendarPlaceholder() {
   return (
     <div className="p-3" aria-hidden data-testid="datetime-calendar-loading">
@@ -101,6 +103,8 @@ export function DateTimeField({ value, onChange, testId, label }: DateTimeFieldP
   const sub = (suffix: string): string | undefined =>
     testId === undefined ? undefined : `${testId}-${suffix}`;
 
+  const spoken = ms === null ? "No date yet" : formatLocalMoment(ms);
+
   // Wide enough to reach the year in play even when it is an old record
   // being corrected, not just the years around today.
   const thisYear = new Date().getFullYear();
@@ -119,7 +123,17 @@ export function DateTimeField({ value, onChange, testId, label }: DateTimeFieldP
           // sept." in another — so it is not something a test can assert
           // a stored moment against.
           data-value={value}
-          aria-label={label}
+          // An explicit name, because every implicit route to one here
+          // is wrong. `Field` wraps its children in a `<label>`, and a
+          // wrapping label beats an element's own contents in the
+          // accessible-name algorithm — so the button announced
+          // "Date & time" and the moment was simply absent, which is
+          // worse than the two native inputs this replaced. Naming it
+          // with the label ALONE (an `aria-label={label}`) has the same
+          // fault. Verified against Chromium's own computation, not
+          // reasoned about: the name reads
+          // "Date & time, Sat, Sep 12, 2:07 PM".
+          aria-label={label === undefined ? spoken : `${label}, ${spoken}`}
           // Start fetching the calendar as the finger goes down or the
           // field takes focus, so the module is nearly always there by
           // the time the panel opens and the placeholder below is never
@@ -128,9 +142,7 @@ export function DateTimeField({ value, onChange, testId, label }: DateTimeFieldP
           onFocus={() => void importCalendar()}
           className={`${inputShellClasses} flex items-center justify-between gap-2 text-left`}
         >
-          <span className={ms === null ? "text-slate-400" : undefined}>
-            {ms === null ? "No date yet" : formatLocalMoment(ms)}
-          </span>
+          <span className={ms === null ? "text-slate-400" : undefined}>{spoken}</span>
           <span aria-hidden="true" className="text-slate-400">
             ⌄
           </span>
@@ -192,14 +204,23 @@ export function DateTimeField({ value, onChange, testId, label }: DateTimeFieldP
             // hidden, so picking a day does not make the row jump.
             disabled={date === ""}
             value={time}
-            onChange={(e) => onChange(joinLocalInput(date, e.target.value))}
+            // An emptied time box falls back to the default rather than
+            // emitting "2026-09-14T", which is not a moment: it reads
+            // back as null, so the trigger would say "No date yet" while
+            // the calendar still showed the day highlighted, and saving
+            // would lose the day silently. Same rule as picking a day
+            // before a time — a date that cannot be stored without one
+            // gets a visible guess, never a dropped day.
+            onChange={(e) => onChange(joinLocalInput(date, e.target.value || DEFAULT_TIME))}
           />
           <Button
             variant="ghost"
             size="sm"
-            // sm keeps the row narrow enough for the time box; min-h-9
-            // keeps the tap target honest on the phone this is built for.
-            className="min-h-9 shrink-0"
+            // `sm` for its padding, which keeps the row narrow enough
+            // for the time box beside it — but 44px tall, the tap
+            // minimum docs/design-system.md sets, since height costs
+            // this row nothing.
+            className="min-h-11 shrink-0"
             data-testid={sub("clear")}
             // Clears the whole value, never just the time: an hour with
             // no day is not a moment.
@@ -209,7 +230,7 @@ export function DateTimeField({ value, onChange, testId, label }: DateTimeFieldP
           </Button>
           <Button
             size="sm"
-            className="min-h-9 shrink-0"
+            className="min-h-11 shrink-0"
             data-testid={sub("done")}
             onClick={() => setOpen(false)}
           >
