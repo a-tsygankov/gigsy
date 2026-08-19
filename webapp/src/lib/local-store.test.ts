@@ -25,6 +25,29 @@ describe("LocalStore CRUD + outbox", () => {
     expect(gig?.modifiedAt).toBe(1000);
   });
 
+  it("putGig leaves expectedCents to the server and never sends it", async () => {
+    const { store } = makeStore();
+    await store.putGig(G1, {
+      status: "confirmed",
+      payType: "hourly",
+      hourlyRateCents: 5000,
+      durationMinutes: 480,
+    });
+
+    // Null, not the local derivation: the field means "what the server
+    // said", and this edit has just invalidated whatever it last said.
+    // The screens derive on read instead (storedOrDerivedExpectedCents).
+    expect((await store.getGig(G1))?.expectedCents).toBeNull();
+
+    // The one field that must NOT be in the payload, against the rule
+    // the OutboxPayload comment states — it is derived and server-owned,
+    // and GigInput has no such key.
+    const payload = (await store.pendingOps())[0]?.payload as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("expectedCents");
+    // Guard against the assertion above passing on an empty payload.
+    expect(payload["hourlyRateCents"]).toBe(5000);
+  });
+
   it("second put preserves createdAt, bumps modifiedAt", async () => {
     let now = 1000;
     const { store } = makeStore(() => now);
@@ -101,6 +124,7 @@ describe("LocalStore CRUD + outbox", () => {
       calendarEventId: null,
       amountOfferedCents: 5000,
       amountPaidCents: 5000,
+      expectedCents: null,
       notes: null,
       source: "manual",
       createdAt: 1,

@@ -1,14 +1,22 @@
 /**
  * Dashboard aggregates (user feature spec, 2026-08-08):
  * - completedCount — gigs `completed|paid`, all time.
- * - expectedCents — promised money still ahead: offered on `lead|
- *   confirmed` gigs (optionally windowed by future date) plus their
- *   services' offered amounts. The window applies ONLY here — that's
- *   the dashboard's "timeframe for future" selector.
+ * - expectedCents — promised money still ahead: the expected pay of
+ *   `lead|confirmed` gigs (optionally windowed by future date) plus
+ *   their services' offered amounts. The window applies ONLY here —
+ *   that's the dashboard's "timeframe for future" selector.
  * - unpaidCents + unpaidJobs — work done but not (fully) paid: per
- *   `completed` gig, max(0, offered−paid) + Σ services max(0,
+ *   `completed` gig, max(0, expected−paid) + Σ services max(0,
  *   offered−paid); rows carry the client name and both breakdowns for
  *   the drill-down. Money owed has no expiry — never windowed.
+ *
+ * Both gig figures read `gigs.expected_cents`, never
+ * `amount_offered_cents`: on an hourly gig the latter is only an
+ * optional override of rate × time, so summing it counted every
+ * hourly gig as zero. The column is derived and kept current by
+ * GigsRepo.upsert (migration 0014). `gig_services` has no pay type —
+ * a service is a flat amount — so its own offered column is still the
+ * right thing to sum.
  */
 export interface DashboardWindow {
   futureFrom?: number;
@@ -20,6 +28,12 @@ export interface UnpaidJob {
   clientId: string | null;
   clientName: string | null;
   dateTime: number | null;
+  /** The gig's expected pay — its offer when fixed, rate × time when
+   *  hourly. The name no longer describes the source column, and is
+   *  kept anyway: this is a shipped response field, and an installed
+   *  PWA that has not updated yet still reads `offeredCents` off the
+   *  drill-down rows. Renaming it would blank the figure on exactly
+   *  the clients slowest to update. */
   offeredCents: number;
   paidCents: number;
   servicesOfferedCents: number;
@@ -72,7 +86,7 @@ export async function dashboardSummary(
 
   const expected = await d1
     .prepare(
-      `SELECT SUM(COALESCE(g.amount_offered_cents, 0) + COALESCE(s.s_offered, 0)) AS total
+      `SELECT SUM(COALESCE(g.expected_cents, 0) + COALESCE(s.s_offered, 0)) AS total
        FROM gigs g
        LEFT JOIN (${SERVICE_SUMS}) s ON s.gig_id = g.id
        WHERE g.user_id = ?1 AND g.status IN ('lead', 'confirmed') ${futureFilter}`,
@@ -85,7 +99,7 @@ export async function dashboardSummary(
       .prepare(
         `SELECT g.id AS gigId, g.client_id AS clientId, c.name AS clientName,
                 g.date_time AS dateTime,
-                COALESCE(g.amount_offered_cents, 0) AS offered,
+                COALESCE(g.expected_cents, 0) AS offered,
                 COALESCE(g.amount_paid_cents, 0) AS paid,
                 COALESCE(s.s_offered, 0) AS sOffered,
                 COALESCE(s.s_paid, 0) AS sPaid

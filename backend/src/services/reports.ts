@@ -3,8 +3,17 @@
  * reporting engine. Money stays integer cents end-to-end.
  *
  * Semantics:
+ * - "Offered" money from a GIG means `gigs.expected_cents`: its offer
+ *   when the gig is fixed, rate × time when it is hourly. Summing
+ *   `amount_offered_cents` instead reported every hourly gig as zero,
+ *   because there it is only an optional override (domain/gig-pay.ts).
+ *   The column is derived and kept current by GigsRepo.upsert
+ *   (migration 0014). Paid money is unaffected — `amount_paid_cents`
+ *   is money actually received, and no derivation applies to it — and
+ *   `gig_services` keeps its own `amount_offered_cents`, because a
+ *   service is a flat amount with no pay type.
  * - owedCents = work done and unpaid: per `completed` gig (and its
- *   services), max(0, offered − paid). This used to be offered − paid
+ *   services), max(0, expected − paid). This used to be offered − paid
  *   over every gig in the period, which counted speculative leads as
  *   debts and let an overpayment on one gig cancel a shortfall on
  *   another. It now answers the same question as the dashboard's
@@ -47,7 +56,7 @@ export interface ReportSummary {
     offeredCents: number;
     paidCents: number;
     /** Work done and not (fully) paid for: per `completed` gig,
-     *  max(0, offered − paid), plus the same for its services. Matches
+     *  max(0, expected − paid), plus the same for its services. Matches
      *  the dashboard's "Unpaid — waiting on clients", narrowed by the
      *  report's filters. */
     owedCents: number;
@@ -93,7 +102,7 @@ export async function reportSummary(
     await d1
       .prepare(
         `SELECT ${MONTH_EXPR("g.date_time")} AS month,
-                SUM(COALESCE(g.amount_offered_cents, 0)) AS offered,
+                SUM(COALESCE(g.expected_cents, 0)) AS offered,
                 SUM(COALESCE(g.amount_paid_cents, 0)) AS paid
          FROM gigs g
          WHERE ${gigWhere.join(" AND ")}
@@ -180,7 +189,7 @@ export async function reportSummary(
     await d1
       .prepare(
         `SELECT g.client_id AS clientId, c.name AS clientName,
-                SUM(COALESCE(g.amount_offered_cents, 0)) AS offered,
+                SUM(COALESCE(g.expected_cents, 0)) AS offered,
                 SUM(COALESCE(g.amount_paid_cents, 0)) AS paid
          FROM gigs g
          LEFT JOIN clients c ON c.id = g.client_id
@@ -268,7 +277,7 @@ export async function reportSummary(
   const owedRow = await d1
     .prepare(
       `SELECT SUM(
-                MAX(0, COALESCE(g.amount_offered_cents, 0) - COALESCE(g.amount_paid_cents, 0))
+                MAX(0, COALESCE(g.expected_cents, 0) - COALESCE(g.amount_paid_cents, 0))
                 + MAX(0, COALESCE(s.s_offered, 0) - COALESCE(s.s_paid, 0))
               ) AS total
        FROM gigs g

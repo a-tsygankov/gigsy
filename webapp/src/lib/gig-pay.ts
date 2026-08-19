@@ -14,8 +14,11 @@
  * So pay prefers the actuals and falls back to the plan: before the
  * shift, an hourly gig shows the quote; after it, the real figure.
  *
- * DUPLICATED from backend/src/domain/gig-pay.ts. Both copies are pinned
- * by fixtures/gig-pay-vectors.json; change them together.
+ * DUPLICATED from backend/src/domain/gig-pay.ts as far as
+ * `expectedCents`. Both copies are pinned by
+ * fixtures/gig-pay-vectors.json; change them together. What follows
+ * `expectedCents` — `storedOrDerivedExpectedCents` — is webapp-only and
+ * has no backend counterpart; see its own comment.
  *
  * One claim in the body below is true only of the backend copy, and is
  * left as-is here rather than edited, because editing it would make the
@@ -92,4 +95,29 @@ export function expectedCents(gig: PayableGig): number | null {
   // and a second opinion on the same rule is a second thing to keep in
   // step.
   return Math.round((gig.hourlyRateCents * minutes) / 60);
+}
+
+/**
+ * The figure to SHOW for a stored gig. Not part of the mirrored core
+ * above — the backend has no counterpart, because there the column is
+ * the answer.
+ *
+ * `expectedCents` is a server-owned derived column (migration 0014):
+ * GigsRepo.upsert recomputes it from this same formula on every write,
+ * and every money total on the server sums it. Preferring it here is
+ * what stops a gig row disagreeing with the dashboard it feeds.
+ *
+ * The fallback is not belt-and-braces. EVERY local save writes
+ * `expectedCents: null` and queues the gig in the outbox
+ * (lib/local-store.ts), deliberately: the field means "what the server
+ * said", and the edit has just invalidated that. So without the
+ * fallback a gig would show no amount at all from the moment it is
+ * saved until a pull brings the server's answer back — which, offline,
+ * may be days. Both copies compute the same thing, so the stored value
+ * and the derived one cannot disagree.
+ */
+export function storedOrDerivedExpectedCents(
+  gig: PayableGig & { expectedCents: number | null },
+): number | null {
+  return gig.expectedCents ?? expectedCents(gig);
 }

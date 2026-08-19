@@ -15,6 +15,7 @@
  */
 import type { Client, Expense, Gig, ReportFilters, ReportSummary, Service } from "./types.ts";
 import { centsToInput } from "./money.ts";
+import { storedOrDerivedExpectedCents } from "./gig-pay.ts";
 import type { CsvValue } from "./csv.ts";
 
 const MONTHS = [
@@ -100,7 +101,14 @@ export function incomeRows(
 
   for (const gig of gigs) {
     if (!included(gig)) continue;
-    const offered = gig.amountOfferedCents ?? 0;
+    // The gig's expected pay, not its `amountOfferedCents` — on an
+    // hourly gig that column is only an optional override of rate ×
+    // time, so exporting it billed every hourly gig at zero. This is
+    // the same figure the server's report sums (gigs.expected_cents),
+    // which is what the "a CSV can never disagree with the numbers it
+    // was exported from" rule above requires. Services below keep
+    // their own offered amount: a service is a flat sum, no pay type.
+    const offered = storedOrDerivedExpectedCents(gig) ?? 0;
     const paid = gig.amountPaidCents ?? 0;
     rows.push({
       sortKey: gig.dateTime ?? Number.MAX_SAFE_INTEGER,

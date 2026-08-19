@@ -5,6 +5,7 @@ import { useData, useSyncState } from "../lib/app-context.tsx";
 import { formatMoney } from "../lib/format.ts";
 import { formatLocalMoment } from "../lib/datetime.ts";
 import { gigDisplayTitle } from "../lib/gig-title.ts";
+import { storedOrDerivedExpectedCents } from "../lib/gig-pay.ts";
 import { useSettings } from "./settings/useSettings.ts";
 import {
   applyGigFilters,
@@ -168,7 +169,11 @@ export function Gigs() {
         {visible.length > 0 && (
           <div className="space-y-3" data-testid="gig-list">
             {visible.map((gig) => {
-              const money = gig.amountPaidCents ?? gig.amountOfferedCents;
+              // What was paid if anything was, otherwise what the gig
+              // is expected to earn. Not `amountOfferedCents`: on an
+              // hourly gig that is only an optional override, so the
+              // row showed no amount at all for a rated shift.
+              const money = gig.amountPaidCents ?? storedOrDerivedExpectedCents(gig);
               const name = nameOf(gig.clientId);
               const heading = gigDisplayTitle(gig, name);
               // The client only repeats below when it is not already the
