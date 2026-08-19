@@ -86,7 +86,7 @@ export const createGig: HelpScenario = {
       target: HelpTarget.GigDurationHours,
       title: "Duration",
       description:
-        "How long the job runs, in hours and minutes. It is what stops the calendar guessing four hours, and on an hourly gig it is what the expected pay is calculated from until you record the time you actually worked.",
+        "How long the job runs, in hours and minutes. It is what stops the calendar guessing four hours, and what your public availability page subtracts from your free time.",
     },
     {
       action: "highlight",

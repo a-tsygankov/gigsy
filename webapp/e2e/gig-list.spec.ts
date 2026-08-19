@@ -262,7 +262,10 @@ test("the gig time control accepts any minute", async ({ page }) => {
     ),
   ).toBe(false);
 
-  // Clearing the date clears the moment — a time alone is not one.
+  // Clearing the date clears the moment — a time alone is not one. Disabled
+  // alone would pass a regression that disables the control but leaves
+  // 14:18 sitting in it, so the value itself is asserted too.
   await date.fill("");
   await expect(time).toBeDisabled();
+  await expect(time).toHaveValue("");
 });
