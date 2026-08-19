@@ -202,3 +202,43 @@ describe("design tokens", () => {
     expect(motion["--ease"]).toBe("cubic-bezier(0.4,0,0.2,1)");
   });
 });
+
+describe("shadcn token bridge", () => {
+  const bridge = readFileSync(tokensDir + "shadcn.css", "utf8");
+
+  /** Every shadcn variable a component may reference. If a component is
+   *  added that needs one not listed here, add it to BOTH this list and
+   *  shadcn.css — an undefined var renders as transparent, silently. */
+  const REQUIRED = [
+    "--background", "--foreground",
+    "--card", "--card-foreground",
+    "--popover", "--popover-foreground",
+    "--primary", "--primary-foreground",
+    "--secondary", "--secondary-foreground",
+    "--muted", "--muted-foreground",
+    "--accent", "--accent-foreground",
+    "--destructive", "--destructive-foreground",
+    "--border", "--input", "--ring",
+  ];
+
+  it("defines every variable the components use", () => {
+    for (const name of REQUIRED) {
+      expect(bridge).toContain(`${name}:`);
+    }
+  });
+
+  it("defines them from the --c-* palette, never from raw colour values", () => {
+    for (const [, name, value] of bridge.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
+      if (name === undefined || value === undefined) continue;
+      if (name.startsWith("--c-")) continue;
+      expect(value).toMatch(/var\(--c-[\w-]+\)/);
+    }
+  });
+
+  it("re-themes with the rest of the palette rather than separately", () => {
+    // No dark override of its own: the --c-* vars it points at are the
+    // ones colors.css already swaps, so the bridge must not duplicate
+    // that switch and get a chance to disagree with it.
+    expect(bridge).not.toContain('[data-theme="dark"]');
+  });
+});

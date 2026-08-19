@@ -1,0 +1,50 @@
+/**
+ * shadcn/ui's variable names, defined from Gigsy's palette.
+ *
+ * shadcn components reference --background, --primary and so on. Rather
+ * than adopting a second palette that would have to be kept in step
+ * with docs/design-system.md, each name is an alias for a --c-* triplet
+ * that colors.css already defines and already swaps in its dark-theme
+ * block. So there is exactly one place where a colour is chosen, and
+ * one place where the theme switches.
+ *
+ * Which is why this file has no dark block of its own, and why the
+ * test that guards that reads the file as plain text — hence no
+ * literal dark-theme selector anywhere above, comments included.
+ *
+ * The values are "R G B" channel triplets, not colours, because that is
+ * what Tailwind's <alpha-value> substitution needs — the same reason
+ * colors.css is written that way.
+ *
+ * ONE NAME COLLIDES. semantic.css also defines `--accent`, as a
+ * finished colour (`rgb(var(--c-emerald-600))`) rather than a triplet.
+ * Nothing reads bare `var(--accent)` — help.css uses --accent-ring and
+ * --accent-soft-*, which are separate names — so redefining it changes
+ * no screen today. It matters for load order, though: this file is
+ * imported AFTER semantic.css so the triplet wins, because Tailwind
+ * compiles `bg-accent` to `rgb(var(--accent) / <alpha>)` and the
+ * semantic value would nest to `rgb(rgb(5 150 105) / 1)` — invalid,
+ * and silently transparent. If you ever need semantic.css's meaning of
+ * `--accent`, use `--accent-soft-bg` or `--c-emerald-600`, not this.
+ */
+:root {
+  --background: var(--c-white);
+  --foreground: var(--c-slate-900);
+  --card: var(--c-white);
+  --card-foreground: var(--c-slate-900);
+  --popover: var(--c-white);
+  --popover-foreground: var(--c-slate-900);
+  --primary: var(--c-emerald-600);
+  --primary-foreground: var(--c-on-accent);
+  --secondary: var(--c-slate-100);
+  --secondary-foreground: var(--c-slate-900);
+  --muted: var(--c-slate-100);
+  --muted-foreground: var(--c-slate-500);
+  --accent: var(--c-emerald-50);
+  --accent-foreground: var(--c-emerald-700);
+  --destructive: var(--c-red-600);
+  --destructive-foreground: var(--c-white);
+  --border: var(--c-slate-200);
+  --input: var(--c-slate-300);
+  --ring: var(--c-emerald-500);
+}
