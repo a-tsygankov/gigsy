@@ -30,15 +30,15 @@ interface FormState {
   clientId: string; // "" = none
   title: string;
   status: GigStatus;
-  dateTime: string; // datetime-local value
+  dateTime: string; // "YYYY-MM-DDTHH:mm", the DateTimeField value
   durationMinutes: string; // "" = not set
   location: string;
   payType: PayType;
   hourlyRate: string; // dollars text, hourly rate
   offered: string; // dollars text
   paid: string;
-  workStart: string; // datetime-local value
-  workEnd: string; // datetime-local value
+  workStart: string; // "YYYY-MM-DDTHH:mm", the DateTimeField value
+  workEnd: string; // "YYYY-MM-DDTHH:mm", the DateTimeField value
   breakMinutes: string; // "" = not set
   notes: string;
 }
@@ -333,13 +333,9 @@ export function GigEdit() {
             </Field>
 
             <Field label="Date & time">
-              {/* Not `datetime-local`: on a phone that collapses date and
-                  time into a single combined wheel, and the date half of
-                  that wheel is worse than the calendar a bare date input
-                  gives. Two controls also let a date be picked before the
-                  hour is known — the common order a gig gets entered in. */}
               <DateTimeField
                 testId="gig-datetime"
+                label="Date & time"
                 value={form.dateTime}
                 onChange={(v) => set("dateTime", v)}
               />
@@ -427,6 +423,7 @@ export function GigEdit() {
             <Field label="Started">
               <DateTimeField
                 testId="gig-work-start"
+                label="Started"
                 value={form.workStart}
                 onChange={(v) => set("workStart", v)}
               />
@@ -434,6 +431,7 @@ export function GigEdit() {
             <Field label="Finished">
               <DateTimeField
                 testId="gig-work-end"
+                label="Finished"
                 value={form.workEnd}
                 onChange={(v) => set("workEnd", v)}
               />

@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData, useSyncState } from "../lib/app-context.tsx";
 import { formatMoney } from "../lib/format.ts";
+import { formatLocalMoment } from "../lib/datetime.ts";
 import { gigDisplayTitle } from "../lib/gig-title.ts";
 import { storedOrDerivedExpectedCents } from "../lib/gig-pay.ts";
 import { useSettings } from "./settings/useSettings.ts";
@@ -26,14 +27,9 @@ import {
 } from "../components/index.ts";
 
 function dateLine(ms: number | null): string {
-  if (ms === null) return "No date yet";
-  return new Date(ms).toLocaleString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  // Same formatter DateTimeField's trigger uses, so the line you read
+  // in the list and the line you read on the form are the same line.
+  return ms === null ? "No date yet" : formatLocalMoment(ms);
 }
 
 export function Gigs() {

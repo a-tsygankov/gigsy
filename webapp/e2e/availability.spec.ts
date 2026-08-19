@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { requireTestAuth } from "./helpers/test-auth.ts";
+import { dateTimeField } from "./helpers/datetime-field.ts";
 
 /**
  * The public availability page (Phase 12).
@@ -89,8 +90,8 @@ test("it never shows what fills the busy time", async ({ page, browser }) => {
   const soon = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
   soon.setHours(11, 0, 0, 0);
   const pad = (n: number) => String(n).padStart(2, "0");
-  // Date and time are two controls — the time is a native
-  // <input type="time">, so any minute is enterable directly.
+  // One control: a calendar in a popover with a time box under it. The
+  // time box is a native <input type="time">, so any minute goes in.
   const localDate = `${soon.getFullYear()}-${pad(soon.getMonth() + 1)}-${pad(soon.getDate())}`;
   const localTime = `${pad(soon.getHours())}:${pad(soon.getMinutes())}`;
 
@@ -98,8 +99,7 @@ test("it never shows what fills the busy time", async ({ page, browser }) => {
   await page.getByRole("link", { name: "Add gig" }).click();
   await page.getByLabel("Location").fill(secret);
   await page.getByLabel("Status").selectOption("confirmed");
-  await page.getByTestId("gig-datetime-date").fill(localDate);
-  await page.getByTestId("gig-datetime-time").fill(localTime);
+  await dateTimeField(page, "gig-datetime").set(localDate, localTime);
   await page.getByTestId("gig-duration-hours").fill("2");
   await page.getByLabel("Offered ($)").fill("2500");
   await page.getByRole("button", { name: "Save gig" }).click();
