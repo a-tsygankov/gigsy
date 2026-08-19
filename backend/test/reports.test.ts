@@ -312,3 +312,67 @@ describe("owedCents", () => {
     expect(september.totals.owedCents).toBe(0);
   });
 });
+
+/**
+ * Hourly gigs — money that was missing from this report entirely.
+ *
+ * An hourly gig is saved with amount_offered_cents null on purpose, so
+ * the figure stays computed from rate × time (domain/gig-pay.ts). Every
+ * total here summed that null column, so a $50/h eight-hour shift was
+ * reported as $0.00 offered and $0.00 owed. The report reads
+ * gigs.expected_cents now; these deltas are what say so.
+ */
+describe("hourly gigs in the summary", () => {
+  // 7-prefixed: 6… is taken by the owedCents block above.
+  const GH = "71111111-1111-4111-8111-111111111111";
+
+  it("reports an hourly gig's computed pay as offered, owed, by month and by client", async () => {
+    const before = await summary(U1);
+    const beforeOct = before.byMonth.find((m) => m.month === "2026-10");
+    const beforeBravo = before.byClient.find((c) => c.clientId === BRAVO);
+
+    await api(U1, "PUT", `/api/gigs/${GH}`, {
+      clientId: BRAVO,
+      status: "completed",
+      dateTime: OCT,
+      payType: "hourly",
+      hourlyRateCents: 5000,
+      durationMinutes: 480,
+    });
+
+    const after = await summary(U1);
+    // $50/h × 8h, and not a cent of it in amount_offered_cents.
+    expect(after.totals.offeredCents).toBe(before.totals.offeredCents + 40000);
+    // Completed and unpaid, so it is owed as well as offered.
+    expect(after.totals.owedCents).toBe(before.totals.owedCents + 40000);
+    expect(after.byMonth.find((m) => m.month === "2026-10")?.offeredCents).toBe(
+      (beforeOct?.offeredCents ?? 0) + 40000,
+    );
+    expect(after.byClient.find((c) => c.clientId === BRAVO)?.offeredCents).toBe(
+      (beforeBravo?.offeredCents ?? 0) + 40000,
+    );
+    // Nothing was received, so paid money is untouched — expected_cents
+    // replaced the offered column and only that one.
+    expect(after.totals.paidCents).toBe(before.totals.paidCents);
+  });
+
+  it("uses the work actually logged once the shift is over", async () => {
+    const before = (await summary(U1)).totals.offeredCents;
+    const start = Date.UTC(2026, 9, 5, 9);
+
+    await api(U1, "PUT", `/api/gigs/${GH}`, {
+      clientId: BRAVO,
+      status: "completed",
+      dateTime: OCT,
+      payType: "hourly",
+      hourlyRateCents: 5000,
+      durationMinutes: 480,
+      workStartedAt: start,
+      workEndedAt: start + 6 * 60 * 60 * 1000,
+      breakMinutes: 30,
+    });
+
+    // 5.5h at $50/h — the actuals beat the eight-hour plan.
+    expect((await summary(U1)).totals.offeredCents).toBe(before + 27500);
+  });
+});

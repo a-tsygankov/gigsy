@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
 import type { Gig, ClientInput } from "../lib/types.ts";
 import { formatMoney } from "../lib/format.ts";
+import { storedOrDerivedExpectedCents } from "../lib/gig-pay.ts";
 import {
   AppHeader,
   Button,
@@ -17,6 +18,11 @@ import {
 
 /** One row in the client's job history. */
 function JobRow({ gig }: { gig: Gig }) {
+  // Paid if it has been, otherwise the gig's expected pay — the same
+  // rule the gig list uses. Not `amountOfferedCents`, which on an
+  // hourly gig is only an optional override (lib/gig-pay.ts) and left
+  // every rated shift in this history showing nothing.
+  const money = gig.amountPaidCents ?? storedOrDerivedExpectedCents(gig);
   return (
     <CardLink
       to={`/gigs/${gig.id}`}
@@ -30,9 +36,9 @@ function JobRow({ gig }: { gig: Gig }) {
         {gig.location !== null ? ` · ${gig.location}` : ""}
       </span>
       <span className="ml-2 flex shrink-0 items-center gap-2">
-        {(gig.amountPaidCents ?? gig.amountOfferedCents) !== null && (
+        {money !== null && (
           <span className="text-xs font-semibold text-slate-700">
-            {formatMoney(gig.amountPaidCents ?? gig.amountOfferedCents ?? 0)}
+            {formatMoney(money)}
           </span>
         )}
         <StatusPill status={gig.status} />

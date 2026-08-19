@@ -53,6 +53,7 @@ function gig(id: string, over: Partial<Gig> = {}): Gig {
     calendarEventId: null,
     amountOfferedCents: null,
     amountPaidCents: null,
+    expectedCents: null,
     notes: null,
     source: null,
     createdAt: 0,
@@ -275,6 +276,46 @@ describe("sorting", () => {
       "mid",
       "new",
       "undated",
+    ]);
+  });
+
+  it("ranks an hourly gig on its expected pay, not on its empty offer", () => {
+    // An hourly gig stores amountOfferedCents null by design, so the
+    // amount sort used to bucket every one of them with the gigs that
+    // have no amount at all — at the bottom — while the row beside it
+    // displayed a real figure.
+    const mixed = [
+      gig("fixed300", { amountOfferedCents: 30_000 }),
+      gig("hourly400", {
+        payType: "hourly",
+        hourlyRateCents: 5_000,
+        durationMinutes: 480,
+        amountOfferedCents: null,
+        expectedCents: 40_000,
+      }),
+    ];
+    expect(ids(apply(mixed, { sort: "amount" }))).toEqual([
+      "hourly400",
+      "fixed300",
+    ]);
+  });
+
+  it("ranks an unsynced hourly gig on the local derivation", () => {
+    // Same gig before it has reached the server. Sorting it last until
+    // a pull happens would move a row under the user mid-session.
+    const mixed = [
+      gig("fixed300", { amountOfferedCents: 30_000 }),
+      gig("hourly400", {
+        payType: "hourly",
+        hourlyRateCents: 5_000,
+        durationMinutes: 480,
+        amountOfferedCents: null,
+        expectedCents: null,
+      }),
+    ];
+    expect(ids(apply(mixed, { sort: "amount" }))).toEqual([
+      "hourly400",
+      "fixed300",
     ]);
   });
 

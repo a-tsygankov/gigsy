@@ -16,6 +16,7 @@ const GIGS = {
   staleLead: "b3333333-3333-4333-8333-333333333333",
   confirmedSoon: "b4444444-4444-4444-8444-444444444444",
   paidOld: "b5555555-5555-4555-8555-555555555555",
+  unpaidHourly: "b6666666-6666-4666-8666-666666666666",
 };
 
 /** modified_at is what "untouched since" means, and the API bumps it
@@ -57,6 +58,25 @@ describe("selectNudge", () => {
     expect(nudge?.body).toContain("Acme Staffing");
     expect(nudge?.body).toContain("$150.00");
     expect(nudge?.path).toBe(`/gigs/${GIGS.unpaidOld}`);
+  });
+
+  it("raises an unpaid HOURLY gig, which used to be silently worth zero", async () => {
+    // An hourly gig has no amount_offered_cents by design — the figure
+    // is rate × time — so the nudge saw nothing outstanding and never
+    // fired. Silence about money already earned is the one failure this
+    // feature exists to prevent.
+    await api(U1, "PUT", `/api/gigs/${GIGS.unpaidHourly}`, {
+      clientId: ACME,
+      status: "completed",
+      payType: "hourly",
+      hourlyRateCents: 5000,
+      durationMinutes: 480,
+    });
+    await age(GIGS.unpaidHourly, NOW - 20 * DAY);
+
+    const nudge = await selectNudge(env.DB, U1, NOW);
+    expect(nudge?.key).toBe(`unpaid:${GIGS.unpaidHourly}`);
+    expect(nudge?.body).toContain("$400.00"); // $50/h × 8h
   });
 
   it("ignores completed work that is actually paid off", async () => {

@@ -15,6 +15,7 @@
  *     answered with something that has no date.
  */
 import { GIG_STATUSES, type Gig, type GigStatus } from "./types.ts";
+import { storedOrDerivedExpectedCents } from "./gig-pay.ts";
 
 export const GIG_SORTS = ["newest", "oldest", "amount", "client"] as const;
 export type GigSort = (typeof GIG_SORTS)[number];
@@ -64,9 +65,13 @@ function startOfDay(ms: number): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
 
-/** What the amount sort ranks on — the same number the row displays. */
+/** What the amount sort ranks on — the same number the row displays.
+ *  Which is why it reads the expected pay and not `amountOfferedCents`:
+ *  on an hourly gig that column is only an optional override, so the
+ *  sort put every hourly gig at the bottom with the amount-less ones
+ *  while the row showed a figure. */
 function amountOf(gig: Gig): number | null {
-  return gig.amountPaidCents ?? gig.amountOfferedCents;
+  return gig.amountPaidCents ?? storedOrDerivedExpectedCents(gig);
 }
 
 /** Missing values sort last in every mode, whichever way the rest goes. */

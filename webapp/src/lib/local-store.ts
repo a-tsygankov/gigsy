@@ -80,6 +80,24 @@ export class LocalStore {
       calendarEventId: existing?.calendarEventId ?? null,
       amountOfferedCents: input.amountOfferedCents ?? null,
       amountPaidCents: input.amountPaidCents ?? null,
+      // The ONE field that must NOT reach the payload below, against
+      // everything the OutboxPayload comment says. It is not a field
+      // the server accepts: `expectedCents` is derived and server-owned
+      // (migration 0014), absent from GigInput, and GigsRepo.upsert
+      // recomputes it on every write. Sending one would be ignored at
+      // best; the reason it is worth being deliberate about is that the
+      // outbox is the one thing an offline client can push, so the
+      // discipline that keeps fields IN the payload is exactly the
+      // discipline that has to keep this one out. `Required<GigInput>`
+      // enforces that for free — GigInput has no such key.
+      //
+      // Null rather than the local derivation, and deliberately not
+      // carried over from `existing`: this field means "what the server
+      // said", and an edit has just invalidated whatever it last said.
+      // The screens derive locally on read instead
+      // (storedOrDerivedExpectedCents in lib/gig-pay.ts), so a stale
+      // number can never be shown or stored.
+      expectedCents: null,
       notes: input.notes ?? null,
       source: input.source ?? existing?.source ?? "manual",
       createdAt: existing?.createdAt ?? now,

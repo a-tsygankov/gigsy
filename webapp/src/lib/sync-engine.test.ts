@@ -31,6 +31,7 @@ function serverGig(overrides: Partial<Gig> = {}): Gig {
     calendarEventId: null,
     amountOfferedCents: null,
     amountPaidCents: null,
+    expectedCents: null,
     notes: null,
     source: "manual",
     createdAt: 1,
