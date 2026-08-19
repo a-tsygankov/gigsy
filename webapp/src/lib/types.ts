@@ -3,8 +3,14 @@
  * types (backend/src/db/schema.ts). Cents integers, epoch-ms
  * timestamps, client-generated UUID ids.
  */
+import { PAY_TYPES, type PayType } from "./gig-pay.ts";
+
 export type GigStatus = "lead" | "confirmed" | "completed" | "paid";
 export const GIG_STATUSES: GigStatus[] = ["lead", "confirmed", "completed", "paid"];
+
+// Re-exported so screens have one import site for the pay vocabulary.
+export type { PayType };
+export { PAY_TYPES };
 
 export interface Gig {
   id: string;
@@ -16,6 +22,15 @@ export interface Gig {
   dateTime: number | null;
   /** How long the gig runs; the calendar uses it instead of guessing. */
   durationMinutes: number | null;
+  /** 'fixed' — amountOfferedCents is the fee. 'hourly' — it is an
+   *  optional override of rate × time (lib/gig-pay.ts). */
+  payType: PayType;
+  hourlyRateCents: number | null;
+  /** What actually happened, as opposed to dateTime/durationMinutes,
+   *  which are what was agreed. Only pay reads these. */
+  workStartedAt: number | null;
+  workEndedAt: number | null;
+  breakMinutes: number | null;
   calendarEventId: string | null;
   amountOfferedCents: number | null;
   amountPaidCents: number | null;
@@ -32,6 +47,11 @@ export interface GigInput {
   location?: string | null;
   dateTime?: number | null;
   durationMinutes?: number | null;
+  payType?: PayType;
+  hourlyRateCents?: number | null;
+  workStartedAt?: number | null;
+  workEndedAt?: number | null;
+  breakMinutes?: number | null;
   amountOfferedCents?: number | null;
   amountPaidCents?: number | null;
   notes?: string | null;

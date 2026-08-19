@@ -141,3 +141,93 @@ describe("gig title", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("hourly pay and work log", () => {
+  const HOURLY = "92222222-2222-4222-8222-222222222222";
+
+  it("stores a rate and the work actually done", async () => {
+    const res = await api(U1, "PUT", `/api/gigs/${HOURLY}`, {
+      status: "confirmed",
+      payType: "hourly",
+      hourlyRateCents: 2500,
+      workStartedAt: Date.UTC(2026, 8, 12, 9),
+      workEndedAt: Date.UTC(2026, 8, 12, 13),
+      breakMinutes: 30,
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      payType: string;
+      hourlyRateCents: number;
+      breakMinutes: number;
+    };
+    expect(body.payType).toBe("hourly");
+    expect(body.hourlyRateCents).toBe(2500);
+    expect(body.breakMinutes).toBe(30);
+  });
+
+  it("rejects an hourly gig with no rate", async () => {
+    const id = "93333333-3333-4333-8333-333333333333";
+    const res = await api(U1, "PUT", `/api/gigs/${id}`, {
+      status: "lead",
+      payType: "hourly",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an end before the start", async () => {
+    const id = "94444444-4444-4444-8444-444444444444";
+    const res = await api(U1, "PUT", `/api/gigs/${id}`, {
+      status: "lead",
+      workStartedAt: Date.UTC(2026, 8, 12, 13),
+      workEndedAt: Date.UTC(2026, 8, 12, 9),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an end with no start", async () => {
+    const id = "95555555-5555-4555-8555-555555555555";
+    const res = await api(U1, "PUT", `/api/gigs/${id}`, {
+      status: "lead",
+      workEndedAt: Date.UTC(2026, 8, 12, 13),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts a start with no end — the shift is in progress", async () => {
+    const id = "96666666-6666-4666-8666-666666666666";
+    const res = await api(U1, "PUT", `/api/gigs/${id}`, {
+      status: "confirmed",
+      workStartedAt: Date.UTC(2026, 8, 12, 9),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it("rejects a break longer than the span", async () => {
+    const id = "97777777-7777-4777-8777-777777777777";
+    const res = await api(U1, "PUT", `/api/gigs/${id}`, {
+      status: "lead",
+      workStartedAt: Date.UTC(2026, 8, 12, 9),
+      workEndedAt: Date.UTC(2026, 8, 12, 10),
+      breakMinutes: 90,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a break exactly equal to the span", async () => {
+    const id = "98888888-8888-4888-8888-888888888888";
+    const res = await api(U1, "PUT", `/api/gigs/${id}`, {
+      status: "lead",
+      workStartedAt: Date.UTC(2026, 8, 12, 9),
+      workEndedAt: Date.UTC(2026, 8, 12, 10),
+      breakMinutes: 60,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("defaults an untouched gig to fixed pay", async () => {
+    const id = "99999999-aaaa-4aaa-8aaa-999999999999";
+    const res = await api(U1, "PUT", `/api/gigs/${id}`, { status: "lead" });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { payType: string }).payType).toBe("fixed");
+  });
+});

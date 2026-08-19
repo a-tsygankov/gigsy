@@ -4,7 +4,7 @@
  * mirrors the Gigsy Design System exactly:
  *
  *   core        Button, Card, Input, Textarea, Select, Field, Toggle,
- *               DateTimeField
+ *               DateTimeField, DurationField
  *   settings    SettingRow, SettingGroup
  *   data        Tile, SectionHeading
  *   feedback    StatusPill, SyncBadge, EmptyState, ListSkeleton, Splash
@@ -16,6 +16,7 @@ export { Input, Textarea, inputShellClasses, textareaClasses } from "./Input.tsx
 export { Select } from "./Select.tsx";
 export { Field } from "./Field.tsx";
 export { DateTimeField } from "./DateTimeField.tsx";
+export { DurationField } from "./DurationField.tsx";
 export { Toggle } from "./Toggle.tsx";
 export { SettingRow, SettingGroup } from "./SettingRow.tsx";
 export { Tile, TILE_TONE_CLASSES } from "./Tile.tsx";

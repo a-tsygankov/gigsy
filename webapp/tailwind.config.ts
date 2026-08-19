@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import tailwindcssAnimate from "tailwindcss-animate";
 
 /**
  * The design tokens in src/styles/tokens/ are canonical
@@ -17,6 +18,18 @@ import type { Config } from "tailwindcss";
  * values ever drift from Tailwind's own.
  */
 const withAlpha = (token: string) => `rgb(var(--c-${token}) / <alpha-value>)`;
+
+/** Same trick as `withAlpha`, for the shadcn aliases in
+ *  styles/tokens/shadcn.css — those names carry no --c- prefix because
+ *  shadcn's own components reference them verbatim. */
+const shadcnColor = (token: string) => `rgb(var(--${token}) / <alpha-value>)`;
+
+/** A shadcn colour and the text that sits on it, as the components
+ *  expect to find them: `bg-card` with `text-card-foreground`. */
+const pair = (name: string) => ({
+  DEFAULT: shadcnColor(name),
+  foreground: shadcnColor(`${name}-foreground`),
+});
 
 const scale = (name: string, steps: number[]) =>
   Object.fromEntries(steps.map((s) => [s, withAlpha(`${name}-${s}`)]));
@@ -43,10 +56,31 @@ const config: Config = {
          *  also the "good news" text colour in ten places — inverting
          *  serves the text and ruins the button. */
         "accent-hover": withAlpha("accent-hover"),
+
+        /* shadcn/ui's names, resolving through styles/tokens/shadcn.css
+           to the same --c-* palette as everything above — so a shadcn
+           component follows `data-theme` without a second theme layer.
+           These are additions: none of them replaces a key above.
+           `accent` and `accent-hover` are distinct keys, so `bg-accent`
+           and `bg-accent-hover` both still resolve to what they say. */
+        background: shadcnColor("background"),
+        foreground: shadcnColor("foreground"),
+        card: pair("card"),
+        popover: pair("popover"),
+        primary: pair("primary"),
+        secondary: pair("secondary"),
+        muted: pair("muted"),
+        /* `shadcn-accent`, because semantic.css owns a different `--accent`.
+           The Tailwind key stays `accent`, so the classes are unchanged. */
+        accent: pair("shadcn-accent"),
+        destructive: pair("destructive"),
+        border: shadcnColor("border"),
+        input: shadcnColor("input"),
+        ring: shadcnColor("ring"),
       },
     },
   },
-  plugins: [],
+  plugins: [tailwindcssAnimate],
 };
 
 export default config;

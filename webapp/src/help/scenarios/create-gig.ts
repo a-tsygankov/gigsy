@@ -79,14 +79,14 @@ export const createGig: HelpScenario = {
       target: HelpTarget.GigTime,
       title: "…and the time",
       description:
-        "A short list rather than a wheel of every minute: times run on the quarter hour, so 14:18 isn't something you can pick by accident. It stays greyed out until there is a date to attach it to. A gig that already carries an odd time — one read off a client's email — keeps that exact time in the list.",
+        "Any minute of the hour — 14:07 if that is when you start. The time is what the calendar event and your public availability page are built from, so it is worth getting right.",
     },
     {
       action: "highlight",
-      target: HelpTarget.GigDuration,
+      target: HelpTarget.GigDurationHours,
       title: "Duration",
       description:
-        "How long you'll be there, and the reason it matters: this is the end time your calendar and your availability page honour. Leave it unset and both assume four hours, so a two-hour tasting quietly fences off an afternoon you could have sold. The end time appears under the box once the date and the length are both set.",
+        "How long the job runs, in hours and minutes. It is what stops the calendar guessing four hours, what your public availability page subtracts from your free time, and — on an hourly gig — what the expected pay is calculated from until you record the time you actually worked.",
     },
     {
       action: "highlight",
@@ -104,10 +104,17 @@ export const createGig: HelpScenario = {
     },
     {
       action: "highlight",
+      target: HelpTarget.GigPayType,
+      title: "Paid by",
+      description:
+        "A fixed fee pays what you agreed regardless of how long the job runs; an hourly rate prices it from rate × time instead, and swaps the Offered field below for a Rate ($ per hour) field, since a gig is never both at once. Switch it here whenever the deal changes.",
+    },
+    {
+      action: "highlight",
       target: HelpTarget.GigOffered,
       title: "Offered ($)",
       description:
-        "What the job pays — what was agreed, not what has arrived. While the gig is a lead or confirmed, this is what the dashboard adds up as Expected. Leave it blank if it hasn't been agreed yet; a zero is rejected, blank is the way to say \"not set\".",
+        "What a fixed-fee job pays — what was agreed, not what has arrived. While the gig is a lead or confirmed, this is what the dashboard adds up as Expected. Leave it blank if it hasn't been agreed yet; a zero is rejected, blank is the way to say \"not set\".",
     },
     {
       action: "highlight",
@@ -115,6 +122,27 @@ export const createGig: HelpScenario = {
       title: "Paid ($)",
       description:
         "What has actually landed. The gap between Offered and Paid on a completed gig is exactly what \"Unpaid — waiting on clients\" on the dashboard and \"Still owed\" in Reports are made of, so leaving this blank until the money is real is what keeps those numbers true.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigWorkStart,
+      title: "Started",
+      description:
+        "When the shift actually began — as opposed to the date and time near the top, which is what was agreed. On an hourly gig, once this and Finished are both filled in, Gigsy prices the shift on the real time worked instead of the booked duration.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigWorkEnd,
+      title: "Finished",
+      description:
+        "When it actually ended. Leave it blank while the shift is still in progress — a start with no finish yet is what open work looks like, not a mistake.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigBreak,
+      title: "Off-time breaks (minutes)",
+      description:
+        "Minutes not worked inside that span — a lunch break, a gap between two client visits. Subtracted before an hourly gig is priced; it has no effect on a fixed fee.",
     },
     {
       action: "highlight",

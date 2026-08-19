@@ -1,0 +1,45 @@
+/**
+ * shadcn/ui's variable names, defined from Gigsy's palette.
+ *
+ * shadcn components reference --background, --primary and so on. Rather
+ * than adopting a second palette that would have to be kept in step
+ * with docs/design-system.md, each name is an alias for a --c-* triplet
+ * that colors.css already defines and already swaps under
+ * [data-theme="dark"]. So there is exactly one place where a colour is
+ * chosen, and one place where the theme switches.
+ *
+ * This file therefore has no dark block of its own, and a test asserts
+ * that by checking the file declares exactly one :root rule.
+ *
+ * The values are "R G B" channel triplets, not colours, because that is
+ * what Tailwind's <alpha-value> substitution needs — the same reason
+ * colors.css is written that way.
+ *
+ * Two names carry a --shadcn- prefix. semantic.css already owns
+ * `--accent`, as a finished rgb() colour rather than a triplet, and two
+ * files defining one name differently is a trap that only shows up as a
+ * transparent element much later. Prefixing sidesteps it outright: the
+ * Tailwind key is still `accent`, so components still write `bg-accent`
+ * and `text-accent-foreground` and never see the difference.
+ */
+:root {
+  --background: var(--c-white);
+  --foreground: var(--c-slate-900);
+  --card: var(--c-white);
+  --card-foreground: var(--c-slate-900);
+  --popover: var(--c-white);
+  --popover-foreground: var(--c-slate-900);
+  --primary: var(--c-emerald-600);
+  --primary-foreground: var(--c-on-accent);
+  --secondary: var(--c-slate-100);
+  --secondary-foreground: var(--c-slate-900);
+  --muted: var(--c-slate-100);
+  --muted-foreground: var(--c-slate-500);
+  --shadcn-accent: var(--c-emerald-50);
+  --shadcn-accent-foreground: var(--c-emerald-700);
+  --destructive: var(--c-red-600);
+  --destructive-foreground: var(--c-white);
+  --border: var(--c-slate-200);
+  --input: var(--c-slate-300);
+  --ring: var(--c-emerald-500);
+}

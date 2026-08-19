@@ -63,16 +63,28 @@ export const HelpTarget = {
   // Every one of these is an Input, Select, Textarea or Button, so every
   // one is `element`. DateTimeField splits one labelled field across two
   // controls and suffixes the id it is given, hence the two entries.
+  // DurationField does the same, but only its hours half has a help
+  // target — there is no separate scenario step for the minutes input.
   GigTitle: element("gig-title"),
   GigClient: element("gig-client"),
   GigStatus: element("gig-status"),
   GigDate: element("gig-datetime-date"),
   GigTime: element("gig-datetime-time"),
-  GigDuration: element("gig-duration"),
+  GigDurationHours: element("gig-duration-hours"),
   GigLocation: element("gig-location"),
   GigUseCurrentLocation: element("use-current-location"),
+  GigPayType: element("gig-pay-type"),
+  // No `GigRate` entry: gig-rate only exists once the pay-type select is
+  // switched to hourly, and this scenario is highlight-only (see
+  // create-gig.ts's header) — it never performs that switch, so a step
+  // targeting gig-rate would wait out `waitForElement` and fail the walk
+  // every run. GigOffered stays the one pay-amount step; its own note
+  // below covers why it still resolves on this always-fixed-on-load form.
   GigOffered: element("gig-offered"),
   GigPaid: element("gig-paid"),
+  GigWorkStart: element("gig-work-start-date"),
+  GigWorkEnd: element("gig-work-end-date"),
+  GigBreak: element("gig-break"),
   GigNotes: element("gig-notes"),
   GigSave: element("gig-save"),
   // The two blocks below the save button. Both are `<section>`s carrying

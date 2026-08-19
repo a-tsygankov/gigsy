@@ -202,3 +202,77 @@ describe("design tokens", () => {
     expect(motion["--ease"]).toBe("cubic-bezier(0.4,0,0.2,1)");
   });
 });
+
+describe("shadcn token bridge", () => {
+  const bridge = readFileSync(tokensDir + "shadcn.css", "utf8");
+
+  /** The same file with comments stripped. Every assertion below is
+   *  about declarations, and prose that happens to mention a selector
+   *  or a variable name is not one — grepping the raw text conflates
+   *  the two and fails on a comment that is merely accurate. */
+  const bridgeCode = bridge.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  /** Every shadcn variable a component may reference. If a component is
+   *  added that needs one not listed here, add it to BOTH this list and
+   *  shadcn.css — an undefined var renders as transparent, silently.
+   *
+   *  --shadcn-accent* carry a prefix because semantic.css already owns
+   *  `--accent` with a different meaning. tailwind.config.ts maps them
+   *  back onto the `accent` key, so components still write `bg-accent`
+   *  and `text-accent-foreground`. */
+  const REQUIRED = [
+    "--background", "--foreground",
+    "--card", "--card-foreground",
+    "--popover", "--popover-foreground",
+    "--primary", "--primary-foreground",
+    "--secondary", "--secondary-foreground",
+    "--muted", "--muted-foreground",
+    "--shadcn-accent", "--shadcn-accent-foreground",
+    "--destructive", "--destructive-foreground",
+    "--border", "--input", "--ring",
+  ];
+
+  it("defines every variable the components use", () => {
+    for (const name of REQUIRED) {
+      expect(bridgeCode).toContain(`${name}:`);
+    }
+  });
+
+  it("defines them from the --c-* palette, never from raw colour values", () => {
+    for (const [, name, value] of bridgeCode.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
+      if (name === undefined || value === undefined) continue;
+      if (name.startsWith("--c-")) continue;
+      expect(value).toMatch(/var\(--c-[\w-]+\)/);
+    }
+  });
+
+  it("re-themes with the rest of the palette rather than separately", () => {
+    // No dark override of its own: the --c-* vars it points at are the
+    // ones colors.css already swaps, so the bridge must not duplicate
+    // that switch and get a chance to disagree with it.
+    //
+    // Asserted as "declares exactly one :root rule" rather than by
+    // grepping for a selector string. A grep only rules out the one
+    // spelling it is written with — [data-theme="dark"] but not
+    // [data-theme='dark'] or [data-theme=dark] — whereas any dark
+    // override at all has to arrive as a second rule.
+    const selectors = [...bridgeCode.matchAll(/([^{}]*)\{[^{}]*\}/g)].map(
+      ([, selector]) => selector!.trim(),
+    );
+    expect(selectors).toEqual([":root"]);
+  });
+
+  it("is imported after semantic.css, so the bridge wins any future clash", () => {
+    // Both files alias the same palette under names of their own, and
+    // both land on :root, so a name defined in each is settled purely
+    // by import order. None overlap today — shadcn.css prefixes the one
+    // that would have — but the token files keep growing, and a stray
+    // reorder of these two lines would be silent without this.
+    const styles = readFileSync(srcDir + "styles.css", "utf8");
+    const semantic = styles.indexOf('tokens/semantic.css"');
+    const shadcn = styles.indexOf('tokens/shadcn.css"');
+    expect(semantic, "semantic.css is not imported").toBeGreaterThan(-1);
+    expect(shadcn, "shadcn.css is not imported").toBeGreaterThan(-1);
+    expect(shadcn).toBeGreaterThan(semantic);
+  });
+});

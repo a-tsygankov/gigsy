@@ -10,6 +10,12 @@
 @import "./styles/tokens/elevation.css";
 @import "./styles/tokens/motion.css";
 @import "./styles/tokens/semantic.css";
+/* After semantic.css, and a test in src/lib/design-tokens.test.ts keeps
+ * it there. Nothing collides today — shadcn.css prefixes the one name
+ * that would have — but it aliases the same palette semantic.css does,
+ * so if a name is ever defined in both, the bridge is the layer that
+ * should win. */
+@import "./styles/tokens/shadcn.css";
 @import "./styles/help.css";
 
 @tailwind base;

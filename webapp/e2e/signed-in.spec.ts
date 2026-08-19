@@ -145,7 +145,11 @@ test("a gig duration and a billable expense survive a server round-trip", async 
   await page.getByRole("link", { name: "Gigs" }).click();
   await page.getByRole("link", { name: "Add gig" }).click();
   await page.getByLabel("Location").fill(marker);
-  await page.getByTestId("gig-duration").selectOption("180");
+  // A non-round duration — 3h20m — is the entire point of replacing
+  // the old fixed-length `<select>` with DurationField, so both halves
+  // need to survive the round trip, not just the hours.
+  await page.getByTestId("gig-duration-hours").fill("3");
+  await page.getByTestId("gig-duration-minutes").fill("20");
   await page.getByRole("button", { name: "Save gig" }).click();
 
   // Let the save land first: click() returns once the click is
@@ -155,7 +159,8 @@ test("a gig duration and a billable expense survive a server round-trip", async 
   await page.reload();
 
   await page.getByText(marker).click();
-  await expect(page.getByTestId("gig-duration")).toHaveValue("180");
+  await expect(page.getByTestId("gig-duration-hours")).toHaveValue("3");
+  await expect(page.getByTestId("gig-duration-minutes")).toHaveValue("20");
 
   // …and an expense flagged as the client's to cover.
   await page.getByRole("link", { name: "Expenses" }).click();
@@ -187,12 +192,12 @@ test("reopening a just-edited gig shows the new values", async ({ page }) => {
 
   // Edit it: change the duration, save, reopen immediately.
   await page.getByText(marker).click();
-  await page.getByTestId("gig-duration").selectOption("300");
+  await page.getByTestId("gig-duration-hours").fill("5");
   await page.getByRole("button", { name: "Save gig" }).click();
   await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
 
   await page.getByText(marker).click();
-  await expect(page.getByTestId("gig-duration")).toHaveValue("300");
+  await expect(page.getByTestId("gig-duration-hours")).toHaveValue("5");
 });
 
 /**
@@ -246,7 +251,7 @@ test("a gig date and time are stored together and come back", async ({
   const marker = `gig-time-${Date.now()}`;
   await page.getByLabel("Location").fill(marker);
   await page.getByTestId("gig-datetime-date").fill("2027-03-04");
-  await page.getByTestId("gig-datetime-time").selectOption("10:45");
+  await page.getByTestId("gig-datetime-time").fill("10:45");
   await page.getByRole("button", { name: "Save gig" }).click();
   await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
 
@@ -302,4 +307,19 @@ test("a gig with unsent changes is marked, and the mark clears on sync", async (
   await expect(page.getByTestId("gig-unsynced")).toHaveCount(0, {
     timeout: 20_000,
   });
+});
+
+// 09:00 to 12:18 is 198 minutes; an 18-minute break leaves 180 worked,
+// which at $50/h is $150.00 — proves the whole chain (lib/gig-pay.ts's
+// workedMinutes → expectedCents) reaches the screen, not just the model.
+test("an hourly gig prices itself from the time worked", async ({ page }) => {
+  await page.goto("/gigs/new");
+  await page.getByTestId("gig-pay-type").selectOption("hourly");
+  await page.getByTestId("gig-rate").fill("50");
+  await page.getByTestId("gig-work-start-date").fill("2027-03-04");
+  await page.getByTestId("gig-work-start-time").fill("09:00");
+  await page.getByTestId("gig-work-end-date").fill("2027-03-04");
+  await page.getByTestId("gig-work-end-time").fill("12:18");
+  await page.getByTestId("gig-break").fill("18");
+  await expect(page.getByTestId("gig-expected-pay")).toContainText("$150.00");
 });

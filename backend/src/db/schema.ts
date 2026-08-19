@@ -13,6 +13,8 @@
  */
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+import type { PayType } from "../domain/gig-pay.ts";
+
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
@@ -123,6 +125,16 @@ export const gigs = sqliteTable(
     calendarEventId: text("calendar_event_id"),
     amountOfferedCents: integer("amount_offered_cents"),
     amountPaidCents: integer("amount_paid_cents"),
+    /** 'fixed' — amountOfferedCents is the fee. 'hourly' — it is an
+     *  optional override of rate × time (domain/gig-pay.ts). */
+    payType: text("pay_type").$type<PayType>().notNull().default("fixed"),
+    hourlyRateCents: integer("hourly_rate_cents"),
+    // What actually happened, as opposed to dateTime/durationMinutes
+    // above, which are what was agreed. Only pay reads these.
+    workStartedAt: integer("work_started_at"),
+    workEndedAt: integer("work_ended_at"),
+    /** Total time not worked within the span, not a list of breaks. */
+    breakMinutes: integer("break_minutes"),
     notes: text("notes"),
     // Where the record came from: manual | email | photo.
     source: text("source"),

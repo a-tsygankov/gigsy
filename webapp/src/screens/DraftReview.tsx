@@ -220,16 +220,16 @@ export function DraftReview() {
                   />
                 </Field>
                 <Field label="Date & time">
-                  {/* The same quarter-hour control the gig form uses —
-                      this screen creates gigs too, so a raw
-                      datetime-local here would just reintroduce 14:18
-                      by another door.
+                  {/* The same DateTimeField the gig form uses — this
+                      screen creates gigs too, and reusing it here is what
+                      keeps a raw datetime-local from creeping back in by
+                      another door.
 
-                      The extracted time is safe: DateTimeField keeps an
-                      off-grid value as an option rather than correcting
-                      it, which matters most here. What the email said
-                      is evidence, and this screen exists for the user
-                      to check it. */}
+                      The extracted time is safe: the time input accepts
+                      every minute, so 14:18 pulled from an email is never
+                      silently corrected to something else. What the
+                      email said is evidence, and this screen exists for
+                      the user to check it. */}
                   <DateTimeField
                     testId="draft-datetime"
                     value={dateTime}

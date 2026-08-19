@@ -1,8 +1,15 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
+  // `@/` mirrors the `paths` entry in tsconfig.app.json. shadcn's
+  // generated components import `@/lib/utils` verbatim, so the alias
+  // has to exist in every resolver: here, TypeScript, and vitest.
+  resolve: {
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+  },
   plugins: [
     react(),
     VitePWA({

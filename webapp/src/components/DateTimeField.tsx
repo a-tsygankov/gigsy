@@ -1,38 +1,26 @@
 /**
- * A date, and a time that can only be a quarter hour.
+ * A date and a time, as two native controls.
  *
- * Replaces `<input type="datetime-local" step={900}>`, which could not
- * be made to hold the rule. `step` sets the desktop picker's arrow
- * increments and marks an off-grid value invalid, but the value is
- * still whatever was entered; iOS ignores it and offers a wheel of all
- * sixty minutes. Snapping the result afterwards was worse in practice —
- * the wheel still offered 14:18 and picking it silently produced 14:15,
- * which reads as the app losing your input rather than enforcing a
- * rule.
+ * Not one `<input type="datetime-local">`: on a phone that is a single
+ * combined wheel, and the date half of it is worse than the calendar a
+ * bare date input gives. Two controls also let the date stand alone —
+ * picking a day before you know the hour is the common case.
  *
- * A control can only offer what it contains. The date stays native
- * (the calendar is genuinely good on a phone); the time is a <select>,
- * so on iOS it is a wheel with four minute values and on desktop an
- * ordinary dropdown. Neither can express 14:18.
- *
- * Except when the record already does — see `timeOptionsFor`. A time
- * extracted from an email is a record of what the client said, and this
- * field shows it rather than quietly correcting it.
+ * The time half used to be a `<select>` of quarter hours, because that
+ * was the only way to stop a picker offering 14:18. Gigs are no longer
+ * on a grid, so the native control is simply correct: every minute,
+ * a wheel on iOS, keyboard entry on desktop.
  */
-import { Input, Select } from "./index.ts";
-import {
-  joinLocalInput,
-  splitLocalInput,
-  timeOptionsFor,
-} from "../lib/datetime.ts";
+import { Input } from "./index.ts";
+import { joinLocalInput, splitLocalInput } from "../lib/datetime.ts";
 
 /** Where a date lands when a time has not been chosen yet.
  *
  *  Something has to fill it: a date with no time cannot be stored, and
  *  silently dropping the date someone just picked because they had not
  *  reached the time yet is the worse failure. Nine is the start of a
- *  working day, and the select shows it — a visible guess, not a
- *  hidden one. */
+ *  working day, and the input shows it — a visible guess, not a hidden
+ *  one. */
 const DEFAULT_TIME = "09:00";
 
 export interface DateTimeFieldProps {
@@ -60,8 +48,9 @@ export function DateTimeField({ value, onChange, testId }: DateTimeFieldProps) {
           onChange(next === "" ? "" : joinLocalInput(next, time || DEFAULT_TIME));
         }}
       />
-      <Select
-        className="w-28 shrink-0"
+      <Input
+        type="time"
+        className="w-32 shrink-0"
         data-testid={testId === undefined ? undefined : `${testId}-time`}
         // Nothing to attach a time to yet. Disabled rather than hidden,
         // so the control does not appear once you touch the date and
@@ -69,17 +58,7 @@ export function DateTimeField({ value, onChange, testId }: DateTimeFieldProps) {
         disabled={date === ""}
         value={time}
         onChange={(e) => onChange(joinLocalInput(date, e.target.value))}
-      >
-        {/* Only reachable before a date is picked, and it keeps the
-            select from displaying the first option as though it were a
-            choice someone made. */}
-        {time === "" && <option value="">--:--</option>}
-        {timeOptionsFor(time).map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-      </Select>
+      />
     </div>
   );
 }
