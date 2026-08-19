@@ -17,7 +17,13 @@ export const STATUS_PILL_CLASSES: Record<GigStatus, string> = {
   lead: "bg-slate-100 text-slate-600",
   confirmed: "bg-sky-100 text-sky-700",
   completed: "bg-amber-100 text-amber-700",
-  cancelled: "bg-slate-100 text-slate-400 line-through",
+  // Its own hue, not slate: sharing lead's colour would make "not yet
+  // started" and "never going to happen" look identical at a glance,
+  // in a component whose whole job is to carry that distinction in
+  // colour. red is the app's only other curated hue (tailwind.config.ts)
+  // and the -50/-600 pairing keeps it well short of the danger-button
+  // red used for actual errors elsewhere.
+  cancelled: "bg-red-50 text-red-600 line-through",
 };
 
 export function StatusPill({ status }: { status: GigStatus }) {

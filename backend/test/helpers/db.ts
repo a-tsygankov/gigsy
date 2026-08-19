@@ -44,10 +44,23 @@ export const MIGRATIONS_BEFORE_EXPECTED_CENTS = [
 
 export const EXPECTED_CENTS_MIGRATION = gigExpectedCentsSql;
 
-const MIGRATIONS = [
+// Split again at 0015, for the same reason: it's the second migration
+// in this repo that runs once against rows that already exist, and the
+// bug it actually had (a FOREIGN KEY constraint failure the moment any
+// payment, service or expense pointed at a gig) only shows up when
+// there is something in those tables to violate. Every other suite
+// applies migrations to an empty database, which is exactly the shape
+// of test that let the bug through the first time.
+export const MIGRATIONS_BEFORE_STATUS_CANCELLED = [
   ...MIGRATIONS_BEFORE_EXPECTED_CENTS,
   EXPECTED_CENTS_MIGRATION,
-  gigStatusCancelledSql,
+];
+
+export const STATUS_CANCELLED_MIGRATION = gigStatusCancelledSql;
+
+const MIGRATIONS = [
+  ...MIGRATIONS_BEFORE_STATUS_CANCELLED,
+  STATUS_CANCELLED_MIGRATION,
 ];
 
 /**

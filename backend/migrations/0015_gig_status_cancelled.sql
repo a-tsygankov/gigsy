@@ -20,6 +20,42 @@
 -- both sides rather than relied on by position, so this is safe
 -- against the physical column order that years of ALTER TABLE ADD
 -- COLUMN (0006, 0008, 0011, 0013, 0014) actually left behind.
+--
+-- The complication a rebuild adds: `payments`, `gig_services` and
+-- `expenses` all hold a gig_id referencing gigs.id. D1 enforces
+-- foreign keys inside migrations — PRAGMA foreign_keys=off is accepted
+-- and silently ignored — and DROP TABLE performs an implicit DELETE
+-- FROM first, which is refused the instant any of those three still
+-- points at a row about to disappear. PRAGMA defer_foreign_keys does
+-- not help either: the deferred-violation counter is only decremented
+-- by inserting a matching parent row back, and ALTER TABLE ... RENAME
+-- inserts none.
+--
+-- So every table with a foreign key into gigs.id is staged into a
+-- plain copy, emptied, and restored once the new gigs table exists
+-- under the same ids — only the status of what used to be 'paid'
+-- changes, never an id. Emptying gig_services before payments matters:
+-- gig_services.payment_id also references payments.id, so clearing
+-- payments first would trip the same FK check this dance exists to
+-- get past, just one table over. Restoring is the mirror image.
+-- Rebuilding the three child tables instead of just staging them was
+-- the other option; staging is less code for tables whose own schema
+-- isn't changing here.
+--
+-- Wrangler applies this whole file as one atomic batch: if any
+-- statement below fails, every statement before it is rolled back too,
+-- so there is no state where gigs is dropped and the stage tables are
+-- not yet restored.
+
+CREATE TABLE gig_services_stage AS SELECT * FROM gig_services;
+CREATE TABLE payments_stage AS SELECT * FROM payments;
+CREATE TABLE expenses_stage AS SELECT * FROM expenses;
+
+-- Dependency order: gig_services references both gigs and payments.
+DELETE FROM gig_services;
+DELETE FROM payments;
+DELETE FROM expenses;
+
 CREATE TABLE gigs_new (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
@@ -69,3 +105,12 @@ CREATE INDEX idx_gigs_user_date ON gigs(user_id, date_time);
 CREATE INDEX idx_gigs_user_status ON gigs(user_id, status);
 CREATE INDEX idx_gigs_client ON gigs(client_id);
 CREATE INDEX idx_gigs_user_server_modified ON gigs(user_id, server_modified_at);
+
+-- Restore, reverse dependency order: payments before gig_services.
+INSERT INTO expenses SELECT * FROM expenses_stage;
+INSERT INTO payments SELECT * FROM payments_stage;
+INSERT INTO gig_services SELECT * FROM gig_services_stage;
+
+DROP TABLE gig_services_stage;
+DROP TABLE payments_stage;
+DROP TABLE expenses_stage;

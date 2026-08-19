@@ -214,24 +214,55 @@ describe("GET /api/reports/summary", () => {
     expect(res.status).toBe(400);
   });
 
-  it("excludes a cancelled gig from every total", async () => {
+  it("excludes a cancelled gig and its service from money, but keeps its expenses", async () => {
     // Migration 0015: a cancelled gig fell through and stops counting
-    // as money, the same way it stops occupying time and stops holding
-    // a calendar event. Diffed against a before/after baseline so this
-    // doesn't have to reason about every other fixture in beforeAll.
+    // as money — offered, paid, owed, and its own service go with it,
+    // the same way it stops occupying time and stops holding a
+    // calendar event. Its expenses are the deliberate exception
+    // (reports.ts header comment): travel booked or materials bought
+    // before the gig cancelled were still spent, so they still reduce
+    // net. Diffed against a before/after baseline so this doesn't have
+    // to reason about every other fixture in beforeAll.
     const before = await summary(U1);
+    const beforeOct = before.byMonth.find((m) => m.month === "2026-10");
 
-    await api(U1, "PUT", "/api/gigs/35555555-5555-4555-8555-555555555555", {
+    const CANCELLED = "35555555-5555-4555-8555-555555555555";
+    const CANCELLED_SVC = "36666666-6666-4666-8666-666666666666";
+    const CANCELLED_EXP = "37777777-7777-4777-8777-777777777777";
+
+    await api(U1, "PUT", `/api/gigs/${CANCELLED}`, {
       status: "cancelled",
       dateTime: OCT,
       amountOfferedCents: 999_999,
       amountPaidCents: 999_999,
     });
+    await api(U1, "PUT", `/api/services/${CANCELLED_SVC}`, {
+      gigId: CANCELLED,
+      description: "Would-have-been overtime",
+      amountOfferedCents: 500_000,
+      amountPaidCents: 500_000,
+    });
+    await api(U1, "PUT", `/api/expenses/${CANCELLED_EXP}`, {
+      gigId: CANCELLED,
+      amountCents: 3000,
+    });
 
     const after = await summary(U1);
-    expect(after.totals).toEqual(before.totals);
-    expect(after.byMonth).toEqual(before.byMonth);
+    const afterOct = after.byMonth.find((m) => m.month === "2026-10");
+
+    // The gig and its service: invisible to money totals.
+    expect(after.totals.offeredCents).toBe(before.totals.offeredCents);
+    expect(after.totals.paidCents).toBe(before.totals.paidCents);
+    expect(after.totals.owedCents).toBe(before.totals.owedCents);
     expect(after.byClient).toEqual(before.byClient);
+    expect(afterOct?.offeredCents).toBe(beforeOct?.offeredCents ?? 0);
+    expect(afterOct?.paidCents).toBe(beforeOct?.paidCents ?? 0);
+
+    // The expense: still counted, both in the total and in October.
+    expect(after.totals.expensesCents).toBe(before.totals.expensesCents + 3000);
+    expect(after.totals.netCents).toBe(before.totals.netCents - 3000);
+    expect(afterOct?.expensesCents).toBe((beforeOct?.expensesCents ?? 0) + 3000);
+    expect(afterOct?.netCents).toBe((beforeOct?.netCents ?? 0) - 3000);
   });
 });
 

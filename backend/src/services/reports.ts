@@ -29,6 +29,13 @@
  *   date land in an "unscheduled" bucket.
  * - clientId filter scopes gigs to that client and expenses/services to
  *   that client's gigs (unlinked expenses excluded there by definition).
+ * - A cancelled gig is excluded from offered/paid/owed and from its
+ *   own services (gigWhere, below) — it fell through, so none of that
+ *   promised money is real. Its EXPENSES are a deliberate exception:
+ *   the expenses query never filters on gig status, on purpose. Travel
+ *   booked or materials bought before a gig cancelled were still spent
+ *   — cancelling the job doesn't refund them — so they keep reducing
+ *   net exactly as they would have if the gig had gone ahead.
  */
 export interface ReportFilters {
   from?: number;
@@ -137,6 +144,9 @@ export async function reportSummary(
   ).results;
 
   // ── expenses by month (linked gig's month, else own created_at) ─
+  // No status filter here, deliberately, even for a cancelled gig's
+  // linked expenses: the header comment explains why (money spent
+  // doesn't un-spend itself when the job falls through).
   const effectiveTs = "COALESCE(g.date_time, e.created_at)";
   const expWhere: string[] = ["e.user_id = ?"];
   const expParams: unknown[] = [userId];

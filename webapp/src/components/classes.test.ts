@@ -180,10 +180,20 @@ describe("status + tone maps", () => {
       "confirmed",
       "lead",
     ]);
-    expect(STATUS_PILL_CLASSES.cancelled).toContain("slate");
+    expect(STATUS_PILL_CLASSES.cancelled).toContain("red");
     expect(STATUS_PILL_CLASSES.confirmed).toContain("sky");
     expect(STATUS_PILL_CLASSES.completed).toContain("amber");
     expect(STATUS_PILL_CLASSES.lead).toContain("slate");
+  });
+
+  it("gives every status its own hue — colour is the only thing distinguishing them", () => {
+    // `toContain("slate")` alone can't catch two statuses sharing a
+    // colour; this extracts the actual bg-* utility from each class
+    // string and checks the four are pairwise distinct.
+    const hues = Object.values(STATUS_PILL_CLASSES).map(
+      (cls) => cls.match(/bg-(\w+)-\d+/)?.[1],
+    );
+    expect(new Set(hues).size).toBe(hues.length);
   });
 
   it("tile tones map to the money semantics", () => {

@@ -180,17 +180,17 @@ test("a shared link beats the saved view", async ({ page }) => {
   await expect(page).toHaveURL(/status=lead/);
   await page.waitForTimeout(1000);
 
-  // Someone sends you a link to their paid gigs. It must mean that,
-  // whatever you last left on screen.
-  await page.goto("/gigs?status=paid");
-  await expect(page).toHaveURL(/status=paid/);
+  // Someone sends you a link to their cancelled gigs. It must mean
+  // that, whatever you last left on screen.
+  await page.goto("/gigs?status=cancelled");
+  await expect(page).toHaveURL(/status=cancelled/);
   await expect(page).not.toHaveURL(/status=lead/);
   await openFilters(page);
   await expect(page.getByTestId("gig-status-lead")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
-  await expect(page.getByTestId("gig-status-paid")).toHaveAttribute(
+  await expect(page.getByTestId("gig-status-cancelled")).toHaveAttribute(
     "aria-pressed",
     "true",
   );

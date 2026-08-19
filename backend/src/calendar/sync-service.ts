@@ -4,15 +4,20 @@
  * - only `confirmed` gigs with a date get events; leads never do;
  * - `completed` keeps its event untouched (history);
  * - demotion to lead, a removed date, or cancelling — deletes the
- *   event, the same path a deleted gig takes: none of the three still
- *   occupy time;
+ *   event inline, in the per-gig loop below: none of the three still
+ *   occupy time. Same OUTCOME as a deleted gig, different MECHANISM —
+ *   a deleted gig's event id survives only in the calendar_cleanup
+ *   queue (next bullet), because the gig row itself is gone; these
+ *   three still have a gig row, so a failed delete just retries the
+ *   next time this loop sees the row (calendar_event_id still set);
  * - the per-user watermark (`last_calendar_sync_at`) only advances
  *   on a fully clean run, so failures retry next time. It is compared
  *   against `server_modified_at`, never `modified_at` — the latter is
  *   the phone's clock, and an offline edit would land below the mark;
  * - events whose gig was deleted are drained from the cleanup queue
  *   first (Phase 8) — the gig row that held the id is already gone,
- *   so the watermark can't find them.
+ *   so the watermark can't find them, and that queue retries on its
+ *   own, independent of the watermark this loop advances.
  */
 import { CalendarCleanupRepo } from "../repos/calendar-cleanup.ts";
 import { ClientsRepo } from "../repos/clients.ts";
