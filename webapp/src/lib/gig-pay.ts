@@ -71,7 +71,11 @@ export function expectedCents(gig: PayableGig): number | null {
   if (gig.amountOfferedCents !== null) return gig.amountOfferedCents;
   const minutes = billableMinutes(gig);
   if (minutes === null || gig.hourlyRateCents === null) return null;
-  // Half-up, and only ever on a positive value — Math.round is
-  // half-up for positives, which is the whole domain here.
+  // Half-up. Math.round is half-up for positives, and positive is all
+  // this sees: the write schema types hourlyRateCents as positiveCents
+  // (domain/schemas.ts), so a negative rate cannot be stored. This
+  // module does not re-check it — it is a derivation, not a validator,
+  // and a second opinion on the same rule is a second thing to keep in
+  // step.
   return Math.round((gig.hourlyRateCents * minutes) / 60);
 }
