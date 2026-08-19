@@ -20,6 +20,16 @@
 >   stated principle is "text instead of icons in navigation", which a fifth
 >   word extends rather than breaks. Five tabs give 75px each at 375px, well
 >   over the 44px tap minimum.
+> - **A moment is one control.** `DateTimeField` was a date input beside a
+>   time input, and `PaymentEdit` answered the same question with a bare
+>   `<input type="datetime-local">`. Both are now a shadcn calendar in a
+>   popover plus a time box — the first floating layer anchored to the
+>   control it belongs to (the tour popover, `HelpSheet`, `UpdateBar` and
+>   `HiddenConsole` all float, but none of them is positioned against a
+>   field), and the reason `components/ui/` gained `popover`, `calendar`
+>   and `button`. Native pickers were what forced two different answers:
+>   they render differently in every browser, and the panel each one
+>   drops down is the browser's, past the reach of `data-theme`.
 > - **`EmptyState` gained a `compact` variant** — the one-line dashed note used
 >   inside a populated screen where there is nothing to act on ("Nothing
 >   outstanding — every completed job is paid"). It replaces the same recipe
@@ -283,11 +293,23 @@ Three things to know before adding a shadcn component:
   It reads the root `tsconfig.json`, which carries project references and
   no `paths` — the alias is only declared in `tsconfig.app.json`. Move the
   generated file into `src/components/ui/`.
-- **`Card` now names two different things.** `src/components/Card.tsx` is
-  the app's own card — barrel-exported, used on every screen.
-  `src/components/ui/card.tsx` is shadcn's, imported through `@/`. They are
-  one autocomplete slip apart; reach for the app's own `Card` by default,
-  and only for shadcn's on a screen that has deliberately adopted it.
+- **`Card` and `Button` each now name two different things.**
+  `src/components/Card.tsx` and `src/components/Button.tsx` are the app's
+  own — barrel-exported, used on every screen. `src/components/ui/card.tsx`
+  and `src/components/ui/button.tsx` are shadcn's, imported through `@/`.
+  They are one autocomplete slip apart; reach for the app's own by
+  default, and for shadcn's only where a shadcn component needs it —
+  `ui/calendar.tsx` is written against `ui/button.tsx`'s `buttonVariants`,
+  which is the only reason that file exists.
+- **The registry now ships Tailwind v4.** `pnpm dlx shadcn@latest add
+  calendar` writes `shadow-xs`, `has-focus:`, `**:` variants and bare
+  `h-[--cell-size]`; this app is on Tailwind 3.4, where every one of those
+  emits no CSS and nothing warns. Read a generated file before trusting
+  it, and spell custom properties `h-[var(--cell-size)]`.
+- **The registry's calendar imports `lucide-react`.** Gigsy ships no icon
+  set (see Iconography), so `ui/calendar.tsx` renders its month arrows as
+  the Unicode characters that stand in for icons everywhere else. No icon
+  library was added.
 
 Adoption is incremental: shadcn is used on the gig detail screens from
 Phase 3 onward. The core components in `src/components/` are unchanged and

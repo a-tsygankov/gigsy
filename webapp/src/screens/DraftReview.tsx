@@ -221,9 +221,8 @@ export function DraftReview() {
                 </Field>
                 <Field label="Date & time">
                   {/* The same DateTimeField the gig form uses — this
-                      screen creates gigs too, and reusing it here is what
-                      keeps a raw datetime-local from creeping back in by
-                      another door.
+                      screen creates gigs too, and one control for a
+                      moment is the whole point of it.
 
                       The extracted time is safe: the time input accepts
                       every minute, so 14:18 pulled from an email is never
@@ -232,6 +231,7 @@ export function DraftReview() {
                       the user to check it. */}
                   <DateTimeField
                     testId="draft-datetime"
+                    label="Date & time"
                     value={dateTime}
                     onChange={setDateTime}
                   />

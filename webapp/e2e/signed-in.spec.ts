@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { requireTestAuth } from "./helpers/test-auth.ts";
+import { dateTimeField } from "./helpers/datetime-field.ts";
 
 // Signed-in flows via the test-auth bypass (POST /api/auth/test-login,
 // which only exists outside production). Where it's disabled these
@@ -233,10 +234,10 @@ test("a gig title survives a server round-trip", async ({ page }) => {
 /**
  * A gig time survives the round trip to the server.
  *
- * The containment claim — that the control cannot express 14:18 — is
- * asserted in gig-list.spec.ts against the options themselves. This is
- * the other half: that the two controls actually compose into one
- * stored moment, and come back as the same one.
+ * That every minute is enterable is asserted in gig-list.spec.ts against
+ * the control itself. This is the other half: that a day off a calendar
+ * and an hour off a time box compose into one stored moment, and come
+ * back as the same one.
  *
  * The version before this asserted `step="900"` on a `datetime-local`
  * input, which was never a constraint on any platform and was ignored
@@ -250,15 +251,37 @@ test("a gig date and time are stored together and come back", async ({
 
   const marker = `gig-time-${Date.now()}`;
   await page.getByLabel("Location").fill(marker);
-  await page.getByTestId("gig-datetime-date").fill("2027-03-04");
-  await page.getByTestId("gig-datetime-time").fill("10:45");
+  await dateTimeField(page, "gig-datetime").set("2027-03-04", "10:45");
   await page.getByRole("button", { name: "Save gig" }).click();
   await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
 
   // Reopened from storage, not from the form state left behind.
   await page.getByText(marker).click();
-  await expect(page.getByTestId("gig-datetime-date")).toHaveValue("2027-03-04");
-  await expect(page.getByTestId("gig-datetime-time")).toHaveValue("10:45");
+  await dateTimeField(page, "gig-datetime").expectValue("2027-03-04T10:45");
+});
+
+/**
+ * A payment's date survives the round trip.
+ *
+ * `payment-paid-at` is the one site whose control changed TYPE rather
+ * than shape — it was a bare `<input type="datetime-local">`, the app's
+ * second answer to a question the gig form already answered, and it had
+ * no coverage at any level before this. Now it is the same popover, so
+ * the same driver reaches it.
+ */
+test("a payment date is stored and comes back", async ({ page }) => {
+  await page.goto("/payments/new");
+  await page.getByTestId("payment-amount").fill("125.50");
+  await dateTimeField(page, "payment-paid-at").set("2027-03-04", "10:45");
+  await page.getByTestId("payment-save").click();
+
+  // Saving a new payment replaces the URL with the record's own id.
+  await expect(page).toHaveURL(/\/payments\/(?!new$)[\w-]+/, { timeout: 15_000 });
+
+  // Reopened from storage, not from the form state left behind.
+  await page.reload();
+  await dateTimeField(page, "payment-paid-at").expectValue("2027-03-04T10:45");
+  await expect(page.getByTestId("payment-amount")).toHaveValue("125.50");
 });
 
 /**
@@ -316,10 +339,8 @@ test("an hourly gig prices itself from the time worked", async ({ page }) => {
   await page.goto("/gigs/new");
   await page.getByTestId("gig-pay-type").selectOption("hourly");
   await page.getByTestId("gig-rate").fill("50");
-  await page.getByTestId("gig-work-start-date").fill("2027-03-04");
-  await page.getByTestId("gig-work-start-time").fill("09:00");
-  await page.getByTestId("gig-work-end-date").fill("2027-03-04");
-  await page.getByTestId("gig-work-end-time").fill("12:18");
+  await dateTimeField(page, "gig-work-start").set("2027-03-04", "09:00");
+  await dateTimeField(page, "gig-work-end").set("2027-03-04", "12:18");
   await page.getByTestId("gig-break").fill("18");
   await expect(page.getByTestId("gig-expected-pay")).toContainText("$150.00");
 });
