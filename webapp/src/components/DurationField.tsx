@@ -44,9 +44,9 @@ function isZeroish(part: string): boolean {
  * If one half is cleared and the other is already reading as zero,
  * there is no way to tell "0h 0m, entered on purpose" from "clearing
  * the field, one half at a time" — collapsing both to "not set" is the
- * safer of the two failures. The alternative (keeping a stray "0") is
- * exactly the half-cleared-field-holds-a-stale-value bug that DateTimeField's
- * date/time split had to guard against.
+ * safer of the two failures. The alternative (a stray "0" left behind
+ * from before the field was touched, surviving as a real duration) is
+ * the more surprising one to ship.
  */
 function join(hours: string, minutes: string): string {
   if (isZeroish(hours) && isZeroish(minutes)) return "";
