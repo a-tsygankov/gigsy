@@ -6,6 +6,10 @@ export default defineWorkersConfig({
     // plain node (vitest.live.config.ts). Excluded here so an ordinary
     // `pnpm test` never depends on secrets or the network.
     exclude: ["test/live/**", "node_modules/**"],
+    // The pay vectors live at the repo root because neither package owns
+    // them (fixtures/gig-pay-vectors.json). Vite refuses to serve outside
+    // its root without this.
+    server: { fs: { allow: [".."] } },
     poolOptions: {
       workers: {
         wrangler: { configPath: "./wrangler.toml" },

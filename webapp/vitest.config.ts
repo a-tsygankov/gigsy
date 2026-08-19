@@ -11,6 +11,10 @@ export default defineConfig({
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
+  // The pay vectors live at the repo root because neither package owns
+  // them (fixtures/gig-pay-vectors.json). Vite refuses to serve outside
+  // its root without this.
+  server: { fs: { allow: [".."] } },
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
   },

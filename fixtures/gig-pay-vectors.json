@@ -1,0 +1,68 @@
+{
+  "comment": "Shared by backend/test/gig-pay.test.ts and webapp/src/lib/gig-pay.test.ts. gig-pay.ts is duplicated in both packages; these vectors are what stops the two copies drifting. Add a case here before fixing a bug in either copy.",
+  "cases": [
+    {
+      "name": "fixed pay is unaffected by work times",
+      "gig": { "payType": "fixed", "hourlyRateCents": null, "amountOfferedCents": 15000, "durationMinutes": 240, "workStartedAt": 1789000000000, "workEndedAt": 1789021600000, "breakMinutes": 30 },
+      "workedMinutes": 330,
+      "billableMinutes": 330,
+      "expectedCents": 15000
+    },
+    {
+      "name": "hourly before any work is logged falls back to the planned duration",
+      "gig": { "payType": "hourly", "hourlyRateCents": 5000, "amountOfferedCents": null, "durationMinutes": 180, "workStartedAt": null, "workEndedAt": null, "breakMinutes": null },
+      "workedMinutes": null,
+      "billableMinutes": 180,
+      "expectedCents": 15000
+    },
+    {
+      "name": "hourly with work logged uses the actual time, minus the break",
+      "gig": { "payType": "hourly", "hourlyRateCents": 5000, "amountOfferedCents": null, "durationMinutes": 180, "workStartedAt": 1789000000000, "workEndedAt": 1789014600000, "breakMinutes": 45 },
+      "workedMinutes": 198,
+      "billableMinutes": 198,
+      "expectedCents": 16500
+    },
+    {
+      "name": "a started but unfinished shift has no worked time yet",
+      "gig": { "payType": "hourly", "hourlyRateCents": 5000, "amountOfferedCents": null, "durationMinutes": 180, "workStartedAt": 1789000000000, "workEndedAt": null, "breakMinutes": null },
+      "workedMinutes": null,
+      "billableMinutes": 180,
+      "expectedCents": 15000
+    },
+    {
+      "name": "a break longer than the span clamps at zero rather than going negative",
+      "gig": { "payType": "hourly", "hourlyRateCents": 5000, "amountOfferedCents": null, "durationMinutes": 180, "workStartedAt": 1789000000000, "workEndedAt": 1789003600000, "breakMinutes": 120 },
+      "workedMinutes": 0,
+      "billableMinutes": 0,
+      "expectedCents": 0
+    },
+    {
+      "name": "an override wins over the computed value",
+      "gig": { "payType": "hourly", "hourlyRateCents": 5000, "amountOfferedCents": 20000, "durationMinutes": 180, "workStartedAt": 1789000000000, "workEndedAt": 1789014600000, "breakMinutes": 45 },
+      "workedMinutes": 198,
+      "billableMinutes": 198,
+      "expectedCents": 20000
+    },
+    {
+      "name": "half a cent rounds up",
+      "gig": { "payType": "hourly", "hourlyRateCents": 1, "amountOfferedCents": null, "durationMinutes": 90, "workStartedAt": null, "workEndedAt": null, "breakMinutes": null },
+      "workedMinutes": null,
+      "billableMinutes": 90,
+      "expectedCents": 2
+    },
+    {
+      "name": "hourly with neither work nor planned duration has no expected pay",
+      "gig": { "payType": "hourly", "hourlyRateCents": 5000, "amountOfferedCents": null, "durationMinutes": null, "workStartedAt": null, "workEndedAt": null, "breakMinutes": null },
+      "workedMinutes": null,
+      "billableMinutes": null,
+      "expectedCents": null
+    },
+    {
+      "name": "fixed with no offer has no expected pay",
+      "gig": { "payType": "fixed", "hourlyRateCents": null, "amountOfferedCents": null, "durationMinutes": 240, "workStartedAt": null, "workEndedAt": null, "breakMinutes": null },
+      "workedMinutes": null,
+      "billableMinutes": 240,
+      "expectedCents": null
+    }
+  ]
+}
