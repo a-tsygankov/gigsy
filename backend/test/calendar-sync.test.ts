@@ -156,6 +156,23 @@ describe("syncUserGigs", () => {
     expect(await gigEventId()).toBeNull();
   });
 
+  it("cancelling a gig deletes its event, the same as demoting it to lead", async () => {
+    await api(U1, "PUT", `/api/gigs/${GIG}`, {
+      status: "confirmed",
+      dateTime: WHEN,
+    });
+    await syncUserGigs(env.DB, U1, stubClient(), Date.now());
+    expect(await gigEventId()).toBe("evt-1");
+
+    await api(U1, "PUT", `/api/gigs/${GIG}`, { status: "cancelled", dateTime: WHEN });
+    const client = stubClient();
+    const result = await syncUserGigs(env.DB, U1, client, Date.now());
+
+    expect(result.deleted).toBe(1);
+    expect(client.calls).toEqual([{ op: "delete", eventId: "evt-1" }]);
+    expect(await gigEventId()).toBeNull();
+  });
+
   it("completed gigs keep their event untouched (history stays)", async () => {
     await api(U1, "PUT", `/api/gigs/${GIG}`, {
       status: "confirmed",

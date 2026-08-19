@@ -66,13 +66,13 @@ describe("LocalStore CRUD + outbox", () => {
     const { store } = makeStore(() => now);
     await store.putGig(G1, { status: "lead" });
     now = 2000;
-    await store.putGig(G1, { status: "paid" });
+    await store.putGig(G1, { status: "completed" });
 
     const ops = await store.pendingOps();
     expect(ops).toHaveLength(1);
     expect(ops[0]?.op).toBe("upsert");
     expect(ops[0]?.modifiedAt).toBe(2000);
-    expect((ops[0]?.payload as { status: string }).status).toBe("paid");
+    expect((ops[0]?.payload as { status: string }).status).toBe("completed");
   });
 
   it("remove deletes locally and converts the pending op to a delete", async () => {
@@ -112,7 +112,7 @@ describe("LocalStore CRUD + outbox", () => {
       id: G1,
       clientId: null,
       title: null,
-      status: "paid",
+      status: "completed",
       location: null,
       dateTime: null,
       durationMinutes: null,
@@ -131,7 +131,7 @@ describe("LocalStore CRUD + outbox", () => {
       modifiedAt: 2,
     });
 
-    expect((await store.getGig(G1))?.status).toBe("paid");
+    expect((await store.getGig(G1))?.status).toBe("completed");
     expect(await store.pendingOps()).toHaveLength(0);
   });
 

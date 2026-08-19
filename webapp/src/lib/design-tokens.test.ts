@@ -149,7 +149,7 @@ describe("design tokens", () => {
       "--status-lead-bg",
       "--status-confirmed-bg",
       "--status-completed-bg",
-      "--status-paid-bg",
+      "--status-cancelled-bg",
     ]) {
       expect(semantic[required], `missing ${required}`).toBeDefined();
     }

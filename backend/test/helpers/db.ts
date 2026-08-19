@@ -14,6 +14,7 @@ import gigTitleSql from "../../migrations/0011_gig_title.sql?raw";
 import activityEventsSql from "../../migrations/0012_activity_events.sql?raw";
 import gigPayAndWorkLogSql from "../../migrations/0013_gig_pay_and_work_log.sql?raw";
 import gigExpectedCentsSql from "../../migrations/0014_gig_expected_cents.sql?raw";
+import gigStatusCancelledSql from "../../migrations/0015_gig_status_cancelled.sql?raw";
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
@@ -43,7 +44,11 @@ export const MIGRATIONS_BEFORE_EXPECTED_CENTS = [
 
 export const EXPECTED_CENTS_MIGRATION = gigExpectedCentsSql;
 
-const MIGRATIONS = [...MIGRATIONS_BEFORE_EXPECTED_CENTS, EXPECTED_CENTS_MIGRATION];
+const MIGRATIONS = [
+  ...MIGRATIONS_BEFORE_EXPECTED_CENTS,
+  EXPECTED_CENTS_MIGRATION,
+  gigStatusCancelledSql,
+];
 
 /**
  * Run migration SQL the way the D1 migration runner does: comment lines

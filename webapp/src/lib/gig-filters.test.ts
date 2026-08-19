@@ -84,11 +84,11 @@ describe("status filter", () => {
     gig("lead", { status: "lead" }),
     gig("confirmed", { status: "confirmed" }),
     gig("completed", { status: "completed" }),
-    gig("paid", { status: "paid" }),
+    gig("cancelled", { status: "cancelled" }),
   ];
 
   it("keeps everything when nothing is selected", () => {
-    expect(ids(apply(gigs))).toEqual(["lead", "confirmed", "completed", "paid"]);
+    expect(ids(apply(gigs))).toEqual(["lead", "confirmed", "completed", "cancelled"]);
   });
 
   it("keeps only the selected status", () => {
@@ -96,7 +96,7 @@ describe("status filter", () => {
   });
 
   it("keeps the union of several statuses", () => {
-    expect(ids(apply(gigs, { statuses: ["lead", "paid"] }))).toEqual(["lead", "paid"]);
+    expect(ids(apply(gigs, { statuses: ["lead", "cancelled"] }))).toEqual(["lead", "cancelled"]);
   });
 });
 
@@ -359,7 +359,7 @@ describe("isFiltered", () => {
 
   it.each<[string, Partial<GigFilters>]>([
     ["search", { search: "costco" }],
-    ["statuses", { statuses: ["paid"] }],
+    ["statuses", { statuses: ["cancelled"] }],
     ["client", { clientId: "c1" }],
     ["from", { from: START_OF_TODAY }],
     ["to", { to: END_OF_TODAY }],
@@ -373,7 +373,7 @@ describe("URL round trip", () => {
   it("survives a full set of filters", () => {
     const f = filters({
       search: "costco tasting",
-      statuses: ["paid", "lead"],
+      statuses: ["cancelled", "lead"],
       clientId: "c1",
       from: START_OF_TODAY,
       to: END_OF_TODAY,
@@ -400,8 +400,8 @@ describe("URL round trip", () => {
   });
 
   it("writes each status as its own repeated key", () => {
-    const params = toSearchParams(filters({ statuses: ["lead", "paid"] }));
-    expect(params.getAll("status")).toEqual(["lead", "paid"]);
+    const params = toSearchParams(filters({ statuses: ["lead", "cancelled"] }));
+    expect(params.getAll("status")).toEqual(["lead", "cancelled"]);
   });
 
   it("reads back an empty query string as the defaults", () => {
@@ -499,7 +499,7 @@ describe("settings round-trip", () => {
   it("survives a full round-trip unchanged", () => {
     const filters: GigFilters = {
       search: "",
-      statuses: ["paid"],
+      statuses: ["cancelled"],
       clientId: "client-3",
       from: START_OF_TODAY,
       to: END_OF_TODAY,

@@ -189,13 +189,21 @@ export function ClientEdit() {
                       ["lead", "confirmed"].includes(g.status),
                     )}
                   />
+                  {/* 'paid' is not a status (migration 0015) — it is
+                      read from amountPaidCents directly here, same as
+                      the money line above. A derived isPaid() predicate
+                      is a later phase (lib/gig-pay.ts). */}
                   <JobGroup
                     title="Completed — not paid"
-                    gigs={clientGigs.filter((g) => g.status === "completed")}
+                    gigs={clientGigs.filter(
+                      (g) => g.status === "completed" && !g.amountPaidCents,
+                    )}
                   />
                   <JobGroup
                     title="Paid"
-                    gigs={clientGigs.filter((g) => g.status === "paid")}
+                    gigs={clientGigs.filter(
+                      (g) => g.status === "completed" && Boolean(g.amountPaidCents),
+                    )}
                   />
                 </section>
 

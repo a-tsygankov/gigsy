@@ -101,7 +101,7 @@ export const clients = sqliteTable(
   }),
 );
 
-export const GIG_STATUSES = ["lead", "confirmed", "completed", "paid"] as const;
+export const GIG_STATUSES = ["lead", "confirmed", "completed", "cancelled"] as const;
 export type GigStatus = (typeof GIG_STATUSES)[number];
 
 export const gigs = sqliteTable(

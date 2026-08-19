@@ -175,12 +175,12 @@ describe("shellWith — the caller's width wins", () => {
 describe("status + tone maps", () => {
   it("covers the full gig lifecycle", () => {
     expect(Object.keys(STATUS_PILL_CLASSES).sort()).toEqual([
+      "cancelled",
       "completed",
       "confirmed",
       "lead",
-      "paid",
     ]);
-    expect(STATUS_PILL_CLASSES.paid).toContain("emerald");
+    expect(STATUS_PILL_CLASSES.cancelled).toContain("slate");
     expect(STATUS_PILL_CLASSES.confirmed).toContain("sky");
     expect(STATUS_PILL_CLASSES.completed).toContain("amber");
     expect(STATUS_PILL_CLASSES.lead).toContain("slate");

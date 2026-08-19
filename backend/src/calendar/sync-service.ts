@@ -2,8 +2,10 @@
  * Calendar reconciliation (docs/plan.md §9). Rules, pinned in the
  * phase plan:
  * - only `confirmed` gigs with a date get events; leads never do;
- * - `completed|paid` keep their events untouched (history);
- * - demotion to lead — or a removed date — deletes the event;
+ * - `completed` keeps its event untouched (history);
+ * - demotion to lead, a removed date, or cancelling — deletes the
+ *   event, the same path a deleted gig takes: none of the three still
+ *   occupy time;
  * - the per-user watermark (`last_calendar_sync_at`) only advances
  *   on a fully clean run, so failures retry next time. It is compared
  *   against `server_modified_at`, never `modified_at` — the latter is
@@ -142,11 +144,12 @@ export async function syncUserGigs(
       continue;
     }
 
-    // No event wanted: delete only for demotions/date-removal —
-    // completed|paid history keeps its events.
+    // No event wanted: delete for demotions, date-removal, and
+    // cancellation — completed history keeps its event.
     const shouldDelete =
       gig.calendarEventId !== null &&
       (gig.status === "lead" ||
+        gig.status === "cancelled" ||
         (gig.status === "confirmed" && gig.dateTime === null));
     if (shouldDelete) {
       if (await client.deleteEvent(gig.calendarEventId!)) {

@@ -83,7 +83,13 @@ export async function reportSummary(
   // ── gigs by month ──────────────────────────────────────────────
   // Clauses are `g.`-qualified because the by-client query below
   // reuses them in a join where bare `user_id` is ambiguous.
-  const gigWhere: string[] = ["g.user_id = ?"];
+  // A cancelled gig fell through: it stops counting as money the same
+  // way it stops occupying time (services/availability.ts) and
+  // stops holding a calendar event (calendar/sync-service.ts). Every
+  // query below that reuses gigWhere spans all the remaining statuses,
+  // so the exclusion belongs here once rather than being repeated at
+  // each call site.
+  const gigWhere: string[] = ["g.user_id = ?", "g.status != 'cancelled'"];
   const gigParams: unknown[] = [userId];
   if (filters.from !== undefined) {
     gigWhere.push("g.date_time >= ?");
@@ -255,9 +261,9 @@ export async function reportSummary(
   //
   //   - `completed` only. A lead is speculative and a confirmed gig has
   //     not happened yet; neither is a debt. The dashboard calls that
-  //     money "Expected" and this now agrees with it. `paid` is out for
-  //     the same reason it is out there: the status says the matter is
-  //     closed.
+  //     money "Expected" and this now agrees with it. `cancelled` is
+  //     out too, and for a different reason: it isn't a debt, it's work
+  //     that no longer counts at all (gigWhere, above).
   //   - Clamped per gig. Σoffered − Σpaid lets an overpayment on one
   //     gig cancel a shortfall on another, so the total could read
   //     lower than what any client actually owes — and, with a generous
