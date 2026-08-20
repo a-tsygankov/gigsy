@@ -7,7 +7,7 @@ import { entityId } from "../domain/schemas.ts";
 import { applySyncOps, type SyncOp } from "../services/sync.ts";
 
 const opBase = {
-  entity: z.enum(["client", "gig", "expense", "service", "payment"]),
+  entity: z.enum(["client", "gig", "expense", "service", "payment", "allocation"]),
   id: entityId,
   modifiedAt: z.number().int().nonnegative(),
 };

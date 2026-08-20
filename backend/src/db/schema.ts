@@ -186,9 +186,25 @@ export const payments = sqliteTable(
      * Which client this transfer came from (migration 0016). Nullable
      * on purpose: a transfer recorded before you know who sent it is
      * better than no record at all. Backfilled once from the gig this
-     * payment already pointed at; a later change will make a payment's
-     * split cover only this client's gigs, enforced in the route
-     * because it needs the database — not yet true of this commit.
+     * payment already pointed at; a payment's split now covers only
+     * this client's gigs — checked in services/payment-invariants.ts
+     * (`checkAllocationWrite`, `checkPaymentWrite`), which every write
+     * path calls: routes/allocations.ts on every allocation write,
+     * routes/payments.ts both on the gigId compat path and by refusing
+     * to change clientId out from under allocations that would no
+     * longer satisfy it, and services/sync.ts's "allocation" and
+     * "payment" cases on the same terms for the offline outbox.
+     *
+     * NOT checked anywhere: moving a GIG to a different client while a
+     * payment of the ORIGINAL client still holds an allocation on it.
+     * Neither routes/gigs.ts nor sync.ts's "gig" case looks at existing
+     * allocations before writing clientId, so that move succeeds
+     * unchallenged — a known gap, not an oversight in the comment.
+     *
+     * repos/payments.ts's upsert preserves this field when a caller's
+     * payload omits it rather than nulling it out — the currently
+     * shipped webapp doesn't send it at all yet, and every ordinary
+     * payment edit must not silently erase the backfill.
      */
     clientId: text("client_id").references(() => clients.id),
     amountCents: integer("amount_cents").notNull(),
@@ -208,19 +224,21 @@ export const payments = sqliteTable(
 /**
  * Which gigs a payment paid for, and how much of it went to each.
  *
- * `payments.gigId` remains for compatibility — a later change to
- * routes/payments.ts will turn it into one of these — but this table is
- * meant to become the truth going forward. The sum for a gig is written
- * back to `gigs.amountPaidCents`, derived and server-owned, by
- * services/paid-totals.ts.
+ * `payments.gigId` remains for compatibility — routes/payments.ts
+ * translates it into one of these — but this table is the truth. The
+ * sum for a gig is written back to `gigs.amountPaidCents`, derived and
+ * server-owned, by services/paid-totals.ts.
  *
  * Deliberately allowed: the allocations for a payment may sum to LESS
  * than the payment. A deposit can land before anyone knows which gigs
  * it covers, and refusing to record it until they do is how money stops
- * being recorded at all. More than the payment is meant to be rejected,
- * but nothing enforces that yet — this table has no way to see the
- * payment's total on its own, and the route that will check it has not
- * been written.
+ * being recorded at all. More than the payment is rejected — checked in
+ * services/payment-invariants.ts, which routes/allocations.ts (the sum
+ * against the payment's total, on every allocation write),
+ * routes/payments.ts (refusing to shrink amountCents below what is
+ * already allocated), and services/sync.ts's "allocation" and "payment"
+ * cases (the same two, for the offline outbox) all call rather than
+ * each checking it their own way.
  */
 export const paymentAllocations = sqliteTable(
   "payment_allocations",

@@ -27,6 +27,23 @@ async function age(gigId: string, modifiedAt: number) {
     .run();
 }
 
+/**
+ * C2 (code review, 2026-08-19): amount_paid_cents is derived from
+ * payment allocations now (Phase 4) — GigInput has no such key, so
+ * `PUT /api/gigs/:id` can no longer set it. This suite is about
+ * `selectNudge`'s SQL, not the write path, so it sets the column
+ * directly rather than routing through a payment and an allocation —
+ * the same choice `age()` above already makes for modified_at, and for
+ * the same reason: a raw gig row is what this file's assertions are
+ * against, and going through the allocations machinery here would test
+ * something this file isn't about.
+ */
+async function setPaid(gigId: string, amountPaidCents: number) {
+  await env.DB.prepare("UPDATE gigs SET amount_paid_cents = ? WHERE id = ?")
+    .bind(amountPaidCents, gigId)
+    .run();
+}
+
 async function clearGigs() {
   await env.DB.prepare("DELETE FROM gigs WHERE user_id = ?").bind(U1).run();
 }
@@ -49,8 +66,8 @@ describe("selectNudge", () => {
       clientId: ACME,
       status: "completed",
       amountOfferedCents: 20000,
-      amountPaidCents: 5000,
     });
+    await setPaid(GIGS.unpaidOld, 5000);
     await age(GIGS.unpaidOld, NOW - 20 * DAY);
 
     const nudge = await selectNudge(env.DB, U1, NOW);
@@ -84,8 +101,8 @@ describe("selectNudge", () => {
       clientId: ACME,
       status: "completed",
       amountOfferedCents: 10000,
-      amountPaidCents: 10000,
     });
+    await setPaid(GIGS.paidOld, 10000);
     await age(GIGS.paidOld, NOW - 60 * DAY);
 
     expect(await selectNudge(env.DB, U1, NOW)).toBeNull();

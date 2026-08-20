@@ -101,6 +101,78 @@ describe("POST /api/drafts/:id/confirm-payment", () => {
     expect(payment.confirmationR2Key).toBeNull();
   });
 
+  // The third door onto a payment write. Before this, confirming a
+  // receipt against a gig wrote payments.gig_id and stopped there — no
+  // allocation row, so services/paid-totals.ts had nothing to sum and
+  // the gig stayed at NULL while the user looked at a payment that
+  // plainly named it. Read straight out of D1 rather than through a
+  // route: GET /api/gigs/:id could compute a total on the way out and
+  // hide a column that was never written.
+  it("translates the legacy gigId into an allocation and the gig's derived total", async () => {
+    const gigId = "1a1a1a1a-aaaa-4aaa-8aaa-1a1a1a1a1a1a";
+    await api(U1, "PUT", `/api/gigs/${gigId}`, {
+      status: "completed",
+      amountOfferedCents: 20000,
+    });
+
+    const draftId = "1b1b1b1b-dddd-4ddd-8ddd-1b1b1b1b1b1b";
+    await seedDraft(U1, draftId);
+    const paymentId = "1c1c1c1c-aaaa-4aaa-8aaa-1c1c1c1c1c1c";
+
+    const res = await api(U1, "POST", `/api/drafts/${draftId}/confirm-payment`, {
+      id: paymentId,
+      amountCents: 5000,
+      gigId,
+    });
+    expect(res.status).toBe(201);
+
+    const allocations = await env.DB.prepare(
+      "SELECT gig_id, amount_cents FROM payment_allocations WHERE user_id = ? AND payment_id = ?",
+    )
+      .bind(U1, paymentId)
+      .all<{ gig_id: string; amount_cents: number }>();
+    expect(allocations.results).toEqual([
+      { gig_id: gigId, amount_cents: 5000 },
+    ]);
+
+    const gig = await env.DB.prepare("SELECT amount_paid_cents FROM gigs WHERE id = ?")
+      .bind(gigId)
+      .first<{ amount_paid_cents: number | null }>();
+    expect(gig?.amount_paid_cents).toBe(5000);
+  });
+
+  it("leaves the gig's derived total alone when the confirmation names no gig", async () => {
+    // The other half of the branch: an unattributed receipt must not
+    // invent an allocation, and no gig's total may move because of it.
+    const gigId = "2a2a2a2a-aaaa-4aaa-8aaa-2a2a2a2a2a2a";
+    await api(U1, "PUT", `/api/gigs/${gigId}`, {
+      status: "completed",
+      amountOfferedCents: 20000,
+    });
+
+    const draftId = "2b2b2b2b-dddd-4ddd-8ddd-2b2b2b2b2b2b";
+    await seedDraft(U1, draftId);
+    const paymentId = "2c2c2c2c-aaaa-4aaa-8aaa-2c2c2c2c2c2c";
+
+    const res = await api(U1, "POST", `/api/drafts/${draftId}/confirm-payment`, {
+      id: paymentId,
+      amountCents: 5000,
+    });
+    expect(res.status).toBe(201);
+
+    const allocations = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM payment_allocations WHERE user_id = ? AND payment_id = ?",
+    )
+      .bind(U1, paymentId)
+      .first<{ n: number }>();
+    expect(allocations?.n).toBe(0);
+
+    const gig = await env.DB.prepare("SELECT amount_paid_cents FROM gigs WHERE id = ?")
+      .bind(gigId)
+      .first<{ amount_paid_cents: number | null }>();
+    expect(gig?.amount_paid_cents).toBeNull();
+  });
+
   it("400s a gigId that is not the caller's", async () => {
     const draftId = "88888888-dddd-4ddd-8ddd-888888888888";
     await seedDraft(U1, draftId);

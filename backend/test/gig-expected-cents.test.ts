@@ -44,7 +44,6 @@ function gigDataFrom(pay: PayableGig): GigData {
     workEndedAt: pay.workEndedAt,
     breakMinutes: pay.breakMinutes,
     amountOfferedCents: pay.amountOfferedCents,
-    amountPaidCents: null,
     notes: null,
     source: "manual",
   };

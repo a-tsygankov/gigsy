@@ -126,13 +126,6 @@ export const createGig: HelpScenario = {
     },
     {
       action: "highlight",
-      target: HelpTarget.GigPaid,
-      title: "Paid ($)",
-      description:
-        "What has actually landed. The gap between Offered and Paid on a completed gig is exactly what \"Unpaid — waiting on clients\" on the dashboard and \"Still owed\" in Reports are made of, so leaving this blank until the money is real is what keeps those numbers true.",
-    },
-    {
-      action: "highlight",
       target: HelpTarget.GigNotes,
       title: "Notes",
       description:

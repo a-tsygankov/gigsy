@@ -25,6 +25,13 @@ const COMPLETED = "23333333-3333-4333-8333-333333333333"; // -5d completed
 const PAID_IN_FULL = "24444444-4444-4444-8444-444444444444";
 const SVC_FUTURE = "31111111-1111-4111-8111-111111111111";
 const SVC_UNPAID = "32222222-2222-4222-8222-222222222222";
+// C2 (code review, 2026-08-19): gigs.amountPaidCents is derived from
+// payment allocations now (Phase 4) and can no longer be set directly
+// on the gig — these seed it the same way a real client would, through
+// a payment naming its gig (the legacy compat path, routes/payments.ts),
+// which produces exactly one allocation for the full amount.
+const PAY_COMPLETED = "41111111-1111-4111-8111-111111111111";
+const PAY_PAID_IN_FULL = "42222222-2222-4222-8222-222222222222";
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.now();
@@ -83,7 +90,10 @@ beforeAll(async () => {
     status: "completed",
     dateTime: NOW - 5 * DAY,
     amountOfferedCents: 15000,
-    amountPaidCents: 5000,
+  });
+  await api(U1, "PUT", `/api/payments/${PAY_COMPLETED}`, {
+    amountCents: 5000,
+    gigId: COMPLETED,
   });
   await api(U1, "PUT", `/api/services/${SVC_UNPAID}`, {
     gigId: COMPLETED,
@@ -97,7 +107,10 @@ beforeAll(async () => {
     status: "completed",
     dateTime: NOW - 10 * DAY,
     amountOfferedCents: 8000,
-    amountPaidCents: 8000,
+  });
+  await api(U1, "PUT", `/api/payments/${PAY_PAID_IN_FULL}`, {
+    amountCents: 8000,
+    gigId: PAID_IN_FULL,
   });
 });
 

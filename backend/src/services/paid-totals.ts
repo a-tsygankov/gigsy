@@ -4,7 +4,23 @@
  * The column used to be typed in by hand. It is now the sum of the
  * allocations against the gig, recomputed after every allocation write
  * — which means it is server-owned, exactly like `calendarEventId` and
- * `payments.confirmationR2Key`, and a client that sends one is ignored.
+ * `payments.confirmationR2Key`. `GigInput` (domain/schemas.ts) has no
+ * such key and `GigData` (repos/gigs.ts) has no such key either, so a
+ * client that sends one — through `PUT /api/gigs/:id` or a sync "gig"
+ * op — has it silently stripped before validation even runs; nothing
+ * in either write path can set this column to anything but what this
+ * function computes.
+ *
+ * The webapp agrees end-to-end. Its job form (screens/GigEdit.tsx) has
+ * no "Paid ($)" input — it was removed in the same change that made
+ * this column derived, rather than left on screen writing into a value
+ * the server discards. `lib/local-store.ts`'s `putGig` carries the key
+ * over from the stored row instead of from its `input` (the last figure
+ * a pull reported, which is the best answer a device has between
+ * pulls), and `lib/gig-input.ts` omits it entirely, so no local write
+ * re-asserts a client-side number. The `amountPaidCents` still on the
+ * outbox payload is dead weight on the wire, not a write: the backend's
+ * `GigInput` has no such key to receive it.
  *
  * Why keep a column at all rather than computing on read: every offline
  * client already reads this field, and a PWA holds its own copy of a

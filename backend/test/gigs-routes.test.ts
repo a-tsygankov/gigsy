@@ -67,9 +67,31 @@ describe("/api/gigs", () => {
     expect(
       (await api(U1, "PUT", `/api/gigs/${G1}`, { amountOfferedCents: 0 })).status,
     ).toBe(400);
-    expect(
-      (await api(U1, "PUT", `/api/gigs/${G1}`, { amountPaidCents: -100 })).status,
-    ).toBe(400);
+  });
+
+  // C2 (code review, 2026-08-19): amountPaidCents is server-derived
+  // (services/paid-totals.ts) since Phase 4's payment allocations.
+  // GigInput has no such key, so a payload that still sends one isn't
+  // *rejected* — it's silently dropped at validation, same as
+  // calendarEventId. This is the direct-route half of proving that; the
+  // sync half is in sync.test.ts.
+  it("ignores a client-supplied amountPaidCents — it is derived, not written", async () => {
+    const res = await api(U1, "PUT", `/api/gigs/${G1}`, {
+      amountOfferedCents: 15000,
+      amountPaidCents: 999_999,
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { amountPaidCents: number | null };
+    expect(body.amountPaidCents).toBeNull();
+
+    // A negative or zero figure isn't rejected either — there is
+    // nothing left in the schema that would even look at it.
+    const res2 = await api(U1, "PUT", `/api/gigs/${G1}`, {
+      amountOfferedCents: 15000,
+      amountPaidCents: -100,
+    });
+    expect(res2.status).toBe(200);
+    expect(((await res2.json()) as { amountPaidCents: number | null }).amountPaidCents).toBeNull();
   });
 
   it("lists only own gigs", async () => {

@@ -40,7 +40,6 @@ describe("gigToInput", () => {
       workEndedAt: 1_800_010_000_000,
       breakMinutes: 18,
       amountOfferedCents: 18917,
-      amountPaidCents: 5000,
       notes: "Booth 12",
     });
   });
@@ -59,6 +58,16 @@ describe("gigToInput", () => {
     // Sending it would be ignored at best; the outbox is the one thing
     // an offline client can push, so this stays deliberate.
     expect("expectedCents" in gigToInput(GIG)).toBe(false);
+  });
+
+  it("omits the server-owned paid figure", () => {
+    // C2 (code review, 2026-08-19): amountPaidCents is derived from
+    // payment allocations (services/paid-totals.ts) and the backend's
+    // GigInput has no such key any more. Re-asserting a device's
+    // last-known figure through this reconstruction helper every time a
+    // work-card tap rebuilds the base to patch onto is exactly the bug
+    // that review found.
+    expect("amountPaidCents" in gigToInput(GIG)).toBe(false);
   });
 
   it("carries the plan through a work patch untouched", () => {
@@ -86,7 +95,6 @@ describe("gigToInput", () => {
       workEndedAt: 1_800_020_000_000,
       breakMinutes: 18,
       amountOfferedCents: 18917,
-      amountPaidCents: 5000,
       notes: "Booth 12",
     });
   });

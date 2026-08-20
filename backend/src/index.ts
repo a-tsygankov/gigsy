@@ -11,6 +11,7 @@ import { geoRouter } from "./routes/geo.ts";
 import { pushRouter } from "./routes/push.ts";
 import { settingsRouter } from "./routes/settings.ts";
 import { paymentsRouter } from "./routes/payments.ts";
+import { allocationsRouter } from "./routes/allocations.ts";
 import { syncRouter } from "./routes/sync.ts";
 import { reportsRouter } from "./routes/reports.ts";
 import { draftsRouter } from "./routes/drafts.ts";
@@ -71,6 +72,7 @@ app.route("/api/gigs", gigsRouter);
 app.route("/api/expenses", expensesRouter);
 app.route("/api/services", servicesRouter);
 app.route("/api/payments", paymentsRouter);
+app.route("/api/allocations", allocationsRouter);
 app.route("/api/sync", syncRouter);
 app.route("/api/settings", settingsRouter);
 // The owner's side of the public page above: mint, inspect, revoke.

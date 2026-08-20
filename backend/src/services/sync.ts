@@ -9,6 +9,7 @@
  * so the edit moment (not the upload moment) must win ties.
  */
 import {
+  AllocationInput,
   ClientInput,
   ExpenseInput,
   GigInput,
@@ -20,9 +21,18 @@ import { ExpensesRepo } from "../repos/expenses.ts";
 import { GigsRepo } from "../repos/gigs.ts";
 import { PaymentsRepo } from "../repos/payments.ts";
 import { ServicesRepo } from "../repos/services.ts";
+import { AllocationsRepo } from "../repos/allocations.ts";
+import { recomputePaidTotals } from "./paid-totals.ts";
+import { checkAllocationWrite, checkPaymentWrite } from "./payment-invariants.ts";
 import type { UpsertResult } from "../repos/clients.ts";
 
-export type SyncEntity = "client" | "gig" | "expense" | "service" | "payment";
+export type SyncEntity =
+  | "client"
+  | "gig"
+  | "expense"
+  | "service"
+  | "payment"
+  | "allocation";
 
 export interface SyncOpBase {
   entity: SyncEntity;
@@ -84,10 +94,40 @@ export async function applySyncOps(
   const expensesRepo = ExpensesRepo.for(d1);
   const servicesRepo = ServicesRepo.for(d1);
   const paymentsRepo = PaymentsRepo.for(d1);
+  const allocationsRepo = AllocationsRepo.for(d1);
   const results: SyncOpResult[] = [];
 
   for (const op of ops) {
     if (op.op === "delete") {
+      // A payment can't go through the generic path below:
+      // payment_allocations.payment_id references payments(id) with no
+      // ON DELETE CASCADE, so deleting a payment that still has
+      // allocations (which, after migration 0016's backfill, is every
+      // payment that ever named a gig) fails the delete with a FOREIGN
+      // KEY constraint error and leaves the gig's derived total stale.
+      // Same fix as routes/payments.ts's DELETE handler, mirrored here
+      // because the outbox drains through this path too.
+      if (op.entity === "payment") {
+        const affectedGigIds = await allocationsRepo.removeAllForPayment(userId, op.id);
+        const removed = await paymentsRepo.remove(userId, op.id);
+        if (removed && affectedGigIds.length > 0) {
+          await recomputePaidTotals(d1, userId, affectedGigIds, now);
+        }
+        results.push(removed ? applied(op.id) : skipped(op.id, "not found"));
+        continue;
+      }
+      // An allocation delete must recompute the gig's derived total, and
+      // the gigId it recomputes against has to be read before the row is
+      // gone — there is nothing left to look it up from afterward.
+      if (op.entity === "allocation") {
+        const existingAllocation = await allocationsRepo.get(userId, op.id);
+        const removed = await allocationsRepo.remove(userId, op.id);
+        if (removed && existingAllocation !== null) {
+          await recomputePaidTotals(d1, userId, [existingAllocation.gigId], now);
+        }
+        results.push(removed ? applied(op.id) : skipped(op.id, "not found"));
+        continue;
+      }
       const repo = {
         client: clientsRepo,
         gig: gigsRepo,
@@ -156,7 +196,6 @@ export async function applySyncOps(
                 workEndedAt: parsed.data.workEndedAt ?? null,
                 breakMinutes: parsed.data.breakMinutes ?? null,
                 amountOfferedCents: parsed.data.amountOfferedCents ?? null,
-                amountPaidCents: parsed.data.amountPaidCents ?? null,
                 notes: parsed.data.notes ?? null,
                 source: parsed.data.source,
               },
@@ -209,29 +248,102 @@ export async function applySyncOps(
           results.push(errored(op.id, "invalid payload"));
           break;
         }
-        if (
-          parsed.data.gigId != null &&
-          (await gigsRepo.get(userId, parsed.data.gigId)) === null
-        ) {
-          results.push(errored(op.id, "gigId does not reference your gig"));
+
+        // Ownership of gigId/clientId, I3, I4, I5 — see
+        // services/payment-invariants.ts. Shared with routes/payments.ts
+        // so the two doors can't diverge on what they enforce or on the
+        // message they enforce it with.
+        const check = await checkPaymentWrite(d1, userId, op.id, parsed.data);
+        if (!check.ok) {
+          results.push(errored(op.id, check.message));
           break;
         }
-        const existing = await paymentsRepo.get(userId, op.id);
-        results.push(
-          await lwwUpsert(op.id, op.modifiedAt, existing, () =>
-            paymentsRepo.upsert(
-              userId,
-              op.id,
-              {
-                gigId: parsed.data.gigId ?? null,
-                amountCents: parsed.data.amountCents,
-                paidAt: parsed.data.paidAt ?? null,
-                notes: parsed.data.notes ?? null,
-              },
-              { now, modifiedAt: op.modifiedAt },
-            ),
+
+        const result = await lwwUpsert(op.id, op.modifiedAt, check.existing, () =>
+          paymentsRepo.upsert(
+            userId,
+            op.id,
+            {
+              gigId: parsed.data.gigId ?? null,
+              // Not `?? null`: absent (undefined) must preserve the
+              // stored value rather than wipe it — see
+              // repos/payments.ts's PaymentData.clientId doc comment.
+              clientId: parsed.data.clientId,
+              amountCents: parsed.data.amountCents,
+              paidAt: parsed.data.paidAt ?? null,
+              notes: parsed.data.notes ?? null,
+            },
+            { now, modifiedAt: op.modifiedAt },
           ),
         );
+        results.push(result);
+
+        // The legacy gigId compat path (Task 4 of the phase-4 plan): a
+        // client that queued this op before the allocations release
+        // still sends PaymentInput.gigId. Translated into a single
+        // allocation here exactly as routes/payments.ts does for a
+        // direct write — this is the outbox's own drain, so skipping it
+        // here is what used to leave a queued legacy payment with no
+        // allocation at all, silently dropping its contribution the
+        // next time some other allocation change recomputed the gig's
+        // total. replaceSoleAllocation is keyed off the payment id, not
+        // any id the client supplies, so replaying the same op
+        // converges on one allocation instead of adding a second.
+        //
+        // Only runs when the upsert actually applied: a stale
+        // (LWW-skipped) or errored op must not resurrect or rewrite an
+        // allocation that a newer op already moved past.
+        if (result.status === "applied" && parsed.data.gigId != null) {
+          const affectedGigIds = await allocationsRepo.replaceSoleAllocation(
+            userId,
+            op.id,
+            parsed.data.gigId,
+            parsed.data.amountCents,
+            now,
+          );
+          await recomputePaidTotals(d1, userId, affectedGigIds, now);
+        }
+        break;
+      }
+      case "allocation": {
+        const parsed = AllocationInput.safeParse(op.payload);
+        if (!parsed.success) {
+          results.push(errored(op.id, "invalid payload"));
+          break;
+        }
+
+        // Ownership of paymentId/gigId, the client rule, and
+        // over-allocation — see services/payment-invariants.ts. Shared
+        // with routes/allocations.ts so the two doors can't diverge on
+        // what they enforce or on the message they enforce it with.
+        const check = await checkAllocationWrite(d1, userId, op.id, parsed.data);
+        if (!check.ok) {
+          results.push(errored(op.id, check.message));
+          break;
+        }
+
+        const result = await lwwUpsert(op.id, op.modifiedAt, check.existing, () =>
+          allocationsRepo.upsert(
+            userId,
+            op.id,
+            {
+              paymentId: parsed.data.paymentId,
+              gigId: parsed.data.gigId,
+              amountCents: parsed.data.amountCents,
+            },
+            { now, modifiedAt: op.modifiedAt },
+          ),
+        );
+        results.push(result);
+
+        // affectedGigIds already accounts for a moved allocation — see
+        // checkAllocationWrite's docstring and
+        // services/payment-invariants.ts's header comment (C1). Skipped
+        // for a stale/errored op: nothing was written, so nothing
+        // changed.
+        if (result.status === "applied") {
+          await recomputePaidTotals(d1, userId, check.affectedGigIds, now);
+        }
         break;
       }
       case "expense": {

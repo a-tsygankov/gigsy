@@ -87,7 +87,11 @@ export const HelpTarget = {
   // so Offered ($) — never Rate ($ per hour) — is what's on screen for
   // the whole run (see create-gig.ts's header for the full reasoning).
   GigOffered: element("gig-offered"),
-  GigPaid: element("gig-paid"),
+  // No `GigPaid` entry either, and this one is gone for good rather
+  // than conditional: the form's "Paid ($)" input was removed when
+  // gigs.amountPaidCents became server-derived from payment
+  // allocations. What has arrived is recorded payment by payment on
+  // the detail hub — see GigEdit.tsx's header.
   GigNotes: element("gig-notes"),
   GigSave: element("gig-save"),
 

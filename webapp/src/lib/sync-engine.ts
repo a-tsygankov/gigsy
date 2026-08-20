@@ -293,6 +293,21 @@ export class SyncEngine {
             id: op.entityId,
             reason: result.reason,
           });
+          // The op is dropped either way — a poison op must never wedge
+          // the queue behind it — but for an upsert, dropping it and
+          // saying nothing else leaves the device holding the write the
+          // server just refused (a client-rule violation,
+          // over-allocation, whatever), diverged from the server's
+          // truth with no signal and no way back except a fresh edit.
+          // Adopting the server's copy — the same recovery `skipped`
+          // already gets above — turns "rejected silently" into
+          // "reverted visibly": the local record snaps back to what the
+          // server actually holds. Not done for a rejected delete: there
+          // is no upload to revert, and the row this device wants gone
+          // may not even exist server-side to fetch back.
+          if (op.op === "upsert") {
+            await this.refreshFromServer(op.entity, op.entityId);
+          }
         }
       }
       this.setState({ online: true });

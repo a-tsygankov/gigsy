@@ -17,6 +17,14 @@ const G4 = "34444444-4444-4444-8444-444444444444";
 const E1 = "41111111-1111-4111-8111-111111111111";
 const E2 = "42222222-2222-4222-8222-222222222222";
 const S1 = "51111111-1111-4111-8111-111111111111";
+// C2 (code review, 2026-08-19): gigs.amountPaidCents is derived from
+// payment allocations now (Phase 4) and can no longer be set directly
+// on the gig — these seed it the same way a real client would, through
+// a payment naming its gig (the legacy compat path, routes/payments.ts),
+// which produces exactly one allocation for the full amount.
+const PAY_G1 = "81111111-1111-4111-8111-111111111111";
+const PAY_G2 = "82222222-2222-4222-8222-222222222222";
+const PAY_G4 = "83333333-3333-4333-8333-333333333333";
 
 const SEP = Date.UTC(2026, 8, 10, 12); // 2026-09
 const OCT = Date.UTC(2026, 9, 5, 12); // 2026-10
@@ -69,8 +77,8 @@ beforeAll(async () => {
     status: "completed",
     dateTime: SEP,
     amountOfferedCents: 10000,
-    amountPaidCents: 8000,
   });
+  await api(U1, "PUT", `/api/payments/${PAY_G1}`, { amountCents: 8000, gigId: G1 });
   await api(U1, "PUT", `/api/expenses/${E1}`, { gigId: G1, amountCents: 2000 });
   // …plus an additional service on that gig: 3000 offered / 1000 paid.
   // Service money is income and follows its gig's month and client.
@@ -87,8 +95,8 @@ beforeAll(async () => {
     status: "completed",
     dateTime: OCT,
     amountOfferedCents: 20000,
-    amountPaidCents: 20000,
   });
+  await api(U1, "PUT", `/api/payments/${PAY_G2}`, { amountCents: 20000, gigId: G2 });
   await api(U1, "PUT", `/api/gigs/${G3}`, {
     clientId: BRAVO,
     status: "completed",
@@ -100,8 +108,8 @@ beforeAll(async () => {
     status: "completed",
     dateTime: OCT,
     amountOfferedCents: 1000,
-    amountPaidCents: 1000,
   });
+  await api(U1, "PUT", `/api/payments/${PAY_G4}`, { amountCents: 1000, gigId: G4 });
 });
 
 describe("GET /api/reports/summary", () => {
@@ -231,12 +239,18 @@ describe("GET /api/reports/summary", () => {
     const CANCELLED = "35555555-5555-4555-8555-555555555555";
     const CANCELLED_SVC = "36666666-6666-4666-8666-666666666666";
     const CANCELLED_EXP = "37777777-7777-4777-8777-777777777777";
+    const PAY_CANCELLED = "84444444-4444-4444-8444-444444444444";
 
     await api(U1, "PUT", `/api/gigs/${CANCELLED}`, {
       status: "cancelled",
       dateTime: OCT,
       amountOfferedCents: 999_999,
-      amountPaidCents: 999_999,
+    });
+    // C2: amountPaidCents is derived — seed it through a payment, same
+    // as beforeAll above.
+    await api(U1, "PUT", `/api/payments/${PAY_CANCELLED}`, {
+      amountCents: 999_999,
+      gigId: CANCELLED,
     });
     await api(U1, "PUT", `/api/services/${CANCELLED_SVC}`, {
       gigId: CANCELLED,
@@ -338,8 +352,11 @@ describe("owedCents", () => {
       status: "completed",
       dateTime: OCT,
       amountOfferedCents: 1000,
-      amountPaidCents: 9000,
     });
+    // C2: amountPaidCents is derived — seed it through a payment, same
+    // as beforeAll above.
+    const PAY_GD = "85555555-5555-4555-8555-555555555555";
+    await api(U1, "PUT", `/api/payments/${PAY_GD}`, { amountCents: 9000, gigId: GD });
 
     // Unclamped this would subtract 8000 from what other clients owe,
     // and a big enough tip would show zero outstanding while invoices
@@ -458,9 +475,16 @@ describe("hourly gigs in the summary", () => {
  */
 describe("money received vs. money allocated", () => {
   const U6 = "user-6";
-  const CHARLIE = "81111111-1111-4111-8111-111111111111";
-  const GIG_R = "82222222-2222-4222-8222-222222222222";
-  const PAY_R = "83333333-3333-4333-8333-333333333333";
+  // A distinct id namespace. These ids used to reuse the 8{1..3} fixtures
+  // above, which belong to user-1: the gig and client survived only because
+  // isolated storage rolls each `it` back to the beforeAll snapshot, while
+  // PAY_R collided with beforeAll's PAY_G4 and left user-1 owning it. The
+  // seeding PUT was rejected, the test ignored the status, and the
+  // allocation below then crossed users — which only summed correctly
+  // because AllocationsRepo had no ownership check yet.
+  const CHARLIE = "86666666-6666-4666-8666-666666666666";
+  const GIG_R = "87777777-7777-4777-8777-777777777777";
+  const PAY_R = "88888888-8888-4888-8888-888888888888";
 
   // Each `it` in this file rolls back to the shared beforeAll snapshot
   // afterward (vitest-pool-workers isolated storage — see
@@ -479,10 +503,11 @@ describe("money received vs. money allocated", () => {
     // A $150 payment, paid in October, of which only $60 has been
     // allocated to the gig so far — the other $90 is banked but not
     // yet assigned to any work.
-    await api(U6, "PUT", `/api/payments/${PAY_R}`, {
+    const payRes = await api(U6, "PUT", `/api/payments/${PAY_R}`, {
       amountCents: 15000,
       paidAt: OCT,
     });
+    expect(payRes.ok).toBe(true);
     // PaymentInput doesn't accept clientId yet — that's this phase's
     // Task 3, still in review — so the route can't do this. Setting it
     // directly is how this test exercises reports.ts's clientId filter
@@ -492,12 +517,16 @@ describe("money received vs. money allocated", () => {
     await env.DB.prepare("UPDATE payments SET client_id = ? WHERE id = ?")
       .bind(CHARLIE, PAY_R)
       .run();
-    await AllocationsRepo.for(env.DB).upsert(
+    const allocated = await AllocationsRepo.for(env.DB).upsert(
       U6,
       crypto.randomUUID(),
       { paymentId: PAY_R, gigId: GIG_R, amountCents: 6000 },
       { now: 1 },
     );
+    // Not decoration: "forbidden" here is how an id collision or a
+    // cross-user seed shows up, and without this the reports assertions
+    // below just see zero and blame reports.ts.
+    expect(allocated).not.toBe("forbidden");
     await recomputePaidTotals(env.DB, U6, [GIG_R], 1);
   }
 

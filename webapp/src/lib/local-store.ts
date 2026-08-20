@@ -79,7 +79,23 @@ export class LocalStore {
       breakMinutes: input.breakMinutes ?? null,
       calendarEventId: existing?.calendarEventId ?? null,
       amountOfferedCents: input.amountOfferedCents ?? null,
-      amountPaidCents: input.amountPaidCents ?? null,
+      // Preserved from the existing row, exactly like calendarEventId
+      // just above — NOT taken from `input`, even though `GigInput`
+      // still nominally carries the key. Nothing supplies it any more:
+      // GigEdit.tsx's "Paid ($)" input was removed when this became a
+      // derived value, and lib/gig-input.ts omits the key outright (see
+      // that file, and services/paid-totals.ts on the backend, for the
+      // full story). This is what the server derives from payment
+      // allocations; a value typed into a form is not something this
+      // device is in a position to assert, and the backend ignores it
+      // on arrival regardless (GigInput has no such key there either).
+      // Reading it from `existing` rather than
+      // hard-coding null (the expectedCents treatment below) is
+      // deliberate: unlike expectedCents, there is no local derivation
+      // to fall back on while waiting for the next pull, so the last
+      // value the server actually reported is the best available
+      // answer to "how much has been paid" in the meantime.
+      amountPaidCents: existing?.amountPaidCents ?? null,
       // The ONE field that must NOT reach the payload below, against
       // everything the OutboxPayload comment says. It is not a field
       // the server accepts: `expectedCents` is derived and server-owned
@@ -116,6 +132,11 @@ export class LocalStore {
       workEndedAt: record.workEndedAt,
       breakMinutes: record.breakMinutes,
       amountOfferedCents: record.amountOfferedCents,
+      // Required because `GigInput` still nominally carries the key
+      // (see the comment on `record.amountPaidCents` above) — but the
+      // backend's own GigInput has no such key, so this is dead weight
+      // on the wire rather than a write: whatever value ends up here,
+      // the server derives its own and discards this one.
       amountPaidCents: record.amountPaidCents,
       notes: record.notes,
       source: (record.source ?? "manual") as "manual" | "email" | "photo",

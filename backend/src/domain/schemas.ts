@@ -26,7 +26,16 @@ export const GIG_SOURCES = ["manual", "email", "photo"] as const;
 
 // calendarEventId deliberately absent — server-owned calendar-sync
 // bookkeeping (like payments.confirmationR2Key); a client-supplied
-// value would wipe/forge the Google event link.
+// value would wipe/forge the Google event link. amountPaidCents is
+// absent for the same reason as of Phase 4 (payment allocations):
+// gigs.amountPaidCents is now the sum of payment_allocations rows for
+// the gig, recomputed by services/paid-totals.ts on every allocation
+// write. A client-supplied figure would be a number nobody derived
+// sitting in the one field every "how much has this gig been paid"
+// read trusts — GigsRepo.upsert has no such key to write, so a
+// payload that still sends one (routes/gigs.ts, services/sync.ts's
+// "gig" case) simply has it stripped at validation, same as
+// calendarEventId.
 export const GigInput = z
   .object({
     clientId: entityId.nullish(),
@@ -43,7 +52,6 @@ export const GigInput = z
     payType: z.enum(PAY_TYPES).default("fixed"),
     hourlyRateCents: positiveCents.nullish(),
     amountOfferedCents: positiveCents.nullish(),
-    amountPaidCents: positiveCents.nullish(),
     // What actually happened. Epoch ms, like every other timestamp.
     workStartedAt: z.number().int().nullish(),
     workEndedAt: z.number().int().nullish(),
@@ -108,11 +116,29 @@ export type ServiceInputT = z.infer<typeof ServiceInput>;
 // endpoint (server-controlled keys).
 export const PaymentInput = z.object({
   gigId: entityId.nullish(),
+  // Which client this transfer came from (migration 0016). Nullable —
+  // a payment recorded before you know who sent it is still worth
+  // recording — but once set, routes/allocations.ts restricts the
+  // payment's split to that client's gigs.
+  clientId: entityId.nullish(),
   amountCents: positiveCents,
   paidAt: z.number().int().nullish(),
   notes: z.string().max(4000).nullish(),
 });
 export type PaymentInputT = z.infer<typeof PaymentInput>;
+
+// Which gig a payment's money went to, and how much. paymentId and
+// gigId are both required — an allocation is meaningless without
+// either end of the link it makes, unlike PaymentInput.gigId which is
+// nullish because a payment can exist before it's tied to any gig.
+export const AllocationInput = z.object({
+  paymentId: entityId,
+  gigId: entityId,
+  // Positive like every other amount: a zero allocation is a deleted
+  // allocation with extra steps.
+  amountCents: positiveCents,
+});
+export type AllocationInputT = z.infer<typeof AllocationInput>;
 
 export const ExpenseInput = z.object({
   gigId: entityId.nullish(),

@@ -160,4 +160,94 @@ export class AllocationsRepo {
       .returning({ id: paymentAllocations.id });
     return deleted.length > 0;
   }
+
+  /**
+   * Deletes every allocation for one payment — called when the payment
+   * itself is deleted, since `payment_allocations.payment_id` has a
+   * `REFERENCES payments(id)` with no `ON DELETE CASCADE` and would
+   * otherwise fail the delete with a FOREIGN KEY constraint error.
+   *
+   * Returns the distinct gig ids that were affected, so the caller can
+   * recompute `amountPaidCents` for each — a gig that loses its only
+   * allocation this way must fall back to `null`, and nothing else does
+   * that recompute once the payment row is gone.
+   */
+  async removeAllForPayment(userId: string, paymentId: string): Promise<string[]> {
+    const deleted = await this.db
+      .delete(paymentAllocations)
+      .where(
+        and(
+          eq(paymentAllocations.userId, userId),
+          eq(paymentAllocations.paymentId, paymentId),
+        ),
+      )
+      .returning({ gigId: paymentAllocations.gigId });
+    return [...new Set(deleted.map((r) => r.gigId))];
+  }
+
+  /**
+   * The compatibility path for a legacy client that still sends
+   * `PaymentInput.gigId` (routes/payments.ts). Deletes whatever
+   * allocations already exist for the payment and writes exactly one,
+   * for the whole amount, keyed off the payment id rather than any id
+   * the caller supplies — so replaying the same payment upsert (an
+   * offline outbox retry) always converges on one allocation instead of
+   * piling up a second.
+   *
+   * If the payment was previously split across several gigs (through
+   * `/api/allocations`), this discards that split without asking —
+   * a legacy client has no way to express a split, so a payload from
+   * one is read as "this payment is, in full, for this one gig now."
+   * That is a real loss of information the caller should be aware of,
+   * not a hidden implementation detail.
+   *
+   * The delete and the insert run as one D1 batch so a failure between
+   * them can't leave the payment allocation-less: either both apply or
+   * neither does.
+   *
+   * Returns every gig id that was affected — the gig(s) the payment
+   * used to be allocated to, plus the new one — so the caller can
+   * recompute `amountPaidCents` for all of them, including a gig the
+   * allocation just moved away from.
+   */
+  async replaceSoleAllocation(
+    userId: string,
+    paymentId: string,
+    gigId: string,
+    amountCents: number,
+    now: number,
+  ): Promise<string[]> {
+    const previous = await this.db
+      .select({ gigId: paymentAllocations.gigId })
+      .from(paymentAllocations)
+      .where(
+        and(
+          eq(paymentAllocations.userId, userId),
+          eq(paymentAllocations.paymentId, paymentId),
+        ),
+      );
+
+    await this.db.batch([
+      this.db
+        .delete(paymentAllocations)
+        .where(
+          and(
+            eq(paymentAllocations.userId, userId),
+            eq(paymentAllocations.paymentId, paymentId),
+          ),
+        ),
+      this.db.insert(paymentAllocations).values({
+        id: crypto.randomUUID(),
+        userId,
+        paymentId,
+        gigId,
+        amountCents,
+        createdAt: now,
+        modifiedAt: now,
+        serverModifiedAt: now,
+      }),
+    ]);
+
+    return [...new Set([...previous.map((r) => r.gigId), gigId])];
+  }
 }
