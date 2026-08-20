@@ -11,16 +11,16 @@
  * in either write path can set this column to anything but what this
  * function computes.
  *
- * That claim is true of the server. It is NOT yet true end-to-end: the
- * webapp's job form (screens/GigEdit.tsx) still renders a "Paid ($)"
- * field and still writes `amountPaidCents` into every outbox payload
- * (lib/gig-input.ts, lib/local-store.ts) — a value the server now
- * discards on arrival. The field is a no-op pending Phase 4 Task 7,
- * which removes it from the form now that this column is derived
- * rather than entered. Until that lands, a user who edits "Paid ($)"
- * sees the local copy hold what they typed for exactly as long as it
- * takes the next pull to overwrite it with what this function actually
- * computed.
+ * The webapp agrees end-to-end. Its job form (screens/GigEdit.tsx) has
+ * no "Paid ($)" input — it was removed in the same change that made
+ * this column derived, rather than left on screen writing into a value
+ * the server discards. `lib/local-store.ts`'s `putGig` carries the key
+ * over from the stored row instead of from its `input` (the last figure
+ * a pull reported, which is the best answer a device has between
+ * pulls), and `lib/gig-input.ts` omits it entirely, so no local write
+ * re-asserts a client-side number. The `amountPaidCents` still on the
+ * outbox payload is dead weight on the wire, not a write: the backend's
+ * `GigInput` has no such key to receive it.
  *
  * Why keep a column at all rather than computing on read: every offline
  * client already reads this field, and a PWA holds its own copy of a

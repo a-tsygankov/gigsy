@@ -56,9 +56,12 @@ export interface AllocationWriteInput {
 
 export interface AllocationWriteContext {
   ok: true;
-  /** The allocation's row before this write, if any — fetched by id
-   *  alone, so it reflects the row's true prior state even when the
-   *  write is also moving it to a different payment. */
+  /** The allocation's row before this write, if any — fetched by its
+   *  own id (scoped to the caller: `AllocationsRepo.get(userId, id)`,
+   *  below), NOT by looking through the payment this write names. That
+   *  is what makes it the row's true prior state even when the write is
+   *  also moving it to a different payment — `listByPayment` on the new
+   *  payment cannot contain a row that is only just arriving there. */
   existing: AllocationRecord | null;
   /** Every gig whose derived total needs recomputing once the write
    *  lands: the gig this allocation now points at, and — if it moved —

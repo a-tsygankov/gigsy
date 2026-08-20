@@ -5,7 +5,9 @@ import type { Bindings } from "../env.ts";
 import { requireAuth, type AuthVars } from "../middleware/auth.ts";
 import { DraftsRepo, type DraftRecord } from "../repos/drafts.ts";
 import { PaymentsRepo } from "../repos/payments.ts";
+import { AllocationsRepo } from "../repos/allocations.ts";
 import { GigsRepo } from "../repos/gigs.ts";
+import { recomputePaidTotals } from "../services/paid-totals.ts";
 import { PaymentInput, entityId } from "../domain/schemas.ts";
 import { confirmationKey } from "./payments.ts";
 import { log } from "../logger.ts";
@@ -179,6 +181,37 @@ export const draftsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }
       return c.json({ error: "not found" }, 404);
     }
     let record = upserted.record;
+
+    // `gigId` on the wire is the legacy shape: `payments.gig_id` is no
+    // longer what ties money to work — `payment_allocations` is, and
+    // `gigs.amountPaidCents` is derived from it
+    // (services/paid-totals.ts). This is the third door onto a payment
+    // write, so it does the same translation the other two do
+    // (routes/payments.ts's PUT and services/sync.ts's "payment" case);
+    // skipping it here is what left a confirmed receipt with zero
+    // allocations and its gig reading fully unpaid, with no allocations
+    // UI anywhere in the webapp to correct it by hand.
+    //
+    // Deliberately NOT wrapped in `reopenAndLog`, unlike the failures
+    // above it: the payment now exists, so putting the draft back to
+    // "pending" would mean a retry creates a SECOND payment for the same
+    // receipt — the exact duplicate this route's close-then-create
+    // ordering exists to prevent. A throw here therefore surfaces as a
+    // 500 with the payment recorded and its gig total stale, which the
+    // app can already repair: re-saving the payment through
+    // `PUT /api/payments/:id` (the payment screen's "Related gig") runs
+    // this same translation again, and replaceSoleAllocation is keyed
+    // off the payment id, so it converges rather than piling up.
+    if (input.gigId != null) {
+      const affectedGigIds = await AllocationsRepo.for(c.env.DB).replaceSoleAllocation(
+        userId,
+        record.id,
+        input.gigId,
+        input.amountCents,
+        now,
+      );
+      await recomputePaidTotals(c.env.DB, userId, affectedGigIds, now);
+    }
 
     // The receipt IS the proof — copy it rather than asking the client
     // to re-upload bytes it already sent. Best-effort: a source object

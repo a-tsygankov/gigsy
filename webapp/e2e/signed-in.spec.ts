@@ -29,14 +29,16 @@ test("a completed unpaid gig with a service reaches the dashboard drill-down", a
 }) => {
   const marker = `unpaid-booth-${Date.now()}`;
 
-  // Create a completed gig: offered 200, paid 50. The status is not on
-  // the job form any more — it is a fact about the work, so it lives on
-  // the hub the save lands on.
+  // Create a completed gig: offered 200. The status is not on the job
+  // form any more — it is a fact about the work, so it lives on the hub
+  // the save lands on. Neither is what has been PAID: that is derived
+  // server-side from payment allocations now, so the $50 below is
+  // recorded as a real payment naming this gig rather than typed into a
+  // box (there is no such box any more — see GigEdit.tsx).
   await page.getByRole("link", { name: "Gigs" }).click();
   await page.getByRole("link", { name: "Add gig" }).click();
   await page.getByLabel("Location").fill(marker);
   await page.getByLabel("Offered ($)").fill("200");
-  await page.getByLabel("Paid ($)").fill("50");
   await page.getByRole("button", { name: "Save gig" }).click();
 
   await expect(page.getByTestId("gig-work-card")).toBeVisible({ timeout: 15_000 });
@@ -59,6 +61,23 @@ test("a completed unpaid gig with a service reaches the dashboard drill-down", a
   await expect(
     page.getByTestId("gig-services").getByRole("link", { name: /Overtime hour/ }),
   ).toBeVisible();
+
+  // Record the $50 as money that actually arrived. "+ Add payment"
+  // opens /payments/new?gigId=<this gig>, so the Related gig select is
+  // already on this gig and the saved payment carries `gigId` — which
+  // the server turns into a payment_allocations row (the legacy-gigId
+  // compat path in services/sync.ts) and sums back into the gig's
+  // derived amountPaidCents. That is the whole chain the $190.00
+  // assertion below depends on; typing 50 into the old "Paid ($)" box
+  // never touched any of it.
+  await page.getByRole("link", { name: "+ Add payment" }).click();
+  await page.getByTestId("payment-amount").fill("50");
+  await expect(page.getByTestId("payment-gig")).not.toHaveValue("");
+  await page.getByTestId("payment-save").click();
+  // Saving a new payment replaces the URL with the record's own id.
+  await expect(page).toHaveURL(/\/payments\/(?!new$)[\w-]+/, { timeout: 15_000 });
+  await page.getByTestId("payment-open-gig").click();
+  await expect(page.getByTestId("gig-work-card")).toBeVisible({ timeout: 15_000 });
 
   // Wait for the outbox to drain (badge clears) — the dashboard is
   // server-computed, so the data must be synced before it can show.

@@ -7,6 +7,16 @@
  * (GigDetail.tsx) when the gig screen split, because they are records
  * of a gig that exists rather than statements of what was agreed. What
  * is left is the agreement: who, what, when, where, and how it pays.
+ *
+ * "Paid ($)" was the last thing on here that was neither: it stated
+ * what had ARRIVED, and it went the same way when payment allocations
+ * landed. `gigs.amountPaidCents` is now derived server-side from the
+ * allocations against the gig (backend services/paid-totals.ts) and
+ * there is no longer a write path that accepts a typed figure — so a
+ * box here could only take what someone typed and drop it. The real
+ * control is one screen back: GigDetail's Payments section, where each
+ * payment is recorded with its own date and proof, and the running
+ * total shows as the paid badge beside the status.
  */
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -37,7 +47,6 @@ interface FormState {
   payType: PayType;
   hourlyRate: string; // dollars text, hourly rate
   offered: string; // dollars text
-  paid: string;
   notes: string;
 }
 
@@ -50,7 +59,6 @@ const BLANK: FormState = {
   payType: "fixed",
   hourlyRate: "",
   offered: "",
-  paid: "",
   notes: "",
 };
 
@@ -92,10 +100,6 @@ export function GigEdit() {
       offered:
         gig.data.amountOfferedCents !== null && gig.data.payType === "fixed"
           ? centsToInput(gig.data.amountOfferedCents)
-          : "",
-      paid:
-        gig.data.amountPaidCents !== null
-          ? centsToInput(gig.data.amountPaidCents)
           : "",
       notes: gig.data.notes ?? "",
     });
@@ -184,16 +188,11 @@ export function GigEdit() {
 
   function submit() {
     const offered = form.offered.trim() === "" ? null : parseMoney(form.offered);
-    const paid = form.paid.trim() === "" ? null : parseMoney(form.paid);
     if (offered === null && form.offered.trim() !== "") {
       setMoneyError("Offered amount isn't a valid dollar value.");
       return;
     }
-    if (paid === null && form.paid.trim() !== "") {
-      setMoneyError("Paid amount isn't a valid dollar value.");
-      return;
-    }
-    if ((offered !== null && offered <= 0) || (paid !== null && paid <= 0)) {
+    if (offered !== null && offered <= 0) {
       setMoneyError("Amounts must be greater than zero — leave blank when not set.");
       return;
     }
@@ -223,7 +222,6 @@ export function GigEdit() {
       location: form.location.trim() === "" ? null : form.location.trim(),
       payType: form.payType,
       hourlyRateCents: form.payType === "hourly" ? parseMoney(form.hourlyRate) : null,
-      amountPaidCents: paid,
       notes: form.notes.trim() === "" ? null : form.notes.trim(),
     };
 
@@ -365,16 +363,6 @@ export function GigEdit() {
                 />
               </Field>
             )}
-
-            <Field label="Paid ($)">
-              <Input
-                data-testid="gig-paid"
-                inputMode="decimal"
-                placeholder="0.00"
-                value={form.paid}
-                onChange={(e) => set("paid", e.target.value)}
-              />
-            </Field>
 
             <Field label="Notes">
               <Textarea

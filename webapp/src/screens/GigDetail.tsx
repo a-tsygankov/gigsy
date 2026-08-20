@@ -220,8 +220,8 @@ export function GigDetail() {
                 <p className="text-xs text-slate-500">
                   Nothing yet. Money as it actually lands goes here — a deposit now,
                   the balance weeks later, each with its own date and a photo of the
-                  proof. Paid ($) on the job form is the running total; this is where
-                  the parts of it live.
+                  proof. This is the only place a gig's paid total comes from: it is
+                  added up from what you record here, not typed in on the job form.
                 </p>
               )}
               <div className="space-y-2">

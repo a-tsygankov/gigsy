@@ -81,14 +81,15 @@ export class LocalStore {
       amountOfferedCents: input.amountOfferedCents ?? null,
       // Preserved from the existing row, exactly like calendarEventId
       // just above — NOT taken from `input`, even though `GigInput`
-      // still nominally carries the key (GigEdit.tsx's "Paid ($)" field
-      // still writes it, pending Phase 4 Task 7 removing that field —
-      // see lib/gig-input.ts and services/paid-totals.ts on the
-      // backend for the full story). This is what the server derives
-      // from payment allocations; a value typed into a form is not
-      // something this device is in a position to assert, and the
-      // backend ignores it on arrival regardless (GigInput has no such
-      // key there either). Reading it from `existing` rather than
+      // still nominally carries the key. Nothing supplies it any more:
+      // GigEdit.tsx's "Paid ($)" input was removed when this became a
+      // derived value, and lib/gig-input.ts omits the key outright (see
+      // that file, and services/paid-totals.ts on the backend, for the
+      // full story). This is what the server derives from payment
+      // allocations; a value typed into a form is not something this
+      // device is in a position to assert, and the backend ignores it
+      // on arrival regardless (GigInput has no such key there either).
+      // Reading it from `existing` rather than
       // hard-coding null (the expectedCents treatment below) is
       // deliberate: unlike expectedCents, there is no local derivation
       // to fall back on while waiting for the next pull, so the last

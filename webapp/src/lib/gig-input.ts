@@ -23,12 +23,12 @@
  *     that closed C2, and GigsRepo.upsert now leaves the column alone
  *     rather than writing whatever a caller sends — it is the sum of
  *     payment_allocations rows, recomputed by services/paid-totals.ts.
- *     The webapp's OWN `GigInput` type still nominally carries the key
- *     — GigEdit.tsx's "Paid ($)" field still writes it, pending Phase 4
- *     Task 7 removing that field now that the value is derived rather
- *     than entered — but this reconstruction helper has no business
- *     re-asserting a device's last-known figure as if it were a fresh
- *     edit every time a work-card tap rebuilds the base to patch onto.
+ *     The webapp's OWN `GigInput` type still nominally carries the key,
+ *     but nothing fills it in any more: GigEdit.tsx's "Paid ($)" input
+ *     was removed once the value became derived rather than entered.
+ *     This reconstruction helper has no business re-asserting a
+ *     device's last-known figure as if it were a fresh edit every time
+ *     a work-card tap rebuilds the base to patch onto, either.
  *     local-store.ts's `putGig` also no longer reads this key from its
  *     `input`, for the same reason from the other side.
  *   - `source` records where a gig came from. local-store carries the
