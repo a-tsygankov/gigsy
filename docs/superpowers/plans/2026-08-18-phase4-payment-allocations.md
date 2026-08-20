@@ -685,8 +685,9 @@ What shipped, in `webapp/src/lib/local-store.ts`:
 - `putPayment`'s payload is `OutboxPayload<Omit<PaymentInput, "gigId">>`.
   The `Required<T>` guard still bites for every other field; `gigId` is
   excluded in exactly one place, with the reason next to it.
-- `putPayment` still ACCEPTS `gigId` from callers (the payment screen
-  asks for one gig until Task 7 replaces it) and writes it as the
+- `putPayment` still ACCEPTS `gigId` from callers (nothing in the app
+  passes one since Task 7; it is the shim for builds that predate
+  allocations, and its behaviour is pinned by test) and writes it as the
   payment's sole allocation itself — the client-side twin of
   `replaceSoleAllocation`, guard included, except that it UPDATES the
   existing allocation under its own id instead of deleting and
@@ -698,7 +699,9 @@ What shipped, in `webapp/src/lib/local-store.ts`:
   resolve `gigId` from the payment's allocations, falling back to the
   stored column. The server nulls that column on the next save of any
   payment now, so without this the existing screens would show
-  payments detached from their gigs until Task 7 rewires them.
+  payments detached from their gigs. Task 7 rewired the two screens that
+  can show a split (`PaymentEdit`, `GigDetail`) to read the allocations
+  directly; the resolved `gigId` still serves everything else.
 - `removePayment` drops the payment's allocations locally without
   queueing deletes for them: both server doors already delete them with
   the payment.
@@ -733,26 +736,23 @@ git commit -m "feat(offline): allocations sync like every other entity"
 - Modify: `webapp/src/screens/PaymentEdit.tsx`
 - Modify: `webapp/src/screens/GigDetail.tsx` (payments section)
 
-- [ ] **Step 1: Replace the single gig select**
+- [x] **Step 1: Replace the single gig select** — SHIPPED.
 
-> Two things Task 6 left on the table for this step.
+> Both things Task 6 left on the table are done.
 >
-> `data.putPayment` still ACCEPTS a `gigId` and turns it into the
-> payment's sole allocation, sized to the whole payment — the shim that
-> keeps today's one-gig screen working. The split editor must stop
-> passing it and write allocations through `putAllocation` /
-> `deleteAllocation` instead, or every save will collapse the split it
-> just made. `LocalStore` refuses to collapse a payment carrying more
-> than one allocation, but a payment with ONE partial allocation is
-> precisely the state that shim would overwrite.
+> `PaymentEdit` passes NO `gigId` to `putPayment` any more; it writes
+> allocations through `putAllocation` / `deleteAllocation`. The shim in
+> `putPayment` stays for callers that predate allocations (and is still
+> covered by `local-store.test.ts`). The e2e proves the regression bites:
+> re-adding `gigId` to the payload turns "$100 of $150, $50 deliberately
+> unallocated" into "Fully allocated" on the next save of ANY field —
+> the single-partial-allocation state neither split guard protects.
 >
-> The webapp's `Payment`/`PaymentInput` still have no `clientId` — the
-> column exists server-side (migration 0016) and `PaymentsRepo.upsert`
-> PRESERVES it when the key is absent, which is the only reason the
-> current payload does not wipe it. Adding the field here means adding
-> it to the outbox payload too, and a screen that does not supply it
-> would then send `null` and erase what a receipt draft set. Wire the
-> client select and the field in the same change.
+> `Payment.clientId` and `PaymentInput.clientId` exist, and
+> `putPayment`'s local record mirrors `PaymentsRepo.upsert`'s
+> preserve-on-absent rule — absent leaves the stored client alone,
+> explicit `null` clears it — because the payload now always carries the
+> key and an absent one would otherwise ship as an erasure.
 
 The screen first asks **which client** the payment came from. Every gig select below then offers only that client's gigs — a short list you can read, rather than every gig you have ever worked. Leaving the client unset is allowed and offers everything; that is the escape hatch for a transfer you cannot yet attribute.
 
@@ -778,30 +778,89 @@ const unallocated = amountCents - allocations.reduce((s, a) => s + a.amountCents
 
 Each row saves as its own allocation record, so a half-finished split still survives a reload.
 
-- [ ] **Step 2: Show the split on the gig**
+**What actually shipped, where the plan above is thinner than the code.**
+The arithmetic and the rules are a separate module,
+`webapp/src/lib/payment-split.ts`, so they can be tested without a DOM
+(`payment-split.test.ts`, 35 cases). Corrections to the sketch above:
 
-In `GigDetail`'s payments section, list this gig's allocations rather than payments whose `gigId` matches, showing the payment's date and the amount allocated to *this* gig, with the payment's total beside it when they differ.
+- `unallocated` is computed from the ROWS AS TYPED, leniently — a row
+  halfway through "10" contributes nothing and the running total carries
+  on. `validateSplit` is the strict pass, and it runs on save.
+- Over-allocation and the client rule are reported in **the server's own
+  words**, quoted from `services/payment-invariants.ts` ("allocations
+  exceed the payment", "gigId does not reference the payment's client"),
+  so the same sentence appears whichever layer refuses the write. The
+  `payment-unallocated` line still says exactly what the plan specifies;
+  the message goes in a separate `payment-split-error`.
+- Over-allocation is shown live, as soon as the running total says so.
+  The row-level faults (no gig, unreadable amount) wait for Save —
+  nagging about a form being filled in is not feedback.
+- A single UNTOUCHED row mirrors the payment amount once a gig is chosen
+  (`applyAutoBalance`), so `/payments/new?gigId=…` still records a
+  one-gig payment without typing the figure twice. It does NOT mirror
+  into a gig-less row: an unattributed transfer must stay saveable.
+- The selects are indexed — `payment-gig-0`, `payment-split-amount-0`,
+  `payment-split-remove-0`, plus `payment-client` and
+  `payment-add-split`. `HelpTarget.PaymentGig` now points at
+  `payment-gig-0`; there is no bare `payment-gig` any more.
+- Changing the client CLEARS rows whose gig belongs to someone else,
+  keeping their amounts. Leaving a select on an option that is no longer
+  in its own list renders blank and reads as a bug.
+- `splitWrites` diffs the form against the stored allocations, so an
+  unchanged row costs no outbox op and no server-side recompute; deletes
+  are queued before upserts, which buys the right order for a split
+  MOVED between gigs without spending the sync engine's retry on it.
+
+- [x] **Step 2: Show the split on the gig** — SHIPPED.
+
+`GigDetail` lists `listAllocationsByGig(id)` and joins each to its payment for the date and total. The share and the total are separate elements (`gig-payment-share`, `gig-payment-total`) rather than one span's text — "of $150.00" only renders when the two figures differ, and a screen reader would otherwise announce "$100.00of $150.00". An allocation whose payment has not arrived on this device yet renders nothing rather than a dateless half-row.
 
 - [x] **Step 3: Remove the hand-typed Paid field** — ALREADY DONE, out of order, when `gigs.amountPaidCents` became server-derived. `GigEdit.tsx` has no `gig-paid` input and `lib/gig-input.ts` omits the key; `local-store.ts`'s `putGig` preserves the value from the existing row and never takes it from a form. Nothing to do here.
 
 Delete the Paid (`gig-paid`) input from `GigEdit.tsx` and its help target — the value is derived now, and an editable copy of a derived number is a bug waiting to be filed. `GigDetail` shows the derived total with the paid badge.
 
-- [ ] **Step 4: Write the e2e**
+- [x] **Step 4: Write the e2e** — SHIPPED, in `e2e/money.spec.ts` so it
+  reuses that file's `rowEventually` and document-loading helpers rather
+  than re-deriving the "a pull writes into Dexie and tells React Query
+  nothing" workaround.
 
-```ts
-test("one payment covers two gigs", async ({ page }) => {
-  // create two gigs, one payment of $150, split $100 / $50,
-  // assert each gig's detail screen shows its own paid total,
-  // assert the payment screen shows "Fully allocated",
-  // then reduce one split and assert the remainder appears.
-});
-```
+It goes further than the sketch, in two directions the sketch would have passed without:
 
-- [ ] **Step 5: Run everything and commit**
+- After the reduce it REMOVES a row, leaving one $100 allocation against
+  a $150 payment, then saves an unrelated field (a note). That is the
+  single-partial-allocation state, the one shape neither the client's
+  nor the server's split guard protects — and re-adding `gigId` to
+  `putPayment`'s payload turns "Unallocated $50.00" into "Fully
+  allocated" right here, which is the whole reason Task 6 flagged it.
+- Per-gig totals are read off the gig LIST rows, which show the server's
+  derived `amountPaidCents`, not anything the browser computed.
+
+Two traps worth knowing before touching this test:
+
+- **Wait for the URL to change after Save.** A click returns as soon as
+  it is dispatched; saving a split is several awaited Dexie writes, and
+  a document load on the next line tears the page down mid-write. The
+  allocation never reaches the outbox, the save looks fine, and the
+  assertion forty seconds later fails with no clue why. `PaymentEdit`
+  navigates in the mutation's `onSuccess`, so the URL is the receipt.
+- **Never assert on a fixed split-row index.** Allocations written in
+  the same millisecond have no defined order; the spec's `splitRowFor`
+  helper asks the selects which row is on which gig.
+
+- [x] **Step 5: Run everything and commit**
 
 ```bash
-pnpm --filter gigsy-webapp test && pnpm --filter gigsy-webapp test:e2e && pnpm --filter gigsy-webapp help:validate
+pnpm --filter gigsy-webapp test && pnpm --filter gigsy-webapp typecheck
+E2E_BASE_URL=http://localhost:5197 E2E_REQUIRE_AUTH=1 npx playwright test --project=chromium
 ```
+
+> The e2e command in this plan was `pnpm --filter gigsy-webapp test:e2e`,
+> which is a trap: `playwright.config.ts` defaults `baseURL` to
+> `https://gigsy-webapp.pages.dev`, so that command tests the DEPLOYED
+> build against production D1 and proves nothing about the working tree.
+> Run it against `wrangler dev` on a freshly migrated local D1 plus
+> `vite dev`, with `E2E_REQUIRE_AUTH=1` so the signed-in half cannot
+> skip itself into a false pass.
 
 ```bash
 git add webapp/src webapp/e2e

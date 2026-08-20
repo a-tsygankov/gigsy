@@ -448,6 +448,7 @@ describe("LocalStore allocations", () => {
     // Guard against that assertion passing on an empty payload.
     expect(Object.keys(paymentOp?.payload as object).sort()).toEqual([
       "amountCents",
+      "clientId",
       "notes",
       "paidAt",
     ]);
@@ -455,6 +456,30 @@ describe("LocalStore allocations", () => {
     expect(await store.listAllocationsByPayment(P1)).toEqual([
       expect.objectContaining({ id: A1, gigId: G1, amountCents: 15000 }),
     ]);
+  });
+
+  it("putPayment sends clientId, and PRESERVES it when the caller omits it", async () => {
+    // The half of migration 0016 that only the wire can get wrong. The
+    // server preserves an absent clientId (PaymentsRepo.upsert) purely
+    // to protect the payment from builds that predate the column — this
+    // build DOES send it, so the local record has to answer "absent" the
+    // same way the server would, or a save from a screen that never
+    // asked about a client would ship an explicit null and wipe one a
+    // receipt draft had set.
+    const { store } = makeStore(() => 1000);
+    await store.putPayment(P1, { amountCents: 15000, clientId: C1 });
+    expect((await store.getPayment(P1))?.clientId).toBe(C1);
+    expect((await store.pendingOps())[0]?.payload).toMatchObject({ clientId: C1 });
+
+    await store.putPayment(P1, { amountCents: 15000, notes: "no client asked for" });
+    expect((await store.getPayment(P1))?.clientId).toBe(C1);
+    expect((await store.pendingOps())[0]?.payload).toMatchObject({ clientId: C1 });
+
+    // …and an explicit null still clears it. "Absent" and "empty" are
+    // different answers, which is the whole reason for the distinction.
+    await store.putPayment(P1, { amountCents: 15000, clientId: null });
+    expect((await store.getPayment(P1))?.clientId).toBeNull();
+    expect((await store.pendingOps())[0]?.payload).toMatchObject({ clientId: null });
   });
 
   it("resolves a payment's gig from its allocation once the server nulls the column", async () => {
@@ -465,6 +490,7 @@ describe("LocalStore allocations", () => {
     const pulled: Payment = {
       id: P1,
       gigId: null,
+      clientId: null,
       amountCents: 15000,
       paidAt: null,
       confirmationR2Key: null,
@@ -493,6 +519,7 @@ describe("LocalStore allocations", () => {
     await store.applyServerRecord("payment", {
       id: P1,
       gigId: null,
+      clientId: null,
       amountCents: 15000,
       paidAt: null,
       confirmationR2Key: null,
@@ -560,6 +587,7 @@ describe("LocalStore allocations", () => {
     await store.applyServerRecord("payment", {
       id: P1,
       gigId: G1,
+      clientId: null,
       amountCents: 15000,
       paidAt: null,
       confirmationR2Key: null,
@@ -678,6 +706,7 @@ describe("GigsyUserDB v3 upgrade", () => {
     await v2.table("payments").put({
       id: P1,
       gigId: G1,
+      clientId: null,
       amountCents: 15000,
       paidAt: null,
       confirmationR2Key: null,
