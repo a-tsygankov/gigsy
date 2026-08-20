@@ -50,9 +50,9 @@ export const captureReceipt: HelpScenario = {
     {
       action: "highlight",
       target: HelpTarget.CaptureStart,
-      title: "Take or choose a photo",
+      title: "Capture gig or receipt",
       description:
-        "One button for both: it opens your camera if you want to shoot something now, or your photo library if you already have the picture. It works on a parking receipt, a booking sheet or a flyer with a date and a fee on it — Gigsy works out which of those it's looking at. It needs a connection, because the reading happens on the server and not on your phone; offline, this button is greyed out and a note above says so.",
+        "One button for both: it opens your camera if you want to shoot something now, or your photo library if you already have the picture. It works on a parking receipt, a booking sheet, a payment slip, or a flyer with a date and a fee on it — Gigsy works out which of those it's looking at. It needs a connection, because the reading happens on the server and not on your phone; offline, this button is greyed out and a note above says so.",
     },
     {
       action: "external",
@@ -73,7 +73,7 @@ export const captureReceipt: HelpScenario = {
       target: HelpTarget.CaptureStart,
       title: "Nothing exists until you confirm",
       description:
-        "You land on a review screen with the photo at the top and every extracted field editable underneath — what it thinks this is, the client, the date, the amount. If the name matches a client you already have, it says which one; if it doesn't, it tells you a new client will be created. Confirm creates the gig (as a lead) or the expense; Later leaves the draft on your Drafts list; Discard throws it away. Until you press Confirm, no gig, no expense and no client exists. If the reading fails outright you're told here instead, and no draft is made at all — the photo is worth retaking in better light. Prefer email? \"Forward a booking email\" is the same machinery by the other road.",
+        "You land on a review screen with the photo at the top and every extracted field editable underneath — what it thinks this is, the client, the date, the amount. If the name matches a client you already have, it says which one; if it doesn't, it tells you a new client will be created. Confirm creates the gig (as a lead), the expense, or the payment — for a payment slip, the same photo becomes its proof automatically, no second upload; Later leaves the draft on your Drafts list; Discard throws it away. Until you press Confirm, nothing exists. If the reading fails outright you're told here instead, and no draft is made at all — the photo is worth retaking in better light. Prefer email? \"Forward a booking email\" is the same machinery by the other road.",
     },
   ],
 };

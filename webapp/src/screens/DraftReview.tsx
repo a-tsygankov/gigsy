@@ -14,9 +14,35 @@ import {
   Textarea,
 } from "../components/index.ts";
 
+type DraftKind = "gig" | "expense" | "payment";
+
+// What differs per kind once the fields are gathered: where the
+// confirmed record lives and which list screens need refreshing. A
+// third `if (kind === ...)` at every one of these decision points is
+// how this file would stop being readable as kinds are added — this
+// table is that decision made once. The actual commit logic (what
+// fields to send, which endpoint to call) still has to be its own
+// branch per kind below, since a gig, an expense and a payment don't
+// share a shape; the table only covers what's genuinely uniform.
+const KIND_ROUTE: Record<DraftKind, (id: string) => string> = {
+  gig: (id) => `/gigs/${id}`,
+  expense: (id) => `/expenses/${id}`,
+  payment: (id) => `/payments/${id}`,
+};
+const KIND_QUERY_KEY: Record<DraftKind, string> = {
+  gig: "gigs",
+  expense: "expenses",
+  payment: "payments",
+};
+
 /** The review gate (docs/plan.md §8): extracted fields are editable,
- * nothing exists until Confirm. Confirm creates records through the
- * normal local-first path, then closes the draft server-side. */
+ * nothing exists until Confirm. Confirming a gig or expense creates it
+ * through the normal local-first path, then closes the draft
+ * server-side; confirming a payment is one server round trip instead
+ * (see data.confirmDraftAsPayment) because the draft's photo has to be
+ * copied into the new payment's confirmation key before the draft can
+ * close, and that copy needs the payment to exist on the server first —
+ * a race the offline-first path can't guarantee against. */
 export function DraftReview() {
   const { id = "" } = useParams();
   const data = useData();
@@ -34,7 +60,7 @@ export function DraftReview() {
     queryFn: () => data.listClients(),
   });
 
-  const [kind, setKind] = useState<"gig" | "expense">("gig");
+  const [kind, setKind] = useState<DraftKind>("gig");
   const [clientName, setClientName] = useState("");
   const [location, setLocation] = useState("");
   const [dateTime, setDateTime] = useState("");
@@ -47,12 +73,17 @@ export function DraftReview() {
   useEffect(() => {
     const extracted = draft.data?.extracted;
     if (extracted === undefined) return;
-    setKind(extracted.kind === "expense" ? "expense" : "gig");
+    setKind(
+      extracted.kind === "expense" || extracted.kind === "payment"
+        ? extracted.kind
+        : "gig",
+    );
     setClientName(extracted.clientName ?? "");
     setLocation(extracted.location ?? "");
+    // A payment reuses dateTimeMs as its received-on date (extraction.ts).
     setDateTime(msToLocalInput(extracted.dateTimeMs ?? null));
     const cents =
-      extracted.kind === "expense"
+      extracted.kind === "expense" || extracted.kind === "payment"
         ? extracted.amountCents
         : extracted.amountOfferedCents;
     setAmount(cents != null ? centsToInput(cents) : "");
@@ -88,47 +119,66 @@ export function DraftReview() {
         throw new Error("Amounts must be greater than zero.");
       }
 
-      let createdId: string;
-      if (kind === "gig") {
-        // Resolve the client: matched → link it; otherwise a typed
-        // name becomes a new client stub (the handoff's confirm-flow).
-        let clientId = matchedClient?.id ?? null;
-        if (clientId === null && clientName.trim() !== "") {
-          const stub = await data.putClient(crypto.randomUUID(), {
-            name: clientName.trim(),
+      // Per-kind commit behaviour (see the KIND_ROUTE/KIND_QUERY_KEY
+      // comment above for why this is a table for routing/invalidation
+      // but a branch for the commit itself: the three record shapes
+      // don't share fields, so there is nothing generic to hoist here).
+      const commitHandlers: Record<DraftKind, () => Promise<{ createdId: string }>> = {
+        gig: async () => {
+          // Resolve the client: matched → link it; otherwise a typed
+          // name becomes a new client stub (the handoff's confirm-flow).
+          let clientId = matchedClient?.id ?? null;
+          if (clientId === null && clientName.trim() !== "") {
+            const stub = await data.putClient(crypto.randomUUID(), {
+              name: clientName.trim(),
+            });
+            clientId = stub.id;
+          }
+          const createdId = crypto.randomUUID();
+          await data.putGig(createdId, {
+            clientId,
+            status: "lead",
+            location: location.trim() === "" ? null : location.trim(),
+            dateTime: localInputToMs(dateTime),
+            amountOfferedCents: cents,
+            notes: notes.trim() === "" ? null : notes.trim(),
+            source: draft.data?.source === "email" ? "email" : "photo",
           });
-          clientId = stub.id;
-        }
-        createdId = crypto.randomUUID();
-        await data.putGig(createdId, {
-          clientId,
-          status: "lead",
-          location: location.trim() === "" ? null : location.trim(),
-          dateTime: localInputToMs(dateTime),
-          amountOfferedCents: cents,
-          notes: notes.trim() === "" ? null : notes.trim(),
-          source: draft.data?.source === "email" ? "email" : "photo",
-        });
-      } else {
-        if (cents === null) throw new Error("An expense needs an amount.");
-        createdId = crypto.randomUUID();
-        await data.putExpense(createdId, {
-          amountCents: cents,
-          category: category.trim() === "" ? null : category.trim(),
-          notes: notes.trim() === "" ? null : notes.trim(),
-        });
-      }
-      await data.setDraftStatus(id, "confirmed");
-      return { createdId };
+          await data.setDraftStatus(id, "confirmed");
+          return { createdId };
+        },
+        expense: async () => {
+          if (cents === null) throw new Error("An expense needs an amount.");
+          const createdId = crypto.randomUUID();
+          await data.putExpense(createdId, {
+            amountCents: cents,
+            category: category.trim() === "" ? null : category.trim(),
+            notes: notes.trim() === "" ? null : notes.trim(),
+          });
+          await data.setDraftStatus(id, "confirmed");
+          return { createdId };
+        },
+        payment: async () => {
+          if (cents === null) throw new Error("A payment needs an amount.");
+          const createdId = crypto.randomUUID();
+          // confirmDraftAsPayment closes the draft server-side itself
+          // (it also copies the draft's photo to the payment's
+          // confirmation key) — unlike gig/expense, no separate
+          // setDraftStatus call follows.
+          await data.confirmDraftAsPayment(id, createdId, {
+            amountCents: cents,
+            paidAt: localInputToMs(dateTime),
+            notes: notes.trim() === "" ? null : notes.trim(),
+          });
+          return { createdId };
+        },
+      };
+      return commitHandlers[kind]();
     },
     onSuccess: async ({ createdId }) => {
       await queryClient.invalidateQueries({ queryKey: ["drafts"] });
-      await queryClient.invalidateQueries({
-        queryKey: [kind === "gig" ? "gigs" : "expenses"],
-      });
-      navigate(kind === "gig" ? `/gigs/${createdId}` : `/expenses/${createdId}`, {
-        replace: true,
-      });
+      await queryClient.invalidateQueries({ queryKey: [KIND_QUERY_KEY[kind]] });
+      navigate(KIND_ROUTE[kind](createdId), { replace: true });
     },
     onError: (e) => setError(e instanceof Error ? e.message : "Confirm failed."),
   });
@@ -196,14 +246,15 @@ export function DraftReview() {
             <Field label="This is a…">
               <Select
                 value={kind}
-                onChange={(e) => setKind(e.target.value as "gig" | "expense")}
+                onChange={(e) => setKind(e.target.value as DraftKind)}
               >
                 <option value="gig">Gig / job offer</option>
                 <option value="expense">Expense / receipt</option>
+                <option value="payment">Payment received</option>
               </Select>
             </Field>
 
-            {kind === "gig" ? (
+            {kind === "gig" && (
               <>
                 <Field label="Client">
                   <Input
@@ -244,7 +295,9 @@ export function DraftReview() {
                   />
                 </Field>
               </>
-            ) : (
+            )}
+
+            {kind === "expense" && (
               <>
                 <Field label="Amount ($)">
                   <Input
@@ -260,6 +313,31 @@ export function DraftReview() {
                     onChange={(e) => setCategory(e.target.value)}
                   />
                 </Field>
+              </>
+            )}
+
+            {kind === "payment" && (
+              <>
+                <Field label="Amount ($)">
+                  <Input
+                    inputMode="decimal"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                  />
+                </Field>
+                <Field label="Received on">
+                  <DateTimeField
+                    testId="draft-datetime"
+                    label="Received on"
+                    value={dateTime}
+                    onChange={setDateTime}
+                  />
+                </Field>
+                {/* No gig link and no client here on purpose — splitting
+                    a payment across gigs is Task 7's screen, and this
+                    kind doesn't set clientId (PaymentInput has no such
+                    field yet on this branch; see the payment screen to
+                    attach either after confirming). */}
               </>
             )}
 
