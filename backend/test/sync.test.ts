@@ -307,6 +307,10 @@ describe("POST /api/sync", () => {
   // /api/sync while it still had allocations (true of every legacy
   // payment after migration 0016's backfill) failed the delete's own
   // FOREIGN KEY constraint and left the gig's derived total stale.
+  //
+  // The payment upsert's own legacy gigId translation (Task 4) is what
+  // produces the allocation here now — see the "allocation" describe
+  // block below for tests targeting that translation directly.
   it("deletes a payment's allocations first, so the delete succeeds and the gig total clears", async () => {
     const GID2 = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
     const PID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
@@ -320,13 +324,6 @@ describe("POST /api/sync", () => {
         payload: { amountCents: 6000, gigId: GID2 },
       },
     ]);
-    // The legacy gigId translation is Task 4's job (see services/sync.ts's
-    // "payment" case), so seed the allocation directly through
-    // /api/allocations instead of relying on the sync payload above.
-    const AID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
-    await api(U1, "PUT", `/api/allocations/${AID}`, {
-      paymentId: PID, gigId: GID2, amountCents: 6000,
-    });
     expect((await (await api(U1, "GET", `/api/gigs/${GID2}`)).json() as {
       amountPaidCents: number | null;
     }).amountPaidCents).toBe(6000);
@@ -339,5 +336,128 @@ describe("POST /api/sync", () => {
     expect((await (await api(U1, "GET", `/api/gigs/${GID2}`)).json() as {
       amountPaidCents: number | null;
     }).amountPaidCents).toBeNull();
+  });
+
+  // Phase 4 Task 4: allocations as the sixth sync entity.
+  describe("\"allocation\" entity", () => {
+    const GID3 = "11111111-1111-4111-8111-111111111111";
+    const PID3 = "22222222-2222-4222-8222-222222222222";
+    const AID3 = "33333333-3333-4333-8333-333333333333";
+    const STRANGERS_GID = "44444444-4444-4444-8444-444444444444";
+
+    beforeAll(async () => {
+      await sync(U1, [
+        { entity: "gig", op: "upsert", id: GID3, modifiedAt: 1, payload: { status: "completed" } },
+        { entity: "payment", op: "upsert", id: PID3, modifiedAt: 1, payload: { amountCents: 10000 } },
+      ]);
+      await sync(U2, [
+        {
+          entity: "gig",
+          op: "upsert",
+          id: STRANGERS_GID,
+          modifiedAt: 1,
+          payload: { status: "completed" },
+        },
+      ]);
+    });
+
+    it("round-trips an allocation and updates the gig total", async () => {
+      const res = await api(U1, "POST", "/api/sync", {
+        ops: [
+          {
+            entity: "allocation",
+            op: "upsert",
+            id: AID3,
+            modifiedAt: 1,
+            payload: { paymentId: PID3, gigId: GID3, amountCents: 5000 },
+          },
+        ],
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as SyncResponse;
+      expect(body.results[0]?.status).toBe("applied");
+
+      const gig = (await (await api(U1, "GET", `/api/gigs/${GID3}`)).json()) as {
+        amountPaidCents: number | null;
+      };
+      expect(gig.amountPaidCents).toBe(5000);
+    });
+
+    it("rejects an allocation against someone else's gig", async () => {
+      const res = await api(U1, "POST", "/api/sync", {
+        ops: [
+          {
+            entity: "allocation",
+            op: "upsert",
+            id: "55555555-5555-4555-8555-555555555555",
+            modifiedAt: 1,
+            payload: { paymentId: PID3, gigId: STRANGERS_GID, amountCents: 1000 },
+          },
+        ],
+      });
+      const body = (await res.json()) as SyncResponse;
+      expect(body.results[0]?.status).toBe("error");
+      expect(body.results[0]?.reason).toMatch(/does not reference your gig/);
+    });
+
+    it("recomputes the total when an allocation is deleted", async () => {
+      await sync(U1, [
+        { entity: "allocation", op: "delete", id: AID3, modifiedAt: 2 },
+      ]);
+      const gig = (await (await api(U1, "GET", `/api/gigs/${GID3}`)).json()) as {
+        amountPaidCents: number | null;
+      };
+      expect(gig.amountPaidCents).toBeNull();
+    });
+  });
+
+  // Phase 4 Task 4: the "payment" case's gigId compat translation, drained
+  // through the offline outbox path rather than a direct route write.
+  describe("legacy payment gigId, translated through sync", () => {
+    const GID4 = "66666666-6666-4666-8666-666666666666";
+    const PID4 = "77777777-7777-4777-8777-777777777777";
+
+    const listAllocations = async (paymentId: string) =>
+      ((await (
+        await api(U1, "GET", `/api/allocations?paymentId=${paymentId}`)
+      ).json()) as { items: { amountCents: number; gigId: string }[] }).items;
+
+    beforeAll(async () => {
+      await sync(U1, [
+        { entity: "gig", op: "upsert", id: GID4, modifiedAt: 1, payload: { status: "completed" } },
+      ]);
+    });
+
+    it("produces exactly one allocation for a legacy payment op carrying gigId", async () => {
+      await sync(U1, [
+        {
+          entity: "payment",
+          op: "upsert",
+          id: PID4,
+          modifiedAt: 1,
+          payload: { amountCents: 7000, gigId: GID4 },
+        },
+      ]);
+      const allocations = await listAllocations(PID4);
+      expect(allocations).toHaveLength(1);
+      expect(allocations[0]).toMatchObject({ amountCents: 7000, gigId: GID4 });
+      const gig = (await (await api(U1, "GET", `/api/gigs/${GID4}`)).json()) as {
+        amountPaidCents: number | null;
+      };
+      expect(gig.amountPaidCents).toBe(7000);
+    });
+
+    it("does not produce a second allocation when the same op is replayed", async () => {
+      await sync(U1, [
+        {
+          entity: "payment",
+          op: "upsert",
+          id: PID4,
+          modifiedAt: 1,
+          payload: { amountCents: 7000, gigId: GID4 },
+        },
+      ]);
+      expect(await listAllocations(PID4)).toHaveLength(1);
+    });
   });
 });
