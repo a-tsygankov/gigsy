@@ -44,6 +44,36 @@ export async function requireTestAuth(
 }
 
 /**
+ * An access token for the shared dev user.
+ *
+ * For the two things a spec cannot honestly do through the UI: reading
+ * a server-computed total it is about to assert a CHANGE in (the
+ * dashboard's own tiles are the thing under test, so they cannot also
+ * be the baseline), and putting shared state into a known shape before
+ * a projection is asserted against it.
+ *
+ * Throws rather than returning null: every caller is inside a spec that
+ * has already been through `requireTestAuth`, so a failure here is a
+ * broken stack, not a deployment without test auth — and a silent null
+ * would turn into an assertion that quietly measured nothing.
+ */
+export async function devAccessToken(
+  request: APIRequestContext,
+  baseURL: string,
+): Promise<string> {
+  const login = await request.post(`${baseURL}/api/auth/test-login`, {
+    data: { email: "dev@test.local" },
+  });
+  if (!login.ok()) {
+    throw new Error(
+      `test-login failed at ${baseURL} (${login.status()}) — the spec needs ` +
+        "a worker running with ENVIRONMENT=development.",
+    );
+  }
+  return ((await login.json()) as { accessToken: string }).accessToken;
+}
+
+/**
  * Put the shared dev user's saved gig-list view back to defaults.
  *
  * The view is persisted server-side, so a test that leaves a status

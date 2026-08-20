@@ -1,5 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
-import { requireTestAuth } from "./helpers/test-auth.ts";
+import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { devAccessToken, requireTestAuth } from "./helpers/test-auth.ts";
 import { dateTimeField } from "./helpers/datetime-field.ts";
 
 /**
@@ -167,4 +167,214 @@ test("turning the link off stops it immediately", async ({ page, browser }) => {
     "isn't active",
   );
   await anon.close();
+});
+
+/* ── A cancelled gig gives its time back ─────────────────────────────
+ *
+ * `cancelled` is not a stage the work passes through — it is the job
+ * falling over. The gig's record survives (see money.spec.ts for that
+ * half, and for the money leaving the dashboard at the same moment),
+ * but it stops occupying anything: `BUSY_STATUSES` in
+ * backend/src/services/availability.ts is `confirmed | completed` and
+ * deliberately not this.
+ *
+ * That rule is only visible from OUTSIDE. The owner's own list shows a
+ * cancelled gig struck through; the agency reading the share link sees
+ * free time or does not, and getting it wrong means the user turns
+ * down work for a job that fell through weeks ago.
+ *
+ * Everything this reasons about is pinned rather than assumed. The
+ * shared dev user's availability settings are whatever the last spec
+ * or help scenario left behind, and a working week that shifted
+ * underneath would turn this into a test that passes because the day
+ * was never offered in the first place.
+ */
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+/** A gig as the server hands it back, in the fields a write has to
+ *  send straight back unchanged. */
+interface SeededGig {
+  id: string;
+  status: string;
+  dateTime: number | null;
+  durationMinutes: number | null;
+  payType: "fixed" | "hourly";
+  hourlyRateCents: number | null;
+  amountOfferedCents: number | null;
+  amountPaidCents: number | null;
+  clientId: string | null;
+  title: string | null;
+  location: string | null;
+  notes: string | null;
+  workStartedAt: number | null;
+  workEndedAt: number | null;
+  breakMinutes: number | null;
+}
+
+function authHeaders(token: string): Record<string, string> {
+  return { authorization: `Bearer ${token}` };
+}
+
+/** Everything the projection depends on, set to the documented
+ *  defaults so the arithmetic below is the arithmetic that runs. */
+async function pinAvailabilitySettings(
+  request: APIRequestContext,
+  baseURL: string,
+  token: string,
+): Promise<void> {
+  const nineToFive = { startMinute: 9 * 60, endMinute: 17 * 60 };
+  const res = await request.patch(`${baseURL}/api/settings`, {
+    headers: authHeaders(token),
+    data: {
+      availabilityTimeZone: "UTC",
+      // Sunday first, matching Date#getDay.
+      availabilityWorkingWeek: [
+        null,
+        nineToFive,
+        nineToFive,
+        nineToFive,
+        nineToFive,
+        nineToFive,
+        null,
+      ],
+      availabilityHorizonWeeks: 4,
+      availabilityMinSlotMinutes: 60,
+      // Google's freebusy would otherwise put blocks in this window
+      // that no amount of cancelling could remove.
+      availabilityUseCalendar: false,
+    },
+  });
+  expect(res.ok()).toBe(true);
+}
+
+/**
+ * 09:00 UTC on a Wednesday, eight to fourteen days out.
+ *
+ * Comfortably inside the four-week horizon, never today (whose
+ * remaining hours depend on when the suite runs), and always a working
+ * day — the day has to be OFFERED before a gig taking it away proves
+ * anything.
+ */
+function nextWednesdayAt9(now: number): number {
+  const at = new Date(now + 8 * DAY_MS);
+  at.setUTCHours(9, 0, 0, 0);
+  while (at.getUTCDay() !== 3) at.setUTCDate(at.getUTCDate() + 1);
+  return at.getTime();
+}
+
+/**
+ * Cancel anything already holding the target day.
+ *
+ * A run that died between seeding and cancelling would leave a
+ * confirmed gig sitting on that Wednesday forever, and every later run
+ * would fail at the last assertion for a reason that has nothing to do
+ * with the behaviour. Written as a full-record round trip because
+ * `PUT /api/gigs/:id` REPLACES — sending `{status}` alone would blank
+ * the rest of whatever it found.
+ */
+async function releaseDay(
+  request: APIRequestContext,
+  baseURL: string,
+  token: string,
+  dayStart: number,
+): Promise<void> {
+  const res = await request.get(`${baseURL}/api/gigs`, { headers: authHeaders(token) });
+  expect(res.ok()).toBe(true);
+  const { items } = (await res.json()) as { items: SeededGig[] };
+  for (const gig of items) {
+    const busy = gig.status === "confirmed" || gig.status === "completed";
+    const onDay =
+      gig.dateTime !== null &&
+      gig.dateTime >= dayStart &&
+      gig.dateTime < dayStart + DAY_MS;
+    if (!busy || !onDay) continue;
+    const put = await request.put(`${baseURL}/api/gigs/${gig.id}`, {
+      headers: authHeaders(token),
+      data: {
+        clientId: gig.clientId,
+        title: gig.title,
+        status: "cancelled",
+        location: gig.location,
+        dateTime: gig.dateTime,
+        durationMinutes: gig.durationMinutes,
+        payType: gig.payType,
+        hourlyRateCents: gig.hourlyRateCents,
+        workStartedAt: gig.workStartedAt,
+        workEndedAt: gig.workEndedAt,
+        breakMinutes: gig.breakMinutes,
+        amountOfferedCents: gig.amountOfferedCents,
+        amountPaidCents: gig.amountPaidCents,
+        notes: gig.notes,
+      },
+    });
+    expect(put.ok()).toBe(true);
+  }
+}
+
+test("cancelling a gig hands its time back to the public page", async ({
+  page,
+  browser,
+  request,
+  baseURL,
+}) => {
+  const token = await devAccessToken(request, baseURL!);
+  await pinAvailabilitySettings(request, baseURL!, token);
+
+  const start = nextWednesdayAt9(Date.now());
+  const dayStart = start - 9 * HOUR_MS;
+  // The owner's zone is UTC, pinned above, so the calendar date and the
+  // instant agree — which is the whole reason `data-day-key` can be
+  // read as a date at all.
+  const dayKey = new Date(dayStart).toISOString().slice(0, 10);
+  await releaseDay(request, baseURL!, token, dayStart);
+
+  // 09:00 to 17:00 is the entire working day, so any free time left on
+  // it is time this gig failed to block — no need to reason about
+  // which fragment survived.
+  const gigId = crypto.randomUUID();
+  const shift = {
+    title: `availability-cancel-${Date.now()}`,
+    dateTime: start,
+    durationMinutes: 8 * 60,
+    payType: "fixed" as const,
+    amountOfferedCents: 25_000,
+  };
+  const seed = await request.put(`${baseURL!}/api/gigs/${gigId}`, {
+    headers: authHeaders(token),
+    data: { ...shift, status: "confirmed" },
+  });
+  expect(seed.ok()).toBe(true);
+
+  const url = await mintLink(page);
+  const dayCard = (target: Page) => target.locator(`[data-day-key="${dayKey}"]`);
+
+  const booked = await browser.newContext();
+  const bookedPage = await booked.newPage();
+  await bookedPage.goto(url);
+  await expect(bookedPage.getByTestId("availability-title")).toBeVisible();
+  // Other days ARE on the page, so the absence below is about this day
+  // rather than about a list that never rendered.
+  await expect(bookedPage.getByTestId("availability-day").first()).toBeVisible();
+  await expect(dayCard(bookedPage)).toHaveCount(0);
+  await booked.close();
+
+  // The job falls through.
+  const cancelled = await request.put(`${baseURL!}/api/gigs/${gigId}`, {
+    headers: authHeaders(token),
+    data: { ...shift, status: "cancelled" },
+  });
+  expect(cancelled.ok()).toBe(true);
+
+  // A fresh context, not a reload: someone who has never opened this
+  // link is the only reader the feature has.
+  const freed = await browser.newContext();
+  const freedPage = await freed.newPage();
+  await freedPage.goto(url);
+  await expect(freedPage.getByTestId("availability-title")).toBeVisible();
+  await expect(dayCard(freedPage)).toHaveCount(1);
+  // The whole working day, back in one piece.
+  await expect(dayCard(freedPage).getByTestId("availability-slot")).toHaveCount(1);
+  await freed.close();
 });

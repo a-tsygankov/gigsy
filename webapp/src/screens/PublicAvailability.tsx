@@ -166,6 +166,16 @@ export function PublicAvailability() {
           {days.map((day) => (
             <li
               key={day.key}
+              data-testid="availability-day"
+              // The heading beside it is written for a person and in the
+              // reader's locale — "Wednesday, 9 September" here, "mercredi
+              // 9 septembre" there — so it is not something a test can
+              // pin a date on. `day.key` is the same instant as an
+              // identity: YYYY-MM-DD in the OWNER's zone, which is the
+              // zone every time on this page is in. Same trick, and the
+              // same reason, as `data-value` on DateTimeField's trigger
+              // and `data-day-iso` on the calendar.
+              data-day-key={day.key}
               className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
             >
               <h2 className="flex items-baseline justify-between gap-3">
