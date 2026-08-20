@@ -13,11 +13,24 @@
  * — and each one has to send the entire gig with one field changed.
  * This is that entire gig, so no call site has to remember the list.
  *
- * Two fields are deliberately absent:
+ * Three fields are deliberately absent:
  *
  *   - `expectedCents` is server-owned and derived (migration 0014).
  *     `GigInput` has no such key, and GigsRepo.upsert recomputes it on
  *     every write.
+ *   - `amountPaidCents` joined it in Phase 4 (payment allocations): the
+ *     backend's `GigInput` has no such key either as of the code review
+ *     that closed C2, and GigsRepo.upsert now leaves the column alone
+ *     rather than writing whatever a caller sends — it is the sum of
+ *     payment_allocations rows, recomputed by services/paid-totals.ts.
+ *     The webapp's OWN `GigInput` type still nominally carries the key
+ *     — GigEdit.tsx's "Paid ($)" field still writes it, pending Phase 4
+ *     Task 7 removing that field now that the value is derived rather
+ *     than entered — but this reconstruction helper has no business
+ *     re-asserting a device's last-known figure as if it were a fresh
+ *     edit every time a work-card tap rebuilds the base to patch onto.
+ *     local-store.ts's `putGig` also no longer reads this key from its
+ *     `input`, for the same reason from the other side.
  *   - `source` records where a gig came from. local-store carries the
  *     existing row's value forward when the input omits it
  *     (`input.source ?? existing?.source ?? "manual"`), so omitting it
@@ -42,10 +55,10 @@ import type { Gig, GigInput } from "./types.ts";
  * form's save, so it gets the same guard — add a field to `GigInput`
  * and this stops compiling.
  *
- * `source` is the one exclusion, and it is deliberate rather than an
- * omission — see the note above.
+ * `source` and `amountPaidCents` are the two exclusions, and both are
+ * deliberate rather than an omission — see the note above.
  */
-export type FullGigInput = Required<Omit<GigInput, "source">>;
+export type FullGigInput = Required<Omit<GigInput, "source" | "amountPaidCents">>;
 
 export function gigToInput(gig: Gig): FullGigInput {
   return {
@@ -61,7 +74,6 @@ export function gigToInput(gig: Gig): FullGigInput {
     workEndedAt: gig.workEndedAt,
     breakMinutes: gig.breakMinutes,
     amountOfferedCents: gig.amountOfferedCents,
-    amountPaidCents: gig.amountPaidCents,
     notes: gig.notes,
   };
 }

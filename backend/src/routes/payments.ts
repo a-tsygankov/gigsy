@@ -4,10 +4,9 @@ import type { Bindings } from "../env.ts";
 import { requireAuth, type AuthVars } from "../middleware/auth.ts";
 import { PaymentInput, entityId } from "../domain/schemas.ts";
 import { PaymentsRepo } from "../repos/payments.ts";
-import { GigsRepo, type GigRecord } from "../repos/gigs.ts";
-import { ClientsRepo } from "../repos/clients.ts";
 import { AllocationsRepo } from "../repos/allocations.ts";
 import { recomputePaidTotals } from "../services/paid-totals.ts";
+import { checkPaymentWrite } from "../services/payment-invariants.ts";
 
 /** R2 key for a payment's confirmation object — user-prefixed so a
  * key can never point into another user's space. */
@@ -50,88 +49,14 @@ export const paymentsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars
     const paymentsRepo = PaymentsRepo.for(c.env.DB);
     const allocationsRepo = AllocationsRepo.for(c.env.DB);
 
-    let gig: GigRecord | null = null;
-    if (input.gigId != null) {
-      gig = await GigsRepo.for(c.env.DB).get(userId, input.gigId);
-      if (gig === null) {
-        return c.json({ error: "gigId does not reference your gig" }, 400);
-      }
-    }
-    if (
-      input.clientId != null &&
-      (await ClientsRepo.for(c.env.DB).get(userId, input.clientId)) === null
-    ) {
-      return c.json({ error: "clientId does not reference your client" }, 400);
-    }
-
-    const existing = await paymentsRepo.get(userId, id);
-
-    // The client rule applies here exactly as it does in
-    // routes/allocations.ts: once the payment names a client — either
-    // in this request, or already stored and left untouched because
-    // `clientId` is absent from the payload — the gig the legacy
-    // compat path below is about to allocate to must belong to that
-    // client. Checked before any write, so a rejection here leaves
-    // nothing half-changed.
-    if (input.gigId != null) {
-      const effectiveClientId =
-        input.clientId !== undefined ? input.clientId : (existing?.clientId ?? null);
-      if (effectiveClientId != null && gig!.clientId !== effectiveClientId) {
-        return c.json({ error: "gigId does not reference the payment's client" }, 400);
-      }
-    }
-
-    // Shrinking a payment below what is already allocated to it would
-    // leave those allocations over-claiming money the payment no
-    // longer has — the same invariant routes/allocations.ts enforces
-    // from the other direction. Skipped when this request also carries
-    // a gigId: the compat path below replaces every existing
-    // allocation with a single one sized to the new amountCents, so
-    // there is nothing stale left for this check to catch.
-    if (input.gigId == null) {
-      const currentAllocations = await allocationsRepo.listByPayment(userId, id);
-      const allocatedCents = currentAllocations.reduce((sum, a) => sum + a.amountCents, 0);
-      if (allocatedCents > input.amountCents) {
-        return c.json(
-          { error: "amountCents is less than the payment's allocated total" },
-          400,
-        );
-      }
-    }
-
-    // Changing which client a payment came from, while it already has
-    // allocations against gigs belonging to a *different* client, would
-    // leave those allocations stale — pointing at gigs the payment's
-    // new client rule says they shouldn't. Rather than silently
-    // cascading a delete through someone's money records, this rejects
-    // the clientId change outright; the caller has to clear the
-    // conflicting allocations first. Narrowing to null is always safe
-    // (a null-client payment allocates freely), so only a change to a
-    // *different, non-null* client is checked.
-    if (
-      input.clientId !== undefined &&
-      input.clientId != null &&
-      existing !== null &&
-      existing.clientId !== input.clientId
-    ) {
-      const currentAllocations = await allocationsRepo.listByPayment(userId, id);
-      const allocatedGigIds = [...new Set(currentAllocations.map((a) => a.gigId))];
-      const allocatedGigs = await Promise.all(
-        allocatedGigIds.map((gigId) => GigsRepo.for(c.env.DB).get(userId, gigId)),
-      );
-      const conflicts = allocatedGigs.some(
-        (g) => g === null || g.clientId !== input.clientId,
-      );
-      if (conflicts) {
-        return c.json(
-          {
-            error:
-              "clientId does not match one or more gigs this payment is already allocated to",
-          },
-          400,
-        );
-      }
-    }
+    // Ownership of gigId/clientId, the client rule on the compat path
+    // (I3), the shrink-below-allocated refusal (I4), and the
+    // clientId-change conflict refusal (I5) — see
+    // services/payment-invariants.ts. Shared with services/sync.ts's
+    // "payment" case so the two doors can't diverge on what they
+    // enforce or on the message they enforce it with.
+    const check = await checkPaymentWrite(c.env.DB, userId, id, input);
+    if (!check.ok) return c.json({ error: check.message }, 400);
 
     const result = await paymentsRepo.upsert(
       userId,

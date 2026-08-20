@@ -13,7 +13,14 @@ export type GigRecord = typeof gigs.$inferSelect;
 // expectedCents is absent for the same reason, and upsert() derives it
 // below: it is what every money total sums (migration 0014), so a
 // caller — including an offline client posting to /api/sync — must not
-// be able to name it.
+// be able to name it. amountPaidCents joined them in Phase 4: it is
+// the sum of payment_allocations rows for the gig, recomputed by
+// services/paid-totals.ts whenever an allocation changes, and this
+// upsert leaving the key out of `data` entirely (rather than setting
+// it from a caller-supplied value) is what makes an ordinary gig edit
+// — a status change, a location fix — leave whatever total the last
+// recompute wrote untouched instead of overwriting it with something
+// nobody derived.
 export interface GigData {
   clientId: string | null;
   title: string | null;
@@ -27,7 +34,6 @@ export interface GigData {
   workEndedAt: number | null;
   breakMinutes: number | null;
   amountOfferedCents: number | null;
-  amountPaidCents: number | null;
   notes: string | null;
   source: string | null;
 }
