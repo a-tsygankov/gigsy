@@ -171,6 +171,15 @@ availability and reports.
 
 ## Phase 4 — Payments across multiple gigs (migration `0016`)
 
+Scope grew after the phases above shipped. Three requirements, decided
+2026-08-19:
+
+| Question | Decision |
+|---|---|
+| A photographed receipt | Becomes a `payment` **draft**, reviewed before it is real — the same gate that already protects gigs and expenses |
+| Attaching a photo offline | The payment saves through the outbox; the image queues locally and uploads when the connection returns |
+| Which gigs a payment may cover | A payment names one **client**, and the split offers only that client's gigs |
+
 New table:
 
 ```
@@ -189,6 +198,33 @@ and `payment` cases do today.
 translates it into a single allocation, so a client that was offline
 across the upgrade does not lose data when its outbox drains. The field
 is removed only after a release in which no client sends it.
+
+**A payment belongs to a client.** `payments` gains a nullable
+`client_id`, backfilled from the gig its `gig_id` pointed at. The split
+UI offers that client's gigs and nothing else, and the server rejects an
+allocation whose gig belongs to someone else — a mis-allocation is
+caught at entry rather than found later in a total that does not
+reconcile. Null stays legal: a payment recorded before you know who it
+is from is better than no payment.
+
+**A receipt is a draft, not a payment.** `ExtractedData.kind` gains
+`payment`, and `DraftReview` learns to commit one. The photo the draft
+already stored in R2 becomes that payment's confirmation image rather
+than being uploaded a second time — the receipt *is* the proof, and
+copying it server-side keeps the client from re-sending bytes it
+already sent. Capture's single button becomes "Capture gig or receipt";
+the pipeline behind it is unchanged.
+
+**A photo can be attached as the payment is created.** Today the screen
+saves first and navigates to the record, because the R2 key is
+server-owned and the upload endpoint needs a real payment id. That
+sequencing stays, but it becomes invisible: the file is chosen before
+save, and uploaded once the record exists. Offline, the payment queues
+in the outbox as it always has and the image queues beside it in its
+own IndexedDB store, drained by the sync engine when the connection
+returns. Until it lands the payment must show that its photo is pending
+— a record that looks like it has proof when it does not is worse than
+one that admits it is waiting.
 
 **Derived paid amounts.** `gigs.amountPaidCents` stops being
 hand-entered and becomes `SUM(allocations)`. The column stays, written
