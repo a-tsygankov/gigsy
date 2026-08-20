@@ -123,7 +123,33 @@ describe("SyncEngine.drain", () => {
     expect(gig?.location).toBe("server copy");
   });
 
-  it("on error result: drops the poison op, keeps the local record", async () => {
+  it("on error result for an upsert: drops the poison op and adopts the server copy", async () => {
+    // I3 (code review, 2026-08-19): a rejected write used to be dropped
+    // silently, leaving the device holding the edit the server just
+    // refused — diverged from the server's truth with no signal and no
+    // way back short of a fresh edit. This is the same recovery
+    // `skipped` already gets: adopt what the server actually holds.
+    const api = stubApi({
+      sync: vi.fn(async () => ({
+        results: [{ id: G1, status: "error" as const, reason: "invalid" }],
+      })),
+    });
+    const { store, engine } = makeEngine(api);
+    await store.putGig(G1, { status: "lead", location: "local edit" });
+
+    await engine.drain();
+
+    expect(await store.pendingCount()).toBe(0);
+    expect(api.getGig).toHaveBeenCalledWith(G1);
+    const gig = await store.getGig(G1);
+    expect(gig).not.toBeNull();
+    expect(gig?.location).toBe("server copy");
+  });
+
+  it("on error result for a delete: drops the poison op without fetching a server copy", async () => {
+    // There is no upload to revert on a rejected delete, and the row
+    // this device wants gone may not even exist server-side to fetch
+    // back — refreshFromServer is only for upserts.
     const api = stubApi({
       sync: vi.fn(async () => ({
         results: [{ id: G1, status: "error" as const, reason: "invalid" }],
@@ -131,11 +157,13 @@ describe("SyncEngine.drain", () => {
     });
     const { store, engine } = makeEngine(api);
     await store.putGig(G1, { status: "lead" });
+    for (const op of await store.pendingOps()) await store.deleteOp(op.opKey);
+    await store.removeGig(G1);
 
     await engine.drain();
 
     expect(await store.pendingCount()).toBe(0);
-    expect(await store.getGig(G1)).not.toBeNull();
+    expect(api.getGig).not.toHaveBeenCalled();
   });
 
   it("keeps ops untouched when the network fails", async () => {

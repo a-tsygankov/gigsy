@@ -297,6 +297,30 @@ describe("POST /api/sync", () => {
     expect(gig.breakMinutes).toBe(30);
   });
 
+  // C2 (code review, 2026-08-19): amountPaidCents is server-derived
+  // (services/paid-totals.ts) since Phase 4's payment allocations.
+  // GigInput has no such key, so a sync "gig" op that still sends one
+  // has it silently dropped, same as the direct route
+  // (gigs-routes.test.ts's "ignores a client-supplied amountPaidCents").
+  it("ignores a client-supplied amountPaidCents on a gig sync op", async () => {
+    const GID3 = "cccccccc-1111-4111-8111-cccccccccccc";
+    const body = await sync(U1, [
+      {
+        entity: "gig",
+        op: "upsert",
+        id: GID3,
+        modifiedAt: 1,
+        payload: { status: "completed", amountPaidCents: 999_999 },
+      },
+    ]);
+    expect(body.results[0]?.status).toBe("applied");
+
+    const gig = (await (await api(U1, "GET", `/api/gigs/${GID3}`)).json()) as {
+      amountPaidCents: number | null;
+    };
+    expect(gig.amountPaidCents).toBeNull();
+  });
+
   it("400s on a malformed batch", async () => {
     const res = await api(U1, "POST", "/api/sync", { ops: [{ entity: "cat" }] });
     expect(res.status).toBe(400);
@@ -458,6 +482,199 @@ describe("POST /api/sync", () => {
         },
       ]);
       expect(await listAllocations(PID4)).toHaveLength(1);
+    });
+  });
+
+  // Code review on Task 4 (2026-08-19): services/payment-invariants.ts
+  // is what routes/allocations.ts and routes/payments.ts already had
+  // their own tests for, but the sync path — the door this task adds —
+  // had none of its own for these six things, despite sharing the same
+  // checks. A gap in the shared module is a gap at both doors; a test
+  // at only one door would not have caught it.
+  describe("payment and allocation invariants, carried into sync", () => {
+    const CLIENT_A = "60000000-0000-4000-8000-00000000000a";
+    const CLIENT_B = "60000000-0000-4000-8000-00000000000b";
+    const GIG_A = "61111111-1111-4111-8111-111111111111";
+    const GIG_B = "62222222-2222-4222-8222-222222222222";
+
+    beforeAll(async () => {
+      await sync(U1, [
+        { entity: "client", op: "upsert", id: CLIENT_A, modifiedAt: 1, payload: { name: "A" } },
+        { entity: "client", op: "upsert", id: CLIENT_B, modifiedAt: 1, payload: { name: "B" } },
+        {
+          entity: "gig", op: "upsert", id: GIG_A, modifiedAt: 1,
+          payload: { clientId: CLIENT_A, status: "completed" },
+        },
+        {
+          entity: "gig", op: "upsert", id: GIG_B, modifiedAt: 1,
+          payload: { clientId: CLIENT_B, status: "completed" },
+        },
+      ]);
+    });
+
+    it("over-allocation: rejects a split that would push the total past the payment", async () => {
+      const PID = "63000000-0000-4000-8000-0000000000a1";
+      await sync(U1, [
+        { entity: "payment", op: "upsert", id: PID, modifiedAt: 1, payload: { amountCents: 10000 } },
+        {
+          entity: "allocation", op: "upsert", id: "63000000-0000-4000-8000-0000000000a2",
+          modifiedAt: 1, payload: { paymentId: PID, gigId: GIG_A, amountCents: 6000 },
+        },
+      ]);
+      const res = await api(U1, "POST", "/api/sync", {
+        ops: [
+          {
+            entity: "allocation", op: "upsert", id: "63000000-0000-4000-8000-0000000000a3",
+            modifiedAt: 1, payload: { paymentId: PID, gigId: GIG_A, amountCents: 5000 },
+          },
+        ],
+      });
+      const body = (await res.json()) as SyncResponse;
+      expect(body.results[0]?.status).toBe("error");
+      expect(body.results[0]?.reason).toMatch(/allocations exceed the payment/);
+    });
+
+    it("the client rule: rejects an allocation to a gig outside the payment's client", async () => {
+      const PID = "63000000-0000-4000-8000-0000000000b1";
+      await sync(U1, [
+        {
+          entity: "payment", op: "upsert", id: PID, modifiedAt: 1,
+          payload: { amountCents: 10000, clientId: CLIENT_A },
+        },
+      ]);
+      const res = await api(U1, "POST", "/api/sync", {
+        ops: [
+          {
+            entity: "allocation", op: "upsert", id: "63000000-0000-4000-8000-0000000000b2",
+            modifiedAt: 1, payload: { paymentId: PID, gigId: GIG_B, amountCents: 1000 },
+          },
+        ],
+      });
+      const body = (await res.json()) as SyncResponse;
+      expect(body.results[0]?.status).toBe("error");
+      expect(body.results[0]?.reason).toBe("gigId does not reference the payment's client");
+    });
+
+    it("I4: refuses to shrink a payment below what is already allocated to it", async () => {
+      const PID = "63000000-0000-4000-8000-0000000000c1";
+      await sync(U1, [
+        { entity: "payment", op: "upsert", id: PID, modifiedAt: 1, payload: { amountCents: 10000 } },
+        {
+          entity: "allocation", op: "upsert", id: "63000000-0000-4000-8000-0000000000c2",
+          modifiedAt: 1, payload: { paymentId: PID, gigId: GIG_A, amountCents: 6000 },
+        },
+      ]);
+      const res = await api(U1, "POST", "/api/sync", {
+        ops: [
+          { entity: "payment", op: "upsert", id: PID, modifiedAt: 2, payload: { amountCents: 5000 } },
+        ],
+      });
+      const body = (await res.json()) as SyncResponse;
+      expect(body.results[0]?.status).toBe("error");
+      expect(body.results[0]?.reason).toMatch(
+        /amountCents is less than the payment's allocated total/,
+      );
+    });
+
+    it("I5: refuses a clientId change that would strand allocations on another client's gigs", async () => {
+      const PID = "63000000-0000-4000-8000-0000000000d1";
+      await sync(U1, [
+        {
+          entity: "payment", op: "upsert", id: PID, modifiedAt: 1,
+          payload: { amountCents: 10000, clientId: CLIENT_A },
+        },
+        {
+          entity: "allocation", op: "upsert", id: "63000000-0000-4000-8000-0000000000d2",
+          modifiedAt: 1, payload: { paymentId: PID, gigId: GIG_A, amountCents: 4000 },
+        },
+      ]);
+      const res = await api(U1, "POST", "/api/sync", {
+        ops: [
+          {
+            entity: "payment", op: "upsert", id: PID, modifiedAt: 2,
+            payload: { amountCents: 10000, clientId: CLIENT_B },
+          },
+        ],
+      });
+      const body = (await res.json()) as SyncResponse;
+      expect(body.results[0]?.status).toBe("error");
+      expect(body.results[0]?.reason).toMatch(
+        /clientId does not match one or more gigs this payment is already allocated to/,
+      );
+    });
+
+    it("staleness: an older allocation op is skipped rather than applied", async () => {
+      const PID = "63000000-0000-4000-8000-0000000000e1";
+      const AID = "63000000-0000-4000-8000-0000000000e2";
+      await sync(U1, [
+        { entity: "payment", op: "upsert", id: PID, modifiedAt: 1, payload: { amountCents: 10000 } },
+        {
+          entity: "allocation", op: "upsert", id: AID, modifiedAt: 100,
+          payload: { paymentId: PID, gigId: GIG_A, amountCents: 3000 },
+        },
+      ]);
+      const res = await api(U1, "POST", "/api/sync", {
+        ops: [
+          {
+            entity: "allocation", op: "upsert", id: AID, modifiedAt: 50,
+            payload: { paymentId: PID, gigId: GIG_A, amountCents: 9000 },
+          },
+        ],
+      });
+      const body = (await res.json()) as SyncResponse;
+      expect(body.results[0]?.status).toBe("skipped");
+      const allocation = (await (
+        await api(U1, "GET", `/api/allocations/${AID}`)
+      ).json()) as { amountCents: number };
+      expect(allocation.amountCents).toBe(3000);
+    });
+
+    // C1 (code review, 2026-08-19): the actual regression test for the
+    // bug this whole review round exists for. The old gig must clear
+    // even though it isn't the gig THIS op names, because the row that
+    // used to hold its allocation just moved to a different payment,
+    // not just a different gig.
+    it("C1: moving an allocation to a different payment AND gig recomputes the gig it left", async () => {
+      const GIG_FROM = "64000000-0000-4000-8000-000000000001";
+      const GIG_TO = "64000000-0000-4000-8000-000000000002";
+      const PID_FROM = "64000000-0000-4000-8000-000000000003";
+      const PID_TO = "64000000-0000-4000-8000-000000000004";
+      const AID = "64000000-0000-4000-8000-000000000005";
+      await sync(U1, [
+        { entity: "gig", op: "upsert", id: GIG_FROM, modifiedAt: 1, payload: { status: "completed" } },
+        { entity: "gig", op: "upsert", id: GIG_TO, modifiedAt: 1, payload: { status: "completed" } },
+        { entity: "payment", op: "upsert", id: PID_FROM, modifiedAt: 1, payload: { amountCents: 5000 } },
+        { entity: "payment", op: "upsert", id: PID_TO, modifiedAt: 1, payload: { amountCents: 5000 } },
+        {
+          entity: "allocation", op: "upsert", id: AID, modifiedAt: 1,
+          payload: { paymentId: PID_FROM, gigId: GIG_FROM, amountCents: 3000 },
+        },
+      ]);
+
+      const getGig = async (id: string) =>
+        (await (await api(U1, "GET", `/api/gigs/${id}`)).json()) as {
+          amountPaidCents: number | null;
+        };
+      expect((await getGig(GIG_FROM)).amountPaidCents).toBe(3000);
+      expect((await getGig(GIG_TO)).amountPaidCents).toBeNull();
+
+      // Same allocation id; both paymentId AND gigId change in one op.
+      const body = await sync(U1, [
+        {
+          entity: "allocation", op: "upsert", id: AID, modifiedAt: 2,
+          payload: { paymentId: PID_TO, gigId: GIG_TO, amountCents: 3000 },
+        },
+      ]);
+      expect(body.results[0]?.status).toBe("applied");
+
+      // The bug: deriving "which gig to recompute" from the list of
+      // allocations already on the NEW payment — always empty for a
+      // row that just arrived from somewhere else — instead of from
+      // the allocation's own row as it stood before the write. Without
+      // the fix, GIG_FROM keeps reporting 3000 paid with no allocation
+      // left to back it, and the 3000 is double-counted against GIG_TO.
+      expect((await getGig(GIG_FROM)).amountPaidCents).toBeNull();
+      expect((await getGig(GIG_TO)).amountPaidCents).toBe(3000);
     });
   });
 });

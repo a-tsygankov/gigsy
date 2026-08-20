@@ -15,6 +15,14 @@ const G4 = "34444444-4444-4444-8444-444444444444";
 const E1 = "41111111-1111-4111-8111-111111111111";
 const E2 = "42222222-2222-4222-8222-222222222222";
 const S1 = "51111111-1111-4111-8111-111111111111";
+// C2 (code review, 2026-08-19): gigs.amountPaidCents is derived from
+// payment allocations now (Phase 4) and can no longer be set directly
+// on the gig — these seed it the same way a real client would, through
+// a payment naming its gig (the legacy compat path, routes/payments.ts),
+// which produces exactly one allocation for the full amount.
+const PAY_G1 = "81111111-1111-4111-8111-111111111111";
+const PAY_G2 = "82222222-2222-4222-8222-222222222222";
+const PAY_G4 = "83333333-3333-4333-8333-333333333333";
 
 const SEP = Date.UTC(2026, 8, 10, 12); // 2026-09
 const OCT = Date.UTC(2026, 9, 5, 12); // 2026-10
@@ -67,8 +75,8 @@ beforeAll(async () => {
     status: "completed",
     dateTime: SEP,
     amountOfferedCents: 10000,
-    amountPaidCents: 8000,
   });
+  await api(U1, "PUT", `/api/payments/${PAY_G1}`, { amountCents: 8000, gigId: G1 });
   await api(U1, "PUT", `/api/expenses/${E1}`, { gigId: G1, amountCents: 2000 });
   // …plus an additional service on that gig: 3000 offered / 1000 paid.
   // Service money is income and follows its gig's month and client.
@@ -85,8 +93,8 @@ beforeAll(async () => {
     status: "completed",
     dateTime: OCT,
     amountOfferedCents: 20000,
-    amountPaidCents: 20000,
   });
+  await api(U1, "PUT", `/api/payments/${PAY_G2}`, { amountCents: 20000, gigId: G2 });
   await api(U1, "PUT", `/api/gigs/${G3}`, {
     clientId: BRAVO,
     status: "completed",
@@ -98,8 +106,8 @@ beforeAll(async () => {
     status: "completed",
     dateTime: OCT,
     amountOfferedCents: 1000,
-    amountPaidCents: 1000,
   });
+  await api(U1, "PUT", `/api/payments/${PAY_G4}`, { amountCents: 1000, gigId: G4 });
 });
 
 describe("GET /api/reports/summary", () => {
@@ -229,12 +237,18 @@ describe("GET /api/reports/summary", () => {
     const CANCELLED = "35555555-5555-4555-8555-555555555555";
     const CANCELLED_SVC = "36666666-6666-4666-8666-666666666666";
     const CANCELLED_EXP = "37777777-7777-4777-8777-777777777777";
+    const PAY_CANCELLED = "84444444-4444-4444-8444-444444444444";
 
     await api(U1, "PUT", `/api/gigs/${CANCELLED}`, {
       status: "cancelled",
       dateTime: OCT,
       amountOfferedCents: 999_999,
-      amountPaidCents: 999_999,
+    });
+    // C2: amountPaidCents is derived — seed it through a payment, same
+    // as beforeAll above.
+    await api(U1, "PUT", `/api/payments/${PAY_CANCELLED}`, {
+      amountCents: 999_999,
+      gigId: CANCELLED,
     });
     await api(U1, "PUT", `/api/services/${CANCELLED_SVC}`, {
       gigId: CANCELLED,
@@ -336,8 +350,11 @@ describe("owedCents", () => {
       status: "completed",
       dateTime: OCT,
       amountOfferedCents: 1000,
-      amountPaidCents: 9000,
     });
+    // C2: amountPaidCents is derived — seed it through a payment, same
+    // as beforeAll above.
+    const PAY_GD = "85555555-5555-4555-8555-555555555555";
+    await api(U1, "PUT", `/api/payments/${PAY_GD}`, { amountCents: 9000, gigId: GD });
 
     // Unclamped this would subtract 8000 from what other clients owe,
     // and a big enough tip would show zero outstanding while invoices

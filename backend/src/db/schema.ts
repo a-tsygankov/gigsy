@@ -187,11 +187,19 @@ export const payments = sqliteTable(
      * on purpose: a transfer recorded before you know who sent it is
      * better than no record at all. Backfilled once from the gig this
      * payment already pointed at; a payment's split now covers only
-     * this client's gigs, enforced in the database from both
-     * directions — routes/allocations.ts on every allocation write,
-     * and routes/payments.ts both on the gigId compat path and by
-     * refusing to change clientId out from under allocations that
-     * would no longer satisfy it.
+     * this client's gigs — checked in services/payment-invariants.ts
+     * (`checkAllocationWrite`, `checkPaymentWrite`), which every write
+     * path calls: routes/allocations.ts on every allocation write,
+     * routes/payments.ts both on the gigId compat path and by refusing
+     * to change clientId out from under allocations that would no
+     * longer satisfy it, and services/sync.ts's "allocation" and
+     * "payment" cases on the same terms for the offline outbox.
+     *
+     * NOT checked anywhere: moving a GIG to a different client while a
+     * payment of the ORIGINAL client still holds an allocation on it.
+     * Neither routes/gigs.ts nor sync.ts's "gig" case looks at existing
+     * allocations before writing clientId, so that move succeeds
+     * unchallenged — a known gap, not an oversight in the comment.
      *
      * repos/payments.ts's upsert preserves this field when a caller's
      * payload omits it rather than nulling it out — the currently
@@ -224,11 +232,13 @@ export const payments = sqliteTable(
  * Deliberately allowed: the allocations for a payment may sum to LESS
  * than the payment. A deposit can land before anyone knows which gigs
  * it covers, and refusing to record it until they do is how money stops
- * being recorded at all. More than the payment is rejected from both
- * directions: routes/allocations.ts checks the sum against the
- * payment's total on every allocation write, and routes/payments.ts
- * refuses to shrink a payment's amountCents below what is already
- * allocated to it.
+ * being recorded at all. More than the payment is rejected — checked in
+ * services/payment-invariants.ts, which routes/allocations.ts (the sum
+ * against the payment's total, on every allocation write),
+ * routes/payments.ts (refusing to shrink amountCents below what is
+ * already allocated), and services/sync.ts's "allocation" and "payment"
+ * cases (the same two, for the offline outbox) all call rather than
+ * each checking it their own way.
  */
 export const paymentAllocations = sqliteTable(
   "payment_allocations",

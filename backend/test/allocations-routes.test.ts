@@ -108,6 +108,32 @@ describe("allocation routes", () => {
     expect((await getGig(GIG_B)).amountPaidCents).toBe(10000);
   });
 
+  // C1 (code review, 2026-08-19): moving an allocation to a DIFFERENT
+  // payment used to leave the old gig stale, because "which gig did
+  // this move away from" was derived from the list of allocations
+  // already on the new payment — always empty for a row that just
+  // arrived from somewhere else — rather than from the row's own prior
+  // state. This is distinct from the legacy-gigId move test above,
+  // which never changes paymentId; this changes paymentId AND gigId in
+  // the same write, direct through PUT /api/allocations/:id.
+  it("moving an allocation to a different payment AND gig recomputes the gig it left", async () => {
+    const PAY_2 = "12121212-1212-4212-8212-121212121212";
+    await api(U1, "PUT", `/api/payments/${PAY_2}`, { amountCents: 10000 });
+    await api(U1, "PUT", `/api/allocations/${ALLOC_1}`, {
+      paymentId: PAY, gigId: GIG_A, amountCents: 3000,
+    });
+    expect((await getGig(GIG_A)).amountPaidCents).toBe(3000);
+    expect((await getGig(GIG_B)).amountPaidCents).toBeNull();
+
+    const res = await api(U1, "PUT", `/api/allocations/${ALLOC_1}`, {
+      paymentId: PAY_2, gigId: GIG_B, amountCents: 3000,
+    });
+    expect(res.status).toBe(200);
+
+    expect((await getGig(GIG_A)).amountPaidCents).toBeNull();
+    expect((await getGig(GIG_B)).amountPaidCents).toBe(3000);
+  });
+
   describe("the client rule", () => {
     beforeEach(async () => {
       await api(U1, "PUT", `/api/clients/${CLIENT_1}`, { name: "Client One" });

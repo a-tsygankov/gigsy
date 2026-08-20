@@ -26,7 +26,16 @@ export const GIG_SOURCES = ["manual", "email", "photo"] as const;
 
 // calendarEventId deliberately absent — server-owned calendar-sync
 // bookkeeping (like payments.confirmationR2Key); a client-supplied
-// value would wipe/forge the Google event link.
+// value would wipe/forge the Google event link. amountPaidCents is
+// absent for the same reason as of Phase 4 (payment allocations):
+// gigs.amountPaidCents is now the sum of payment_allocations rows for
+// the gig, recomputed by services/paid-totals.ts on every allocation
+// write. A client-supplied figure would be a number nobody derived
+// sitting in the one field every "how much has this gig been paid"
+// read trusts — GigsRepo.upsert has no such key to write, so a
+// payload that still sends one (routes/gigs.ts, services/sync.ts's
+// "gig" case) simply has it stripped at validation, same as
+// calendarEventId.
 export const GigInput = z
   .object({
     clientId: entityId.nullish(),
@@ -43,7 +52,6 @@ export const GigInput = z
     payType: z.enum(PAY_TYPES).default("fixed"),
     hourlyRateCents: positiveCents.nullish(),
     amountOfferedCents: positiveCents.nullish(),
-    amountPaidCents: positiveCents.nullish(),
     // What actually happened. Epoch ms, like every other timestamp.
     workStartedAt: z.number().int().nullish(),
     workEndedAt: z.number().int().nullish(),

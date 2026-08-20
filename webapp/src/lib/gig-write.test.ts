@@ -107,7 +107,6 @@ describe("commitGigPatch", () => {
       workEndedAt: null,
       breakMinutes: null,
       amountOfferedCents: null,
-      amountPaidCents: null,
       notes: "Booth 12",
     });
   });

@@ -51,7 +51,6 @@ export const gigsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }>(
         workEndedAt: input.workEndedAt ?? null,
         breakMinutes: input.breakMinutes ?? null,
         amountOfferedCents: input.amountOfferedCents ?? null,
-        amountPaidCents: input.amountPaidCents ?? null,
         notes: input.notes ?? null,
         source: input.source,
       },
