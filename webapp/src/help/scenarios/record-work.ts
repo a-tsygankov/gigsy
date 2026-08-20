@@ -124,7 +124,7 @@ export const recordWork: HelpScenario = {
       target: HelpTarget.GigPayments,
       title: "Payments",
       description:
-        "Where money you actually receive gets its own record — an amount, a date, a photo of the proof if you have one. Paid ($) on the Job form is the running total these add up to, and it's what the paid badge above and Reports' \"still owed\" figure actually read; adding a payment here doesn't update that total for you, so the two are worth keeping in step by hand.",
+        "Where money you actually receive against this gig gets its own record — an amount, a date, a photo of the proof if you have one, each entry itemised on its own. If you or a client ever need to check exactly what arrived and when, this is where to look.",
     },
   ],
 };
