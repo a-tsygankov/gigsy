@@ -106,7 +106,11 @@ Create `backend/migrations/0015_gig_status_cancelled.sql`:
 UPDATE gigs SET status = 'completed' WHERE status = 'paid';
 ```
 
-There is no CHECK constraint on the column — validation is Zod's job — so nothing else is needed here.
+**This is not a one-line UPDATE, and the earlier draft of this plan was wrong to say so.** It claimed there was no CHECK constraint and that validation was Zod's job. `0000_init.sql` in fact constrains `gigs.status` to the four original values, so an `UPDATE` alone leaves the table rejecting `cancelled` with `SQLITE_CONSTRAINT` the first time one is written.
+
+SQLite cannot alter a CHECK constraint, so the migration must rebuild the table: create `gigs_new` with the new constraint, `INSERT ... SELECT` with explicit column names and `CASE WHEN status = 'paid' THEN 'completed'`, drop the old table, rename, and recreate all four indexes.
+
+Treat that rebuild as the risky part of this phase. `payments`, `expenses`, `gig_services` and `payment_allocations` all hold foreign keys into `gigs`, so the drop-and-rename has to be safe with respect to them — check how D1 handles foreign-key enforcement during a migration rather than assuming, and verify afterwards that no reference was orphaned. Explicit column names in the `INSERT ... SELECT` are not stylistic: a positional copy silently misfiles data the day someone adds a column.
 
 - [ ] **Step 4: Apply and update the vocabulary**
 

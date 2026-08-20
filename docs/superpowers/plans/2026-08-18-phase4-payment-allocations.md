@@ -34,6 +34,14 @@ Depends on: Phase 3 (`isPaid`, `outstandingCents`).
 
 ---
 
+> **Scope grew on 2026-08-19.** Three requirements were added after
+> Phases 1–3 shipped: a payment names a **client** and its split offers
+> only that client's gigs; a photographed **receipt** becomes a payment
+> draft; and a photo can be attached **as the payment is created**,
+> queueing offline. Tasks 1, 3, 6 and 7 below carry the client column;
+> Tasks 9 and 10 at the end are the capture and photo work. Read the
+> spec's Phase 4 section before starting.
+
 ## Task 1: The table and the backfill
 
 **Files:**
@@ -69,6 +77,20 @@ CREATE INDEX idx_payment_allocations_payment ON payment_allocations(payment_id);
 CREATE INDEX idx_payment_allocations_gig ON payment_allocations(gig_id);
 CREATE INDEX idx_payment_allocations_user_server_modified
   ON payment_allocations(user_id, server_modified_at);
+
+-- A payment comes from one client, and its split may only cover that
+-- client's gigs. Nullable on purpose: a transfer recorded before you
+-- know who sent it is better than no record, and the constraint only
+-- bites once a client is named.
+ALTER TABLE payments ADD COLUMN client_id TEXT REFERENCES clients(id);
+CREATE INDEX idx_payments_client ON payments(client_id);
+
+-- Derive it from the gig each payment already pointed at. A payment
+-- with no gig, or a gig with no client, stays null.
+UPDATE payments SET client_id = (
+  SELECT g.client_id FROM gigs g WHERE g.id = payments.gig_id
+)
+WHERE gig_id IS NOT NULL;
 
 -- Every existing payment that named a gig becomes one allocation for
 -- its whole amount. A payment that named no gig stays unallocated,
@@ -418,6 +440,7 @@ export const AllocationInput = z.object({
   amountCents: positiveCents,
 });
 export type AllocationInputT = z.infer<typeof AllocationInput>;
+// PaymentInput also gains: clientId: entityId.nullish()
 ```
 
 - [ ] **Step 3: Write the routes**
@@ -658,6 +681,10 @@ git commit -m "feat(offline): allocations sync like every other entity"
 
 - [ ] **Step 1: Replace the single gig select**
 
+The screen first asks **which client** the payment came from. Every gig select below then offers only that client's gigs — a short list you can read, rather than every gig you have ever worked. Leaving the client unset is allowed and offers everything; that is the escape hatch for a transfer you cannot yet attribute.
+
+The client rule is enforced in the **route**, not the schema, because it needs the database: when a payment names a client, every gig it allocates to must belong to that client. Reject a mismatch with a 400 in the same shape the gig routes already use for a bad `clientId`. Cover both directions in the route tests.
+
 The `gigId` select becomes a list of splits: each row is a gig select plus an amount, with an "+ Add gig" action and a remove control per row. Under it:
 
 ```tsx
@@ -732,6 +759,97 @@ git commit -m "docs: record the allocation model"
 
 ---
 
+## Task 9: A receipt becomes a payment draft
+
+**Files:**
+- Modify: `backend/src/capture/extraction.ts`, `backend/src/capture/capture-service.ts`
+- Modify: `backend/src/routes/drafts.ts` (confirming a payment draft)
+- Modify: `webapp/src/screens/DraftReview.tsx`, `webapp/src/screens/Capture.tsx`
+- Modify: `webapp/src/lib/types.ts` (`DraftExtracted`)
+
+Capture already does the hard part: photo → server-side extraction → a
+pending draft → a review screen that commits a real record. Read
+`extraction.ts`'s header before touching it — the zod schema exists so a
+hallucinating model cannot smuggle malformed data into a draft, and that
+guarantee must survive.
+
+- [ ] **Step 1: Extend the extraction contract**
+
+`ExtractedData.kind` gains `payment`. Add `paidAtMs` if `dateTimeMs`
+does not read naturally for a receipt — decide which, and say why in the
+schema's comment rather than leaving two fields that mean the same
+thing. `amountCents` already exists and is what a receipt yields.
+
+Update the provider prompts so a receipt is recognised as one. A photo
+of a booking sheet and a photo of a payment slip must land on different
+kinds, and `unknown` stays the honest answer when it cannot tell.
+
+- [ ] **Step 2: Commit a payment draft**
+
+`DraftReview` currently branches `gig` / `expense` at every step —
+state, the commit call, the invalidated query key, the navigation
+target. Adding a third branch to each is how that file becomes
+unreadable; consider a small map from kind to its commit behaviour
+instead. If you restructure it, say so.
+
+**The draft's photo becomes the payment's confirmation.** The image is
+already in R2 under the draft's `rawR2Key`. Copy it to the payment's
+confirmation key server-side on confirm — do not ask the client to
+re-upload bytes it already sent. The receipt *is* the proof.
+
+- [ ] **Step 3: Relabel the entry point**
+
+`Capture.tsx`'s button becomes "Capture gig or receipt". Check the help
+scenario and any e2e that asserts the old label.
+
+**Done when:** a photographed receipt produces a pending payment draft;
+confirming it creates a payment whose confirmation image is the photo,
+with no second upload.
+
+---
+
+## Task 10: Attach a photo while creating a payment
+
+**Files:**
+- Modify: `webapp/src/screens/PaymentEdit.tsx`, `webapp/src/lib/db.ts`, `webapp/src/lib/local-store.ts`, `webapp/src/lib/sync-engine.ts`
+
+Today the screen saves first and navigates to the record so a
+confirmation can be attached, because the R2 key is server-owned and the
+upload endpoint needs a real payment id. That sequencing is correct and
+stays — it just stops being visible.
+
+- [ ] **Step 1: Choose the file before saving**
+
+The file input moves above the save button and holds the chosen file in
+component state. On save, the payment is written as it is now; the
+upload follows once the record exists.
+
+- [ ] **Step 2: Queue the image when offline**
+
+The payment already survives offline through the outbox. The image
+cannot — an R2 upload needs a connection. Add a Dexie store keyed by
+payment id holding the blob, and drain it from the sync engine alongside
+the outbox.
+
+Read the `OutboxPayload` header in `local-store.ts` first. It documents
+a real incident where a field was added to the record and not to the
+payload and the data silently never arrived; an image queue has exactly
+that failure mode and no compile-time guard, so it needs a test that a
+queued image actually uploads.
+
+- [ ] **Step 3: Say when a photo is pending**
+
+Until the upload lands, the payment must show that its photo is waiting.
+A record that looks like it has proof when it does not is worse than one
+that admits it is queued. `SyncBadge` is the existing vocabulary for
+"not yet on the server" — reuse it rather than inventing a second one.
+
+**Done when:** a payment created offline with a photo shows the photo as
+pending, and the image is on the server after the next drain, with a
+test proving it.
+
+---
+
 ## Verification
 
 - [ ] `pnpm test` passes in both packages
@@ -741,3 +859,6 @@ git commit -m "docs: record the allocation model"
 - [ ] Manually: a payment recorded with no split shows its full amount as unallocated
 - [ ] Manually: a client still on the previous build can save a payment with a gig attached and it arrives as one allocation
 - [ ] `payments.gig_id` still exists and is still written — dropping it is a later release
+- [ ] Manually: a payment's split offers only its client's gigs, and the server refuses one that is not
+- [ ] Manually: a photographed receipt becomes a pending draft, and confirming it yields a payment whose proof is that photo
+- [ ] Manually: a payment created offline with a photo shows the photo pending, then attached after a drain
