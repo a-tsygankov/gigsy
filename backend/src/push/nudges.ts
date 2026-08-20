@@ -88,6 +88,14 @@ export async function selectNudge(
   // hourly gig read as owing nothing and was never nudged about — the
   // one case where silence costs the user money. The column is derived
   // and kept current by GigsRepo.upsert (migration 0014).
+  //
+  // `gig.amountPaidCents`, meanwhile, asks "has THIS gig been paid",
+  // not "how much money did I receive": it's the per-gig sum of the
+  // gig's payment_allocations rows, recomputed by
+  // services/paid-totals.ts (migration 0016). A payment split across
+  // several gigs is already counted once at each gig it funded, so this
+  // is exactly the right column — a nudge about one specific gig has no
+  // use for money that hasn't been attributed to it yet.
   const owed = unpaid
     .map((gig) => ({
       gig,

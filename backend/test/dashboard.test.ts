@@ -3,6 +3,8 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { env } from "cloudflare:test";
 import { applyMigrations, seedUser } from "./helpers/db.ts";
 import { api } from "./helpers/api.ts";
+import { AllocationsRepo } from "../src/repos/allocations.ts";
+import { recomputePaidTotals } from "../src/services/paid-totals.ts";
 
 const U1 = "user-1";
 const U2 = "user-2";
@@ -225,5 +227,72 @@ describe("GET /api/reports/dashboard — cancelled gigs, and 'paid' retired", ()
     const d = await dashboard(U4);
     expect(d.completedCount).toBe(0);
     expect(d.expectedCents).toBe(0);
+  });
+});
+
+// Phase 4 (payment allocations, migration 0016): the old model attached
+// a payment to a single gig, so one payment covering several gigs had
+// to be entered as several fictional payments. This checks the real
+// thing — one payment, split across two gigs — comes out counted once
+// at each gig, not once at the first or twice in total.
+//
+// The allocation ROUTES and the sync entity that create allocations
+// are still in review as of this test (this phase's Task 3/4) — only
+// AllocationsRepo and recomputePaidTotals (Task 2) are merged. So this
+// seeds the split by calling them directly rather than through
+// PUT /api/allocations/:id or /api/sync, which don't exist on this
+// branch yet. Once those land, an equivalent route-level test belongs
+// in allocations-routes.test.ts / sync.test.ts — this one only proves
+// that the dashboard reads the derived total correctly once it exists.
+describe("GET /api/reports/dashboard — a payment split across two gigs", () => {
+  const U5 = "user-5";
+  const GIG_A = "51111111-1111-4111-8111-111111111111";
+  const GIG_B = "52222222-2222-4222-8222-222222222222";
+  const PAY = "53333333-3333-4333-8333-333333333333";
+
+  it("attributes each gig's own share once, so only the underpaid gig is unpaid", async () => {
+    await seedUser(env.DB, U5);
+    // Gig A: offered 10000, about to be paid 10000 via the split.
+    await api(U5, "PUT", `/api/gigs/${GIG_A}`, {
+      status: "completed",
+      amountOfferedCents: 10000,
+    });
+    // Gig B: offered 12000, about to be paid only 5000 of it.
+    await api(U5, "PUT", `/api/gigs/${GIG_B}`, {
+      status: "completed",
+      amountOfferedCents: 12000,
+    });
+    // One payment, $150, covering both gigs — not two payments.
+    await api(U5, "PUT", `/api/payments/${PAY}`, { amountCents: 15000 });
+
+    const repo = AllocationsRepo.for(env.DB);
+    await repo.upsert(
+      U5,
+      crypto.randomUUID(),
+      { paymentId: PAY, gigId: GIG_A, amountCents: 10000 },
+      { now: 1 },
+    );
+    await repo.upsert(
+      U5,
+      crypto.randomUUID(),
+      { paymentId: PAY, gigId: GIG_B, amountCents: 5000 },
+      { now: 1 },
+    );
+    await recomputePaidTotals(env.DB, U5, [GIG_A, GIG_B], 1);
+
+    const d = await dashboard(U5);
+    // Gig A: 10000 offered - 10000 paid = fully paid, not "unpaid".
+    // Gig B: 12000 offered - 5000 paid = 7000 still outstanding. If the
+    // payment were (wrongly) counted in full against both gigs, or
+    // double-counted into unpaidCents, this would come out as 0 or as
+    // some other number than exactly gig B's own shortfall.
+    expect(d.unpaidCents).toBe(7000);
+    expect(d.unpaidJobs.map((j) => j.gigId)).toEqual([GIG_B]);
+    expect(d.unpaidJobs[0]).toMatchObject({
+      gigId: GIG_B,
+      offeredCents: 12000,
+      paidCents: 5000,
+      outstandingCents: 7000,
+    });
   });
 });

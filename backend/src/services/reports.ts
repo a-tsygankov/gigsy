@@ -1,24 +1,53 @@
 /**
- * Reports = grouped SQL over gigs/expenses (docs/plan.md §10) — no
- * reporting engine. Money stays integer cents end-to-end.
+ * Reports = grouped SQL over gigs/expenses/payments (docs/plan.md §10)
+ * — no reporting engine. Money stays integer cents end-to-end.
  *
- * Semantics:
+ * Two different questions both get called "paid" here, and mixing them
+ * up is the bug this file used to have (migration 0016,
+ * services/paid-totals.ts):
+ *   - "How much has THIS GIG (or this client's gigs) been paid" reads
+ *     `gigs.amount_paid_cents` / `gig_services.amount_paid_cents` — a
+ *     per-gig figure, derived server-side from `payment_allocations`
+ *     by services/paid-totals.ts, and never money by itself.
+ *   - "How much money did I RECEIVE" reads `payments.amount_cents`
+ *     directly. A payment can be split across gigs, or not yet split
+ *     at all — a deposit banked before anyone decides which gigs it
+ *     covers is still money received.
+ * `totals.paidCents` below answers the second question: it is the
+ * per-gig sum (which already reflects every allocation, so a split
+ * payment is counted once, at each gig it actually funded) PLUS
+ * whatever part of a payment has no allocation yet. Omitting that
+ * remainder would make a payment that arrived before anyone recorded
+ * what it was for simply vanish from "money received" until someone
+ * did the bookkeeping — the opposite of the point of recording it at
+ * all. `byMonth`/`byClient` stay per-gig/per-client figures: an
+ * unallocated remainder isn't attributable to a month or a client, so
+ * it is deliberately left out of both and only ever surfaces in the
+ * top-level total.
+ *
  * - "Offered" money from a GIG means `gigs.expected_cents`: its offer
  *   when the gig is fixed, rate × time when it is hourly. Summing
  *   `amount_offered_cents` instead reported every hourly gig as zero,
  *   because there it is only an optional override (domain/gig-pay.ts).
  *   The column is derived and kept current by GigsRepo.upsert
- *   (migration 0014). Paid money is unaffected — `amount_paid_cents`
- *   is money actually received, and no derivation applies to it — and
- *   `gig_services` keeps its own `amount_offered_cents`, because a
- *   service is a flat amount with no pay type.
+ *   (migration 0014). `gig_services` keeps its own
+ *   `amount_offered_cents`, because a service is a flat amount with no
+ *   pay type — and has no allocations of its own, only a hand-set
+ *   `amount_paid_cents`, because payment_allocations links a payment to
+ *   a gig, not to a service.
  * - owedCents = work done and unpaid: per `completed` gig (and its
  *   services), max(0, expected − paid). This used to be offered − paid
  *   over every gig in the period, which counted speculative leads as
  *   debts and let an overpayment on one gig cancel a shortfall on
  *   another. It now answers the same question as the dashboard's
- *   "Unpaid — waiting on clients", within the report's filters.
- * - netCents = paid − expenses.
+ *   "Unpaid — waiting on clients", within the report's filters. It
+ *   reads the per-gig `amount_paid_cents`, on purpose: work is only
+ *   "owed" to the extent no payment has been attributed to it yet, so
+ *   an unallocated payment sitting elsewhere must not reduce what a
+ *   specific gig appears to still be owed.
+ * - netCents = paid − expenses, where "paid" is the same money-received
+ *   figure as `totals.paidCents` (including the unallocated remainder)
+ *   — an unattributed deposit is still cash in hand.
  * - Additional services are income too, so their offered/paid amounts
  *   are added to their gig's month and client (a service always hangs
  *   off exactly one gig). Omitting them would under-report income on
@@ -35,7 +64,14 @@
  *   the expenses query never filters on gig status, on purpose. Travel
  *   booked or materials bought before a gig cancelled were still spent
  *   — cancelling the job doesn't refund them — so they keep reducing
- *   net exactly as they would have if the gig had gone ahead.
+ *   net exactly as they would have if the gig had gone ahead. The same
+ *   exclusion has a corollary for the money-received total: an
+ *   allocation against a cancelled gig counts as allocated (so it is
+ *   not "unallocated"), but the cancelled gig's own paid total is
+ *   excluded here same as always — that slice of a payment is simply
+ *   not reported anywhere in this file. Pre-existing behaviour, not a
+ *   gap opened by allocations: a cancelled gig's paid money was never
+ *   reported before this table existed either.
  */
 export interface ReportFilters {
   from?: number;
@@ -61,6 +97,11 @@ export interface ClientRow {
 export interface ReportSummary {
   totals: {
     offeredCents: number;
+    /** Money received: the per-gig/per-client paid figures (already
+     *  correct per allocation — a split payment counts once, at each
+     *  gig it funded) plus whatever part of a payment has not been
+     *  allocated to any gig yet. "How much did I receive", not "how
+     *  much of my work is paid for" — see the file header. */
     paidCents: number;
     /** Work done and not (fully) paid for: per `completed` gig,
      *  max(0, expected − paid), plus the same for its services. Matches
@@ -111,6 +152,12 @@ export async function reportSummary(
     gigParams.push(filters.clientId);
   }
 
+  // "How much has this gig been paid", not "how much did I receive":
+  // g.amount_paid_cents is the per-gig sum of its allocations, kept
+  // current by services/paid-totals.ts. Rolled into byMonth/byClient
+  // below, and from there into totals.paidCents — which then adds the
+  // unallocated remainder of every payment, the one thing this figure
+  // can't see (see "unallocated payments", further down).
   const gigRows = (
     await d1
       .prepare(
@@ -178,6 +225,56 @@ export async function reportSummary(
       .all<{ month: string; expenses: number; reimbursable: number }>()
   ).results;
 
+  // ── unallocated payments (money received, not yet assigned) ────
+  // "How much did I receive", answered from payments.amount_cents
+  // directly — the other half of the money-received figure, alongside
+  // the per-gig amounts already summed into gigRows/serviceRows above.
+  // Every allocated cent is already counted there (recomputePaidTotals
+  // wrote it onto the gig it was allocated to), so this query must only
+  // pick up the remainder — payment.amount_cents minus whatever sums to
+  // its allocations — or a fully-allocated payment would be counted
+  // twice. A payment with an amount but no allocations at all (the
+  // `payments.gigId` compatibility path always adds one, but a payment
+  // saved before it is attributed to any gig has none yet) is entirely
+  // "unallocated" by this definition, which is exactly right — none of
+  // it has been assigned to a gig.
+  //
+  // Filtered by the payment's own date (paidAt, falling back to
+  // createdAt the same way an unlinked expense does) and by
+  // payments.client_id — not by any gig, because an unallocated payment
+  // by definition names no gig for the gigWhere/date-via-gig logic
+  // above to filter on.
+  const paymentEffectiveTs = "COALESCE(p.paid_at, p.created_at)";
+  const paymentWhere: string[] = ["p.user_id = ?"];
+  const paymentParams: unknown[] = [userId, userId];
+  if (filters.from !== undefined) {
+    paymentWhere.push(`${paymentEffectiveTs} >= ?`);
+    paymentParams.push(filters.from);
+  }
+  if (filters.to !== undefined) {
+    paymentWhere.push(`${paymentEffectiveTs} <= ?`);
+    paymentParams.push(filters.to);
+  }
+  if (filters.clientId !== undefined) {
+    paymentWhere.push("p.client_id = ?");
+    paymentParams.push(filters.clientId);
+  }
+  const unallocatedRow = await d1
+    .prepare(
+      `SELECT SUM(p.amount_cents - COALESCE(a.allocated, 0)) AS total
+       FROM payments p
+       LEFT JOIN (
+         SELECT payment_id, SUM(amount_cents) AS allocated
+         FROM payment_allocations
+         WHERE user_id = ?
+         GROUP BY payment_id
+       ) a ON a.payment_id = p.id
+       WHERE ${paymentWhere.join(" AND ")}`,
+    )
+    .bind(...paymentParams)
+    .first<{ total: number | null }>();
+  const unallocatedCents = unallocatedRow?.total ?? 0;
+
   // ── merge months ───────────────────────────────────────────────
   const months = new Map<string, MonthRow>();
   const monthOf = (key: string): MonthRow => {
@@ -201,6 +298,12 @@ export async function reportSummary(
     .sort((a, b) => a.month.localeCompare(b.month));
 
   // ── by client ──────────────────────────────────────────────────
+  // "How much has this client's work been paid" — the per-gig figure
+  // again (g.amount_paid_cents), which already reflects every
+  // allocation against that client's gigs. An unallocated remainder of
+  // a payment that names this client isn't attributed to any gig, so
+  // it is deliberately left out here too; it only ever shows up in
+  // totals.paidCents.
   const clientRows = (
     await d1
       .prepare(
@@ -313,7 +416,12 @@ export async function reportSummary(
 
   // ── totals ─────────────────────────────────────────────────────
   const offeredCents = byMonth.reduce((sum, r) => sum + r.offeredCents, 0);
-  const paidCents = byMonth.reduce((sum, r) => sum + r.paidCents, 0);
+  // Money received = the per-gig figures already summed into byMonth
+  // (correct per allocation, so a split payment counts once) PLUS
+  // whatever part of a payment isn't allocated to any gig yet. See the
+  // file header and the "unallocated payments" query above — this is
+  // the one total in this file that is not simply a sum over byMonth.
+  const paidCents = byMonth.reduce((sum, r) => sum + r.paidCents, 0) + unallocatedCents;
   const expensesCents = byMonth.reduce((sum, r) => sum + r.expensesCents, 0);
   const reimbursableCents = expenseRows.reduce((sum, r) => sum + r.reimbursable, 0);
 
