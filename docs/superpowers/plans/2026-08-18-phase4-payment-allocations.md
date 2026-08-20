@@ -78,6 +78,20 @@ CREATE INDEX idx_payment_allocations_gig ON payment_allocations(gig_id);
 CREATE INDEX idx_payment_allocations_user_server_modified
   ON payment_allocations(user_id, server_modified_at);
 
+-- A payment comes from one client, and its split may only cover that
+-- client's gigs. Nullable on purpose: a transfer recorded before you
+-- know who sent it is better than no record, and the constraint only
+-- bites once a client is named.
+ALTER TABLE payments ADD COLUMN client_id TEXT REFERENCES clients(id);
+CREATE INDEX idx_payments_client ON payments(client_id);
+
+-- Derive it from the gig each payment already pointed at. A payment
+-- with no gig, or a gig with no client, stays null.
+UPDATE payments SET client_id = (
+  SELECT g.client_id FROM gigs g WHERE g.id = payments.gig_id
+)
+WHERE gig_id IS NOT NULL;
+
 -- Every existing payment that named a gig becomes one allocation for
 -- its whole amount. A payment that named no gig stays unallocated,
 -- which is now a state the app can show rather than a hole.
@@ -426,6 +440,7 @@ export const AllocationInput = z.object({
   amountCents: positiveCents,
 });
 export type AllocationInputT = z.infer<typeof AllocationInput>;
+// PaymentInput also gains: clientId: entityId.nullish()
 ```
 
 - [ ] **Step 3: Write the routes**
@@ -665,6 +680,10 @@ git commit -m "feat(offline): allocations sync like every other entity"
 - Modify: `webapp/src/screens/GigDetail.tsx` (payments section)
 
 - [ ] **Step 1: Replace the single gig select**
+
+The screen first asks **which client** the payment came from. Every gig select below then offers only that client's gigs — a short list you can read, rather than every gig you have ever worked. Leaving the client unset is allowed and offers everything; that is the escape hatch for a transfer you cannot yet attribute.
+
+The client rule is enforced in the **route**, not the schema, because it needs the database: when a payment names a client, every gig it allocates to must belong to that client. Reject a mismatch with a 400 in the same shape the gig routes already use for a bad `clientId`. Cover both directions in the route tests.
 
 The `gigId` select becomes a list of splits: each row is a gig select plus an amount, with an "+ Add gig" action and a remove control per row. Under it:
 
