@@ -182,6 +182,15 @@ export const payments = sqliteTable(
       .notNull()
       .references(() => users.id),
     gigId: text("gig_id").references(() => gigs.id),
+    /**
+     * Which client this transfer came from (migration 0016). Nullable
+     * on purpose: a transfer recorded before you know who sent it is
+     * better than no record at all. Backfilled once from the gig this
+     * payment already pointed at; going forward a payment's split may
+     * only cover this client's gigs (enforced in the route, since it
+     * needs the database).
+     */
+    clientId: text("client_id").references(() => clients.id),
     amountCents: integer("amount_cents").notNull(),
     paidAt: integer("paid_at"),
     confirmationR2Key: text("confirmation_r2_key"),
@@ -192,6 +201,51 @@ export const payments = sqliteTable(
   (t) => ({
     userIdx: index("idx_payments_user").on(t.userId),
     gigIdx: index("idx_payments_gig").on(t.gigId),
+    clientIdx: index("idx_payments_client").on(t.clientId),
+  }),
+);
+
+/**
+ * Which gigs a payment paid for, and how much of it went to each.
+ *
+ * `payments.gigId` remains for compatibility (a later change to
+ * routes/payments.ts turns it into one of these), but this table is the
+ * truth going forward. The sum for a gig is written back to
+ * `gigs.amountPaidCents` by services/paid-totals.ts — derived,
+ * server-owned, and never written by a client.
+ *
+ * Deliberately allowed: the allocations for a payment may sum to LESS
+ * than the payment. A deposit can land before anyone knows which gigs
+ * it covers, and refusing to record it until they do is how money stops
+ * being recorded at all. More than the payment is rejected (enforced in
+ * the route, not here — this table has no way to see the payment's
+ * total).
+ */
+export const paymentAllocations = sqliteTable(
+  "payment_allocations",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    paymentId: text("payment_id")
+      .notNull()
+      .references(() => payments.id),
+    gigId: text("gig_id")
+      .notNull()
+      .references(() => gigs.id),
+    amountCents: integer("amount_cents").notNull(),
+    createdAt: integer("created_at").notNull(),
+    modifiedAt: integer("modified_at").notNull(),
+    serverModifiedAt: integer("server_modified_at").notNull().default(0),
+  },
+  (t) => ({
+    userIdx: index("idx_payment_allocations_user").on(t.userId),
+    paymentIdx: index("idx_payment_allocations_payment").on(t.paymentId),
+    gigIdx: index("idx_payment_allocations_gig").on(t.gigId),
+    userServerModifiedIdx: index(
+      "idx_payment_allocations_user_server_modified",
+    ).on(t.userId, t.serverModifiedAt),
   }),
 );
 
