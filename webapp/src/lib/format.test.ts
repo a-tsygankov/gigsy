@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatMoney } from "./format.ts";
+import { formatDuration, formatMoney } from "./format.ts";
 
 describe("formatMoney", () => {
   it("formats whole and fractional cents", () => {
@@ -13,5 +13,20 @@ describe("formatMoney", () => {
 
   it("formats negatives (refunds/adjustments)", () => {
     expect(formatMoney(-500)).toBe("-$5.00");
+  });
+});
+
+describe("formatDuration", () => {
+  it("states both halves when both are there", () => {
+    expect(formatDuration(200)).toBe("3h 20m");
+  });
+
+  it("drops the half that is zero", () => {
+    expect(formatDuration(180)).toBe("3h");
+    expect(formatDuration(45)).toBe("45m");
+  });
+
+  it("renders nothing for a zero-length span", () => {
+    expect(formatDuration(0)).toBe("");
   });
 });

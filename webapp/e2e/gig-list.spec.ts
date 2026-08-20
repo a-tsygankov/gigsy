@@ -32,8 +32,12 @@ async function addGig(page: Page, marker: string) {
   await page.getByRole("link", { name: "Add gig" }).click();
   await page.getByTestId("gig-title").fill(marker);
   await page.getByRole("button", { name: "Save gig" }).click();
-  // click() returns on dispatch, not on the write landing — acting
-  // before the row appears cancels the save.
+  // Saving opens the gig's own screen now, so come back to the list —
+  // which is what every test below is actually about. click() returns
+  // on dispatch, not on the write landing, so wait for the gig to be
+  // there before navigating: acting sooner cancels the save.
+  await expect(page.getByTestId("gig-work-card")).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("link", { name: "Gigs" }).click();
   await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
 }
 
@@ -47,7 +51,7 @@ test("a search narrows the list and survives opening a gig", async ({ page }) =>
 
   // The whole point of URL state: open the gig, come back, still filtered.
   await page.getByText(marker).click();
-  await expect(page.getByTestId("gig-title")).toHaveValue(marker);
+  await expect(page.getByTestId("gig-heading")).toHaveText(marker);
   await page.goBack();
 
   await expect(page.getByRole("heading", { name: "Gigs" })).toBeVisible();
@@ -107,6 +111,10 @@ test("the gig list does not scroll sideways on a phone", async ({ page }) => {
   await page.getByRole("link", { name: "Add gig" }).click();
   await page.getByLabel("Location").fill(marker);
   await page.getByRole("button", { name: "Save gig" }).click();
+  // Back to the list — the save opens the gig itself, and the filter
+  // bar this test is about only exists on the list.
+  await expect(page.getByTestId("gig-work-card")).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("link", { name: "Gigs" }).click();
   await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("gig-filters")).toBeVisible({ timeout: 15_000 });
 

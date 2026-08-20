@@ -96,7 +96,7 @@ export const findAGig: HelpScenario = {
               target: HelpTarget.GigList,
               title: "Tap the one you want",
               description:
-                "Every row here opens that gig for editing — the same form \"Add a gig by hand\" walks through, filled in, plus its services, its payments and a delete button. Nothing on this screen changes a gig, so it is safe to browse. This walkthrough stops here: only you know which row is yours.",
+                "Every row here opens that gig's own screen: what the job is — client, when, where, how it pays — as a card with an Edit button onto the form \"Add a gig by hand\" walks through, and under it the work half, where you set the status, start and stop the clock and see what it earned. Its services, its payments and the delete button are down there too. Nothing on this list changes a gig, so it is safe to browse. This walkthrough stops here: only you know which row is yours.",
             },
           ],
         },

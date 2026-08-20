@@ -32,13 +32,15 @@
  * `expectedCents` says a negative `hourlyRateCents` "cannot be stored"
  * because the write schema types it `positiveCents` (domain/schemas.ts).
  * That schema is the backend's validated write path. This copy runs
- * against raw draft form state on every keystroke (GigEdit.tsx's
- * `draftPay`), before OfflineDataService.assertPositive (data-service.ts)
- * or the backend ever see it — so here, unlike in the backend, a zero or
+ * against raw draft state on every keystroke (screens/gigs/WorkCard.tsx's
+ * `draftPay`, which took that name over from GigEdit when the gig screen
+ * split), before OfflineDataService.assertPositive (data-service.ts) or
+ * the backend ever see it — so here, unlike in the backend, a zero or
  * negative rate can and does reach `expectedCents` while the user is
  * still typing. `Math.round` still returns a signed result for it; that
- * is fine for a live preview, and GigEdit itself now refuses to submit
- * such a rate (see the guard in `submit()`).
+ * is fine for a live preview, and the rate itself is only editable on
+ * the job form, which refuses to submit such a value (the guard in
+ * GigEdit's `submit()`).
  */
 
 export const PAY_TYPES = ["fixed", "hourly"] as const;

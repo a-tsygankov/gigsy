@@ -401,17 +401,60 @@ git commit -m "feat(webapp): cancelled status, derived paid badge"
 
 ## Task 4: The detail hub
 
+> **Done, with four deliberate divergences from what is written below.**
+>
+> 1. **`gig-status` is on the WORK card only**, per the Step 2b
+>    inventory. Step 6 below also says to keep status on the form; the
+>    two contradict each other and the inventory wins — one field with
+>    two writers is what this phase exists to remove. The cost is that
+>    `/gigs/new` cannot create a gig as `confirmed`; the save lands on
+>    the hub with the status select in view, so it is one tap, not a
+>    dead end.
+> 2. **No `pnpm dlx shadcn add`.** `card` and `button` were already in
+>    `src/components/ui/`; `badge` was not needed, since `StatusPill`
+>    is this app's badge and Task 3 gave it the `paid` prop.
+> 3. **The when-row is asserted on `data-value`, not on "09:00".** The
+>    row is localised — `formatLocalMoment` renders "9:00 AM" in
+>    en-US — so the e2e reads the canonical copy beside it, the same
+>    trick `DateTimeField`'s trigger already uses.
+> 4. **Start-then-Stop inside one minute is refused**, not stored: the
+>    write schema rejects an end at or before the start, so the e2e
+>    corrects the stamp backwards before pressing Stop, which is what
+>    the field under the button is for.
+>
+> Also new, and not in the plan — each one a thing the split exposed
+> rather than a thing it needed:
+>
+> - `lib/gig-input.ts`. `putGig` REPLACES the record, so both the work
+>   card's one-field writes and the job form's save have to send the
+>   whole gig or silently null everything they do not show. Typed
+>   `Required<Omit<GigInput, "source">>`, the same guard `OutboxPayload`
+>   carries and for the same reason.
+> - `lib/work-log.ts`. The three cross-field rules the old form checked
+>   inline, plus the `breakMinutes` field rule they were missing — a
+>   fractional or day-long break passed every cross-field rule when
+>   there was no end stamp, then 400d and was dropped by sync-engine
+>   with only a warn.
+> - `screens/gigs/useCommitOnLeave.ts`. Blur is not a reliable commit
+>   point: `focusout` is not guaranteed for an input unmounted by a
+>   route change, and iOS Safari moves no focus when a link is tapped.
+> - The hub's merge base is read from the local store inside the
+>   mutation, never from the React Query cache: nothing invalidates that
+>   cache on a sync pull, so within its 30s window a work write built on
+>   it would put the pre-pull `dateTime` back — the phase's own fault,
+>   through the back door.
+
 **Files:**
 - Create: `webapp/src/screens/GigDetail.tsx`, `webapp/src/screens/gigs/JobCard.tsx`, `webapp/src/screens/gigs/WorkCard.tsx`
 - Modify: `webapp/src/App.tsx:54`
 
-- [ ] **Step 1: Add the shadcn pieces**
+- [x] **Step 1: Add the shadcn pieces**
 
 ```bash
 cd webapp && pnpm dlx shadcn@latest add card button badge
 ```
 
-- [ ] **Step 2: Route the hub**
+- [x] **Step 2: Route the hub**
 
 In `webapp/src/App.tsx`, replace the single gig route with:
 
@@ -423,7 +466,7 @@ In `webapp/src/App.tsx`, replace the single gig route with:
 
 Order matters: `/gigs/new` must precede `/gigs/:id` or "new" is read as an id.
 
-- [ ] **Step 2b: Know what you are moving**
+- [x] **Step 2b: Know what you are moving**
 
 `GigEdit.tsx` now carries these controls, all added after this plan was
 written. Every one of them has to land on one side of the split, so decide
@@ -445,7 +488,7 @@ one trigger opening a popover, with `-calendar` / `-time` / `-clear` /
 `-done` inside it and a `label` prop for its accessible name. The help
 registry has `GigDateTime`, not the old `GigDate` / `GigTime` pair.
 
-- [ ] **Step 3: Write `JobCard`**
+- [x] **Step 3: Write `JobCard`**
 
 Create `webapp/src/screens/gigs/JobCard.tsx` — read-only, one `<Card>`, rows for client, title, when (date + planned duration), location, how it pays (fee, or rate), notes. A single "Edit" button linking to `/gigs/${gig.id}/edit`, `data-testid="gig-edit"`.
 
@@ -461,7 +504,7 @@ Create `webapp/src/screens/gigs/JobCard.tsx` — read-only, one `<Card>`, rows f
  */
 ```
 
-- [ ] **Step 4: Write `WorkCard`**
+- [x] **Step 4: Write `WorkCard`**
 
 Create `webapp/src/screens/gigs/WorkCard.tsx` — a `<Card>` holding the status control, Start / Stop, the break field, and the live pay line. Every control saves immediately via the same `putGig` mutation, which keeps this card's job "record what happened" rather than "fill in a form and remember to save".
 
@@ -481,7 +524,7 @@ const worked = workedMinutes(gig);
 const expected = expectedCents(gig);
 ```
 
-- [ ] **Step 4b: Give the hourly override a home**
+- [x] **Step 4b: Give the hourly override a home**
 
 The spec promised `Computed $189.17 · Override` with the field clearable.
 Phase 2 shipped without it: on an hourly gig the Offered control is not
@@ -503,7 +546,7 @@ If you conclude the override is better deferred again, say so and record why
 in this plan — but do not leave the fixture pinning a state the product
 cannot reach without saying so.
 
-- [ ] **Step 5: Write `GigDetail`**
+- [x] **Step 5: Write `GigDetail`**
 
 Create `webapp/src/screens/GigDetail.tsx`: `AppHeader` with the gig's title, `StatusPill` with `paid={isPaid(gig)}`, then `<JobCard>`, `<WorkCard>`, then the existing services and payments sections moved verbatim out of `GigEdit.tsx` (including their explanatory copy and `data-testid`s), then the delete button.
 
@@ -515,11 +558,11 @@ Wrap the work card's pay line in a Motion `motion.span` keyed on the expected ce
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 ```
 
-- [ ] **Step 6: Strip `GigEdit`**
+- [x] **Step 6: Strip `GigEdit`**
 
 Remove from `webapp/src/screens/GigEdit.tsx`: the services section, the payments section, the delete button, and the work-log fields added in Phase 2 Task 8 (start, finish, breaks) — those now live in `WorkCard`. Keep client, title, status, date/time, duration, location, pay type, fee or rate, notes. On save, navigate to `/gigs/${saved.id}` rather than `/gigs`.
 
-- [ ] **Step 7: Run and check in the browser**
+- [x] **Step 7: Run and check in the browser**
 
 ```bash
 pnpm --filter gigsy-webapp test && pnpm --filter gigsy-webapp typecheck
@@ -527,7 +570,7 @@ pnpm --filter gigsy-webapp test && pnpm --filter gigsy-webapp typecheck
 
 Then start the preview and walk one gig: open it, edit the job, come back, start and stop work, watch the pay line change.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add webapp/src/screens webapp/src/App.tsx webapp/src/components/ui webapp/package.json

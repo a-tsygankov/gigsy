@@ -37,11 +37,9 @@ test("photo capture → draft review → confirm creates the gig", async ({
 
   await page.getByRole("button", { name: "Confirm gig" }).click();
 
-  // Lands on the created gig, prefilled from the draft.
-  await expect(page.getByRole("heading", { name: "Edit gig" })).toBeVisible({
-    timeout: 15_000,
-  });
-  await expect(page.getByLabel("Location")).toHaveValue("Stubville Expo Hall");
+  // Lands on the created gig's own screen, filled in from the draft.
+  await expect(page.getByTestId("gig-job-card")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("job-location")).toHaveText("Stubville Expo Hall");
 });
 
 test("discarding a draft removes it from the pending list", async ({ page }) => {

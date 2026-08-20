@@ -53,7 +53,13 @@ export function StatusPill({
 }) {
   return (
     <span className="inline-flex items-center gap-1">
-      <span className={`${BADGE} ${STATUS_PILL_CLASSES[status]}`}>{status}</span>
+      {/* Tagged like the paid badge beside it: on the detail hub this
+          pill is the only thing that says what the status control below
+          it actually saved, so a spec asserting the write landed has to
+          be able to reach it. */}
+      <span data-testid="status-pill" className={`${BADGE} ${STATUS_PILL_CLASSES[status]}`}>
+        {status}
+      </span>
       {paid && (
         <span data-testid="paid-badge" className={`${BADGE} ${PAID_BADGE_CLASSES}`}>
           paid

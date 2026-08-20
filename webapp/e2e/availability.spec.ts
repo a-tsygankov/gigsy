@@ -98,11 +98,18 @@ test("it never shows what fills the busy time", async ({ page, browser }) => {
   await page.getByRole("link", { name: "Gigs" }).click();
   await page.getByRole("link", { name: "Add gig" }).click();
   await page.getByLabel("Location").fill(secret);
-  await page.getByLabel("Status").selectOption("confirmed");
   await dateTimeField(page, "gig-datetime").set(localDate, localTime);
   await page.getByTestId("gig-duration-hours").fill("2");
   await page.getByLabel("Offered ($)").fill("2500");
   await page.getByRole("button", { name: "Save gig" }).click();
+
+  // The status is a fact about the work, so it is set on the gig's own
+  // screen — which is where saving lands — rather than on the job form.
+  // The pill is fed by the saved record, so waiting for it is waiting
+  // for the write: the work card saves as you go and has no button.
+  await expect(page.getByTestId("gig-work-card")).toBeVisible({ timeout: 15_000 });
+  await page.getByLabel("Status").selectOption("confirmed");
+  await expect(page.getByTestId("status-pill")).toHaveText("confirmed");
 
   // Wait for the save to actually land before anything that could
   // interrupt it: click() returns once the click is dispatched, and the
