@@ -143,13 +143,15 @@ async function rowEventually(
  * is to record any.
  *
  * "+ Add payment" opens `/payments/new?gigId=<this gig>`, so the
- * Related gig select arrives already on it; the saved payment carries
- * `gigId`, which the server turns into a `payment_allocations` row
- * (the legacy-gigId compat path in services/sync.ts) and sums back
- * into the gig's derived `amountPaidCents`. Every step of that chain
- * is on the server, which is why this waits for the outbox to drain
- * before returning — and why nothing it does can be asserted until a
- * pull has been round the loop as well.
+ * Related gig select arrives already on it. The save queues TWO ops:
+ * the payment, and the `payment_allocations` row that says which gig
+ * it paid for — written by the client now (lib/local-store.ts's
+ * `putPayment`), not inferred by the server from a `gigId` on the
+ * payment, which this build no longer sends. The server sums those
+ * allocations back into the gig's derived `amountPaidCents`. That last
+ * step is on the server, which is why this waits for the outbox to
+ * drain before returning — and why nothing it does can be asserted
+ * until a pull has been round the loop as well.
  *
  * There is no shortcut, and that is the point: the "Paid ($)" box this
  * spec used to type into was removed with the column it could not

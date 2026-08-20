@@ -507,7 +507,8 @@ it("rejects an allocation against someone else's gig", async () => {
     { entity: "allocation", op: "upsert", id, modifiedAt: 1,
       payload: { paymentId, gigId: strangersGigId, amountCents: 5000 } },
   ]);
-  expect((await res.json()).results[0].error).toMatch(/does not reference your gig/);
+  // `reason`, not `error` — see SyncOpResult in services/sync.ts.
+  expect((await res.json()).results[0].reason).toMatch(/does not reference your gig/);
 });
 
 it("recomputes the total when an allocation is deleted", async () => {
@@ -587,7 +588,7 @@ git commit -m "fix(reports): money follows allocations, not payment.gigId"
 - Modify: `webapp/src/lib/db.ts`, `types.ts`, `local-store.ts`, `data-service.ts`, `sync-engine.ts`, `api.ts`
 - Test: `webapp/src/lib/local-store.test.ts`, `sync-engine.test.ts`
 
-- [ ] **Step 1: Add the Dexie store**
+- [x] **Step 1: Add the Dexie store**
 
 `webapp/src/lib/db.ts`:
 
@@ -607,7 +608,7 @@ export type SyncEntityName =
     });
 ```
 
-- [ ] **Step 2: Add the type**
+- [x] **Step 2: Add the type**
 
 `webapp/src/lib/types.ts`:
 
@@ -632,7 +633,7 @@ export interface AllocationInput {
 
 Add `Allocation` to the `ServerRecord` union in `local-store.ts` and to `tableOf`.
 
-- [ ] **Step 3: Write the failing store test**
+- [x] **Step 3: Write the failing store test**
 
 ```ts
 it("queues an allocation and lists it by payment", async () => {
@@ -640,17 +641,21 @@ it("queues an allocation and lists it by payment", async () => {
   const id = crypto.randomUUID();
   await store.putAllocation(id, { paymentId, gigId, amountCents: 5000 });
   expect(await store.listAllocationsByPayment(paymentId)).toHaveLength(1);
-  expect((await store.pendingOp("allocation", id))?.payload).toEqual({
-    paymentId, gigId, amountCents: 5000,
-  });
+  expect((await store.pendingOps()).find((o) => o.entity === "allocation")?.payload)
+    .toEqual({ paymentId, gigId, amountCents: 5000 });
 });
 ```
 
-- [ ] **Step 4: Implement `putAllocation` / `removeAllocation` / `listAllocationsByPayment` / `listAllocationsByGig`**
+> There is no `store.pendingOp(entity, id)` — this snippet invented one.
+> `LocalStore` exposes `pendingOps()`, `pendingCount()`, `hasPendingOp()`
+> and `pendingIds()`; the test above is written the way the rest of
+> `local-store.test.ts` reads the outbox.
+
+- [x] **Step 4: Implement `putAllocation` / `removeAllocation` / `listAllocationsByPayment` / `listAllocationsByGig`**
 
 Follow `putPayment` exactly, including the `OutboxPayload<AllocationInput>` annotation — that `Required<T>` is what turns a forgotten field into a compile error.
 
-- [ ] **Step 5: Pull them**
+- [x] **Step 5: Pull them**
 
 `webapp/src/lib/sync-engine.ts` — add to `pull()`:
 
@@ -660,7 +665,56 @@ Follow `putPayment` exactly, including the `OutboxPayload<AllocationInput>` anno
 
 and add `allocation` to the `getters` map in `refreshFromServer`. Add `listAllocations` / `putAllocation` / `deleteAllocation` to `webapp/src/lib/api.ts` and to `data-service.ts`.
 
-- [ ] **Step 6: Run and commit**
+- [x] **Step 6: `putPayment` STOPS SENDING `gigId` — the step this plan was missing**
+
+Everything above adds the entity. None of it stops the client from
+corrupting the entity it just added, and the two must land together.
+
+A payment write carrying a non-null `gigId` runs
+`AllocationsRepo.replaceSoleAllocation` server-side, which rewrites the
+payment's allocations to a single one for the payment's FULL amount.
+The guard that shipped with the repo spares a payment carrying MORE
+THAN ONE allocation — but a payment carrying exactly one is still
+rewritten, and a payment with 50.00 allocated out of 150.00 is exactly
+that. Task 7's whole purpose is to let a user create that state, so an
+allocations-aware client that keeps sending `gigId` destroys the
+remainder on the next save of the common case.
+
+What shipped, in `webapp/src/lib/local-store.ts`:
+
+- `putPayment`'s payload is `OutboxPayload<Omit<PaymentInput, "gigId">>`.
+  The `Required<T>` guard still bites for every other field; `gigId` is
+  excluded in exactly one place, with the reason next to it.
+- `putPayment` still ACCEPTS `gigId` from callers (the payment screen
+  asks for one gig until Task 7 replaces it) and writes it as the
+  payment's sole allocation itself — the client-side twin of
+  `replaceSoleAllocation`, guard included, except that it UPDATES the
+  existing allocation under its own id instead of deleting and
+  re-inserting. The id is the outbox key here, so keeping it is what
+  makes a re-save fold into one op and converge under LWW — including
+  on an allocation the SERVER minted for a payment an older build
+  created.
+- Payment reads (`getPayment`, `listPayments`, `listPaymentsByGig`)
+  resolve `gigId` from the payment's allocations, falling back to the
+  stored column. The server nulls that column on the next save of any
+  payment now, so without this the existing screens would show
+  payments detached from their gigs until Task 7 rewires them.
+- `removePayment` drops the payment's allocations locally without
+  queueing deletes for them: both server doors already delete them with
+  the payment.
+
+And in `webapp/src/lib/sync-engine.ts`, `drain()` now re-offers rejected
+upserts once, after the rest of the batch has landed. A payment and its
+allocations are validated against each other from BOTH sides
+(over-allocation one way, "amountCents is less than the payment's
+allocated total" the other), so a save that moves both has no single
+correct op order — raising needs the payment first, lowering needs the
+allocation first, and a folded op keeps its original queue position
+regardless. Re-offering what was refused costs one round trip only when
+something was actually rejected, and an op that is genuinely invalid
+fails the same way twice and is dropped exactly as before.
+
+- [x] **Step 7: Run and commit**
 
 ```bash
 pnpm --filter gigsy-webapp test && pnpm --filter gigsy-webapp typecheck
@@ -680,6 +734,25 @@ git commit -m "feat(offline): allocations sync like every other entity"
 - Modify: `webapp/src/screens/GigDetail.tsx` (payments section)
 
 - [ ] **Step 1: Replace the single gig select**
+
+> Two things Task 6 left on the table for this step.
+>
+> `data.putPayment` still ACCEPTS a `gigId` and turns it into the
+> payment's sole allocation, sized to the whole payment — the shim that
+> keeps today's one-gig screen working. The split editor must stop
+> passing it and write allocations through `putAllocation` /
+> `deleteAllocation` instead, or every save will collapse the split it
+> just made. `LocalStore` refuses to collapse a payment carrying more
+> than one allocation, but a payment with ONE partial allocation is
+> precisely the state that shim would overwrite.
+>
+> The webapp's `Payment`/`PaymentInput` still have no `clientId` — the
+> column exists server-side (migration 0016) and `PaymentsRepo.upsert`
+> PRESERVES it when the key is absent, which is the only reason the
+> current payload does not wipe it. Adding the field here means adding
+> it to the outbox payload too, and a screen that does not supply it
+> would then send `null` and erase what a receipt draft set. Wire the
+> client select and the field in the same change.
 
 The screen first asks **which client** the payment came from. Every gig select below then offers only that client's gigs — a short list you can read, rather than every gig you have ever worked. Leaving the client unset is allowed and offers everything; that is the escape hatch for a transfer you cannot yet attribute.
 
@@ -709,7 +782,7 @@ Each row saves as its own allocation record, so a half-finished split still surv
 
 In `GigDetail`'s payments section, list this gig's allocations rather than payments whose `gigId` matches, showing the payment's date and the amount allocated to *this* gig, with the payment's total beside it when they differ.
 
-- [ ] **Step 3: Remove the hand-typed Paid field**
+- [x] **Step 3: Remove the hand-typed Paid field** — ALREADY DONE, out of order, when `gigs.amountPaidCents` became server-derived. `GigEdit.tsx` has no `gig-paid` input and `lib/gig-input.ts` omits the key; `local-store.ts`'s `putGig` preserves the value from the existing row and never takes it from a form. Nothing to do here.
 
 Delete the Paid (`gig-paid`) input from `GigEdit.tsx` and its help target — the value is derived now, and an editable copy of a derived number is a bug waiting to be filed. `GigDetail` shows the derived total with the paid badge.
 

@@ -31,6 +31,7 @@ import type { LocalStore } from "./local-store.ts";
 import type { SyncEntityName } from "./db.ts";
 import type { SyncOp, SyncOpResult } from "./api.ts";
 import type {
+  Allocation,
   Client,
   Expense,
   Gig,
@@ -47,11 +48,13 @@ export interface SyncApi {
   listExpenses(): Promise<Expense[]>;
   listServices(): Promise<Service[]>;
   listPayments(): Promise<Payment[]>;
+  listAllocations(): Promise<Allocation[]>;
   getGig(id: string): Promise<Gig>;
   getClient(id: string): Promise<Client>;
   getExpense(id: string): Promise<Expense>;
   getService(id: string): Promise<Service>;
   getPayment(id: string): Promise<Payment>;
+  getAllocation(id: string): Promise<Allocation>;
 }
 
 export interface SyncState {
@@ -277,7 +280,7 @@ export class SyncEngine {
         modifiedAt: op.modifiedAt,
         ...(op.op === "upsert" ? { payload: op.payload } : {}),
       }));
-      const { results } = await this.api.sync(wireOps);
+      const results = await this.push(wireOps);
 
       for (let i = 0; i < ops.length; i++) {
         const op = ops[i]!;
@@ -326,6 +329,52 @@ export class SyncEngine {
     return reached;
   }
 
+  /**
+   * Post the batch, then offer the ops the server REJECTED exactly one
+   * more chance — after the rest of the batch has landed.
+   *
+   * A batch can hold two ops that are each only valid once the other
+   * has applied, and no single ordering satisfies both directions. A
+   * payment and its allocations are checked against each other from
+   * both sides: an allocation may not exceed its payment
+   * ("allocations exceed the payment"), and a payment may not shrink
+   * below what is allocated to it ("amountCents is less than the
+   * payment's allocated total"). Raise a payment and its split in one
+   * save and the payment has to go first; lower them and the split has
+   * to. A new payment and its first allocation have the same shape of
+   * problem — the allocation is meaningless until the payment exists.
+   *
+   * Sorting the outbox cannot fix that (the direction is not knowable
+   * from the queue, and folding an op preserves its original position
+   * anyway), so the fix is to stop needing an order: re-offer what was
+   * refused once the batch is complete. The server's upserts are
+   * idempotent and last-write-wins, so a replay costs nothing but the
+   * round trip, and only happens when something was actually rejected.
+   *
+   * An op that is genuinely invalid fails identically the second time
+   * and is dropped exactly as before — the retry buys one ordering, not
+   * a lower standard. Deletes are left out: they have no invariant to
+   * violate, and "not found" comes back as `skipped`, not `error`.
+   */
+  private async push(wireOps: SyncOp[]): Promise<(SyncOpResult | undefined)[]> {
+    const { results } = await this.api.sync(wireOps);
+    const retryIndexes = wireOps
+      .map((op, i) => (op.op === "upsert" && results[i]?.status === "error" ? i : -1))
+      .filter((i) => i !== -1);
+    if (retryIndexes.length === 0) return results;
+
+    appLog.info("sync retrying rejected ops", { count: retryIndexes.length });
+    const { results: retried } = await this.api.sync(
+      retryIndexes.map((i) => wireOps[i]!),
+    );
+    const merged: (SyncOpResult | undefined)[] = [...results];
+    retryIndexes.forEach((opIndex, retryIndex) => {
+      const result = retried[retryIndex];
+      if (result !== undefined) merged[opIndex] = result;
+    });
+    return merged;
+  }
+
   private async refreshFromServer(
     entity: SyncEntityName,
     id: string,
@@ -337,6 +386,7 @@ export class SyncEngine {
         expense: () => this.api.getExpense(id),
         service: () => this.api.getService(id),
         payment: () => this.api.getPayment(id),
+        allocation: () => this.api.getAllocation(id),
       } as const;
       await this.store.applyServerRecord(entity, await getters[entity]());
     } catch (e) {
@@ -354,6 +404,10 @@ export class SyncEngine {
       await this.pullEntity("expense", await this.api.listExpenses());
       await this.pullEntity("service", await this.api.listServices());
       await this.pullEntity("payment", await this.api.listPayments());
+      // After payments: an allocation is only meaningful beside the
+      // payment it splits, and this order means a single pull never
+      // shows one without the other.
+      await this.pullEntity("allocation", await this.api.listAllocations());
       return true;
     } catch (e) {
       appLog.info("sync pull failed", { error: String(e) });
@@ -363,7 +417,7 @@ export class SyncEngine {
 
   private async pullEntity(
     entity: SyncEntityName,
-    serverRows: (Gig | Client | Expense | Service | Payment)[],
+    serverRows: (Gig | Client | Expense | Service | Payment | Allocation)[],
   ): Promise<void> {
     const serverIds = new Set(serverRows.map((r) => r.id));
 

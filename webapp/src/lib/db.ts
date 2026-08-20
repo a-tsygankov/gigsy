@@ -9,9 +9,15 @@
  * idempotent and LWW anyway).
  */
 import Dexie, { type EntityTable } from "dexie";
-import type { Client, Expense, Gig, Payment, Service } from "./types.ts";
+import type { Allocation, Client, Expense, Gig, Payment, Service } from "./types.ts";
 
-export type SyncEntityName = "client" | "gig" | "expense" | "service" | "payment";
+export type SyncEntityName =
+  | "client"
+  | "gig"
+  | "expense"
+  | "service"
+  | "payment"
+  | "allocation";
 
 export interface PendingOp {
   /** `${entity}:${entityId}` — primary key, one op per record. */
@@ -33,6 +39,7 @@ export class GigsyUserDB extends Dexie {
   expenses!: EntityTable<Expense, "id">;
   services!: EntityTable<Service, "id">;
   payments!: EntityTable<Payment, "id">;
+  allocations!: EntityTable<Allocation, "id">;
   pendingOps!: EntityTable<PendingOp, "opKey">;
 
   constructor(userId: string) {
@@ -47,6 +54,16 @@ export class GigsyUserDB extends Dexie {
     this.version(2).stores({
       services: "id, gigId, modifiedAt",
       payments: "id, gigId, createdAt, modifiedAt",
+    });
+    // v3: payment allocations — one payment can cover several gigs
+    // (migration 0016). Purely additive: a version's `stores()` is a
+    // DELTA over the previous one, so the five stores above are carried
+    // forward untouched and a browser holding v2 data only gains an
+    // empty `allocations` store. No `upgrade()` runs and nothing is
+    // rewritten; the rows themselves arrive on the next pull, the same
+    // way `expectedCents` did.
+    this.version(3).stores({
+      allocations: "id, paymentId, gigId, modifiedAt",
     });
   }
 }

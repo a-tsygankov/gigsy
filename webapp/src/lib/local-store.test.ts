@@ -1,18 +1,27 @@
 import "fake-indexeddb/auto";
+import Dexie from "dexie";
 import { describe, it, expect } from "vitest";
 import { openUserDb } from "./db.ts";
 import { LocalStore } from "./local-store.ts";
+import type { Allocation, Payment } from "./types.ts";
 
 let dbSeq = 0;
 
-function makeStore(clockValue = () => 1000, userId = `u-${++dbSeq}`) {
+function makeStore(
+  clockValue = () => 1000,
+  userId = `u-${++dbSeq}`,
+  newId: () => string = () => crypto.randomUUID(),
+) {
   const db = openUserDb(userId);
-  return { store: new LocalStore(db, clockValue), db, userId };
+  return { store: new LocalStore(db, clockValue, newId), db, userId };
 }
 
 const G1 = "11111111-1111-4111-8111-111111111111";
 const G2 = "22222222-2222-4222-8222-222222222222";
 const C1 = "33333333-3333-4333-8333-333333333333";
+const P1 = "44444444-4444-4444-8444-444444444444";
+const A1 = "55555555-5555-4555-8555-555555555555";
+const A2 = "77777777-7777-4777-8777-777777777777";
 
 describe("LocalStore CRUD + outbox", () => {
   it("putGig stores a readable record with clock timestamps", async () => {
@@ -180,7 +189,15 @@ describe("LocalStore CRUD + outbox", () => {
     expect((await store.listPaymentsByGig(G1))[0]?.amountCents).toBe(5000);
 
     const ops = await store.pendingOps();
-    expect(ops.map((o) => o.entity).sort()).toEqual(["gig", "payment", "service"]);
+    // Four, not three: a payment given a gig now queues the allocation
+    // that says so, because the payment op itself no longer carries
+    // `gigId` (see the allocations suite at the bottom of this file).
+    expect(ops.map((o) => o.entity).sort()).toEqual([
+      "allocation",
+      "gig",
+      "payment",
+      "service",
+    ]);
   });
 
   it("removing a service enqueues its delete op", async () => {
@@ -368,5 +385,327 @@ describe("the outbox payload carries everything the server accepts", () => {
       "notes",
       "reimbursable",
     ]);
+  });
+});
+
+// ── Phase 4: allocations, and the legacy `gigId` migration ─────────
+//
+// The rule these tests exist to hold in place: this build manages a
+// payment's allocations itself and therefore must NOT send
+// `PaymentInput.gigId`. Server-side that field triggers
+// `AllocationsRepo.replaceSoleAllocation`, which rewrites a payment's
+// allocations to a single one for the payment's FULL amount. Its guard
+// only spares a payment carrying more than one, so a payment split
+// 50.00 with 100.00 deliberately unallocated — the exact state the
+// split editor exists to create — would come back rewritten to 150.00
+// with the remainder gone.
+describe("LocalStore allocations", () => {
+  it("queues an allocation and lists it by payment and by gig", async () => {
+    const { store } = makeStore();
+
+    await store.putAllocation(A1, { paymentId: P1, gigId: G1, amountCents: 5000 });
+
+    expect(await store.listAllocationsByPayment(P1)).toHaveLength(1);
+    expect(await store.listAllocationsByGig(G1)).toHaveLength(1);
+    expect((await store.getAllocation(A1))?.amountCents).toBe(5000);
+    const op = (await store.pendingOps()).find((o) => o.entity === "allocation");
+    expect(op?.op).toBe("upsert");
+    expect(op?.payload).toEqual({ paymentId: P1, gigId: G1, amountCents: 5000 });
+  });
+
+  it("sends every allocation field the server will accept, and no other", async () => {
+    const { store } = makeStore();
+    await store.putAllocation(A1, { paymentId: P1, gigId: G1, amountCents: 5000 });
+
+    const op = (await store.pendingOps()).find((o) => o.entity === "allocation");
+
+    expect(Object.keys(op?.payload as object).sort()).toEqual([
+      "amountCents",
+      "gigId",
+      "paymentId",
+    ]);
+  });
+
+  it("removeAllocation deletes locally and queues the delete", async () => {
+    const { store } = makeStore();
+    await store.putAllocation(A1, { paymentId: P1, gigId: G1, amountCents: 5000 });
+
+    await store.removeAllocation(A1);
+
+    expect(await store.getAllocation(A1)).toBeNull();
+    const op = (await store.pendingOps()).find((o) => o.entity === "allocation");
+    expect(op?.op).toBe("delete");
+  });
+
+  it("putPayment NEVER sends gigId — it writes the allocation instead", async () => {
+    const { store } = makeStore(() => 1000, `u-${++dbSeq}`, () => A1);
+
+    await store.putPayment(P1, { gigId: G1, amountCents: 15000, notes: "cheque" });
+
+    const paymentOp = (await store.pendingOps()).find((o) => o.entity === "payment");
+    // The field that would trigger the server's compat rewrite.
+    expect(paymentOp?.payload).not.toHaveProperty("gigId");
+    // Guard against that assertion passing on an empty payload.
+    expect(Object.keys(paymentOp?.payload as object).sort()).toEqual([
+      "amountCents",
+      "notes",
+      "paidAt",
+    ]);
+    // The link itself, now expressed the way the server can act on.
+    expect(await store.listAllocationsByPayment(P1)).toEqual([
+      expect.objectContaining({ id: A1, gigId: G1, amountCents: 15000 }),
+    ]);
+  });
+
+  it("resolves a payment's gig from its allocation once the server nulls the column", async () => {
+    // What a pull looks like after this build has saved a payment: the
+    // server took the write without a gigId, so the column comes back
+    // null and the allocation carries the answer.
+    const { store } = makeStore();
+    const pulled: Payment = {
+      id: P1,
+      gigId: null,
+      amountCents: 15000,
+      paidAt: null,
+      confirmationR2Key: null,
+      notes: null,
+      createdAt: 1,
+      modifiedAt: 2,
+    };
+    await store.applyServerRecord("payment", pulled);
+    const allocation: Allocation = {
+      id: A1,
+      paymentId: P1,
+      gigId: G1,
+      amountCents: 15000,
+      createdAt: 1,
+      modifiedAt: 2,
+    };
+    await store.applyServerRecord("allocation", allocation);
+
+    expect((await store.getPayment(P1))?.gigId).toBe(G1);
+    expect((await store.listPayments())[0]?.gigId).toBe(G1);
+    expect(await store.listPaymentsByGig(G1)).toHaveLength(1);
+  });
+
+  it("resolves a SPLIT payment's gig to null rather than naming one of them", async () => {
+    const { store } = makeStore();
+    await store.applyServerRecord("payment", {
+      id: P1,
+      gigId: null,
+      amountCents: 15000,
+      paidAt: null,
+      confirmationR2Key: null,
+      notes: null,
+      createdAt: 1,
+      modifiedAt: 2,
+    } satisfies Payment);
+    await store.putAllocation(A1, { paymentId: P1, gigId: G1, amountCents: 10000 });
+    await store.putAllocation(A2, { paymentId: P1, gigId: G2, amountCents: 5000 });
+
+    expect((await store.getPayment(P1))?.gigId).toBeNull();
+    // Still reachable from both gigs, which is the point of the split.
+    expect(await store.listPaymentsByGig(G1)).toHaveLength(1);
+    expect(await store.listPaymentsByGig(G2)).toHaveLength(1);
+  });
+
+  it("leaves a partial allocation alone when the payment is saved without a gigId", async () => {
+    // The corruption this whole design is about: 50.00 allocated out of
+    // 150.00, the remaining 100.00 deliberately unallocated. Saving the
+    // payment (Task 7's screen passes no gigId) must not touch it. Were
+    // gigId still on the wire, the server would inflate this allocation
+    // to 150.00 and the remainder would vanish.
+    let now = 1000;
+    const { store } = makeStore(() => now);
+    await store.putPayment(P1, { amountCents: 15000 });
+    await store.putAllocation(A1, { paymentId: P1, gigId: G1, amountCents: 5000 });
+
+    now = 2000;
+    await store.putPayment(P1, { amountCents: 15000, notes: "bank transfer" });
+
+    expect(await store.listAllocationsByPayment(P1)).toEqual([
+      expect.objectContaining({ id: A1, amountCents: 5000 }),
+    ]);
+    const allocationOp = (await store.pendingOps()).find(
+      (o) => o.entity === "allocation",
+    );
+    expect(allocationOp?.modifiedAt).toBe(1000); // untouched by the 2000 save
+  });
+
+  it("refuses to collapse a split even when a caller does pass a gigId", async () => {
+    // The client-side twin of AllocationsRepo.replaceSoleAllocation's
+    // guard: a `gigId` cannot have authored the split it would erase.
+    const { store } = makeStore();
+    await store.putPayment(P1, { amountCents: 15000 });
+    await store.putAllocation(A1, { paymentId: P1, gigId: G1, amountCents: 10000 });
+    await store.putAllocation(A2, { paymentId: P1, gigId: G2, amountCents: 5000 });
+
+    await store.putPayment(P1, { gigId: G1, amountCents: 15000 });
+
+    expect(await store.listAllocationsByPayment(P1)).toEqual([
+      expect.objectContaining({ id: A1, gigId: G1, amountCents: 10000 }),
+      expect.objectContaining({ id: A2, gigId: G2, amountCents: 5000 }),
+    ]);
+  });
+
+  it("MIGRATION: edits the server-made allocation of an OLD client's payment in place", async () => {
+    // A payment created before this release: the server holds a gigId
+    // AND one allocation it minted itself (migration 0016's backfill, or
+    // the compat path). Both arrive by pull. Editing the payment here
+    // must reuse that allocation's id — minting a second would push the
+    // payment over its own amount and the server would refuse it.
+    const SERVER_ALLOC = "88888888-8888-4888-8888-888888888888";
+    let now = 1000;
+    const { store } = makeStore(() => now, `u-${++dbSeq}`, () => A1);
+    await store.applyServerRecord("payment", {
+      id: P1,
+      gigId: G1,
+      amountCents: 15000,
+      paidAt: null,
+      confirmationR2Key: null,
+      notes: null,
+      createdAt: 1,
+      modifiedAt: 2,
+    } satisfies Payment);
+    await store.applyServerRecord("allocation", {
+      id: SERVER_ALLOC,
+      paymentId: P1,
+      gigId: G1,
+      amountCents: 15000,
+      createdAt: 1,
+      modifiedAt: 2,
+    } satisfies Allocation);
+
+    now = 3000;
+    // The payment screen as it stands today: it reads back the gig it
+    // resolved and sends it again, this time with a corrected amount.
+    await store.putPayment(P1, { gigId: G1, amountCents: 5000 });
+
+    expect(await store.listAllocationsByPayment(P1)).toEqual([
+      expect.objectContaining({ id: SERVER_ALLOC, gigId: G1, amountCents: 5000 }),
+    ]);
+    const ops = await store.pendingOps();
+    expect(ops.filter((o) => o.entity === "allocation")).toHaveLength(1);
+    expect(ops.find((o) => o.entity === "allocation")?.entityId).toBe(SERVER_ALLOC);
+    expect(ops.find((o) => o.entity === "payment")?.payload).not.toHaveProperty(
+      "gigId",
+    );
+  });
+
+  it("MIGRATION: leaves an outbox op queued by the OLD build exactly as it was", async () => {
+    // The old build put gigId on every payment write. Such an op can
+    // still be sitting in the outbox when this build starts up, and it
+    // must drain through the server's compat path untouched — this
+    // build neither rewrites it nor strips it.
+    const { store, db } = makeStore();
+    await db.pendingOps.put({
+      opKey: `payment:${P1}`,
+      entity: "payment",
+      entityId: P1,
+      op: "upsert",
+      payload: { gigId: G1, amountCents: 15000, paidAt: null, notes: null },
+      modifiedAt: 500,
+      queuedAt: 500,
+    });
+
+    const op = (await store.pendingOps()).find((o) => o.entity === "payment");
+
+    expect(op?.payload).toEqual({
+      gigId: G1,
+      amountCents: 15000,
+      paidAt: null,
+      notes: null,
+    });
+  });
+
+  it("MIGRATION: a re-save on this build replaces the old build's queued payload", async () => {
+    const { store, db } = makeStore(() => 1000, `u-${++dbSeq}`, () => A1);
+    await db.pendingOps.put({
+      opKey: `payment:${P1}`,
+      entity: "payment",
+      entityId: P1,
+      op: "upsert",
+      payload: { gigId: G1, amountCents: 15000, paidAt: null, notes: null },
+      modifiedAt: 500,
+      queuedAt: 500,
+    });
+
+    await store.putPayment(P1, { gigId: G1, amountCents: 15000 });
+
+    const op = (await store.pendingOps()).find((o) => o.entity === "payment");
+    expect(op?.payload).not.toHaveProperty("gigId");
+    // Queued position is preserved, as it is for every folded op.
+    expect(op?.queuedAt).toBe(500);
+    // …and the link the stripped field expressed is now an allocation.
+    expect(await store.listAllocationsByPayment(P1)).toHaveLength(1);
+  });
+
+  it("removePayment drops the payment's allocations without queueing ops for them", async () => {
+    // Deleting a payment server-side already deletes its allocations
+    // (payment_allocations.payment_id has no ON DELETE CASCADE, so both
+    // doors do it explicitly). Queueing our own deletes on top could
+    // only race with that.
+    const { store } = makeStore();
+    await store.putPayment(P1, { amountCents: 15000 });
+    await store.putAllocation(A1, { paymentId: P1, gigId: G1, amountCents: 5000 });
+
+    await store.removePayment(P1);
+
+    expect(await store.listAllocationsByPayment(P1)).toEqual([]);
+    const allocationOps = (await store.pendingOps()).filter(
+      (o) => o.entity === "allocation",
+    );
+    expect(allocationOps.map((o) => o.op)).toEqual(["upsert"]); // the create, not a delete
+  });
+});
+
+describe("GigsyUserDB v3 upgrade", () => {
+  it("keeps v2 data and adds the allocations store", async () => {
+    const userId = `upgrade-${++dbSeq}`;
+    // A browser that last ran the previous release: v2 schema, v2 data.
+    const v2 = new Dexie(`gigsy-user-${userId}`);
+    v2.version(1).stores({
+      gigs: "id, dateTime, modifiedAt",
+      clients: "id, name, modifiedAt",
+      expenses: "id, createdAt, modifiedAt",
+      pendingOps: "opKey, queuedAt",
+    });
+    v2.version(2).stores({
+      services: "id, gigId, modifiedAt",
+      payments: "id, gigId, createdAt, modifiedAt",
+    });
+    await v2.open();
+    await v2.table("payments").put({
+      id: P1,
+      gigId: G1,
+      amountCents: 15000,
+      paidAt: null,
+      confirmationR2Key: null,
+      notes: "recorded on the old build",
+      createdAt: 1,
+      modifiedAt: 2,
+    });
+    await v2.table("pendingOps").put({
+      opKey: `payment:${P1}`,
+      entity: "payment",
+      entityId: P1,
+      op: "upsert",
+      payload: { gigId: G1, amountCents: 15000, paidAt: null, notes: null },
+      modifiedAt: 500,
+      queuedAt: 500,
+    });
+    v2.close();
+
+    const { store } = makeStore(() => 1000, userId);
+
+    // v3 is a pure addition: nothing is rewritten and nothing is lost —
+    // including the outbox the user had not managed to drain.
+    const payment = await store.getPayment(P1);
+    expect(payment?.notes).toBe("recorded on the old build");
+    expect(payment?.gigId).toBe(G1); // no allocation yet: the column still answers
+    expect(await store.pendingCount()).toBe(1);
+    // …and the new store is there and usable.
+    await store.putAllocation(A1, { paymentId: P1, gigId: G1, amountCents: 15000 });
+    expect(await store.listAllocationsByPayment(P1)).toHaveLength(1);
   });
 });
