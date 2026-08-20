@@ -111,22 +111,68 @@ export const draftsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }
     }
     const draft = confirmed;
 
-    const upserted = await paymentsRepo.upsert(
-      userId,
-      paymentId,
-      {
-        gigId: input.gigId ?? null,
-        amountCents: input.amountCents,
-        paidAt: input.paidAt ?? null,
-        notes: input.notes ?? null,
-      },
-      { now },
-    );
-    // Only reachable if `paymentId` belongs to a different user — the
-    // same-user case was already refused above. Kept rather than
-    // trusted away: the pre-check and this write are not one atomic
-    // step, and "not found" costs nothing to also say here.
-    if (upserted === "forbidden") return c.json({ error: "not found" }, 404);
+    // From here on the draft says "confirmed". This is deliberately
+    // NOT one transaction with the write below: D1's db.batch() (it
+    // exists — drizzle-orm/d1 exposes it) runs every statement in the
+    // batch unconditionally, with no way to make the payment INSERT
+    // conditional on the draft UPDATE's WHERE clause having actually
+    // matched a row, so batching the two would reopen exactly the
+    // double-payment race the close-then-create ordering above exists
+    // to close — a loser's UPDATE affecting zero rows wouldn't stop
+    // its INSERT from still running. Making that conditional would
+    // need raw SQL with no precedent in this codebase (a subquery
+    // guard, or relying on SQLite's connection-scoped `changes()`
+    // across statements in one batch) — judged not worth the risk for
+    // what is already a narrow, mostly-theoretical window.
+    //
+    // What batching doesn't solve for still needs an answer: a failure
+    // in payment creation past this point would otherwise strand the
+    // draft — permanently "confirmed", absent from the pending list,
+    // invisible to retry (setStatus's WHERE refuses a second close),
+    // and with nothing in the app able to turn it back into a payment.
+    // `reopen()` is the compensating action: put the draft back to
+    // "pending" so the user simply sees it in Drafts again and can
+    // retry, logging loudly enough (draftId, paymentId, userId) that
+    // this is findable even before anyone reports it missing.
+    const reopenAndLog = async (reason: string, extra: Record<string, unknown> = {}) => {
+      await draftsRepo.reopen(userId, draftId, now);
+      log.error("draft confirmed but payment creation failed — reopened for retry", {
+        draftId,
+        paymentId,
+        userId,
+        reason,
+        ...extra,
+      });
+    };
+
+    let upserted: Awaited<ReturnType<typeof paymentsRepo.upsert>>;
+    try {
+      upserted = await paymentsRepo.upsert(
+        userId,
+        paymentId,
+        {
+          gigId: input.gigId ?? null,
+          amountCents: input.amountCents,
+          paidAt: input.paidAt ?? null,
+          notes: input.notes ?? null,
+        },
+        { now },
+      );
+    } catch (err) {
+      await reopenAndLog("upsert threw", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return c.json({ error: "payment creation failed" }, 500);
+    }
+    if (upserted === "forbidden") {
+      // Only reachable if `paymentId` belongs to a different user —
+      // the same-user case was already refused above, before the
+      // draft closed, which is exactly why this one still needs the
+      // compensating reopen: that earlier check ran before the close,
+      // this one is discovered after it.
+      await reopenAndLog("payment id belongs to another user");
+      return c.json({ error: "not found" }, 404);
+    }
     let record = upserted.record;
 
     // The receipt IS the proof — copy it rather than asking the client

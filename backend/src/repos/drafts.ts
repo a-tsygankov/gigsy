@@ -112,4 +112,30 @@ export class DraftsRepo {
     const existing = await this.get(userId, id);
     return existing === null ? "not-found" : "conflict";
   }
+
+  /**
+   * Reverses a confirmation that did not finish — NOT a general escape
+   * from the one-way pending→reviewed gate `setStatus` enforces above.
+   * The only caller is routes/drafts.ts's confirm-payment: it closes
+   * the draft first (so two concurrent confirms can't both create a
+   * payment) and only then creates the payment, which means a failure
+   * in that second step happens after the draft already says
+   * "confirmed". Left alone, that draft is stranded permanently: it no
+   * longer appears in the pending list, a retry hits `setStatus`'s own
+   * WHERE clause and gets "conflict", and nothing in the app can turn
+   * it back into a payment. Going back to `pending` here is what makes
+   * "the user sees it in Drafts and tries again" true instead.
+   */
+  async reopen(
+    userId: string,
+    id: string,
+    now: number,
+  ): Promise<DraftRecord | "not-found"> {
+    const updated = await this.db
+      .update(drafts)
+      .set({ status: "pending", modifiedAt: now })
+      .where(and(eq(drafts.id, id), eq(drafts.userId, userId)))
+      .returning();
+    return updated[0] ?? "not-found";
+  }
 }

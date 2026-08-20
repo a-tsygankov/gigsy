@@ -200,4 +200,45 @@ describe("POST /api/drafts/:id/confirm-payment", () => {
     };
     expect(draft.status).toBe("confirmed");
   });
+
+  it("reopens the draft — rather than stranding it confirmed — when payment creation is refused after the close", async () => {
+    // Owned by U2. The route's own precheck (paymentsRepo.get scoped to
+    // the CALLER's userId) won't see it, so U1's confirm-payment
+    // proceeds far enough to close U1's draft before PaymentsRepo.upsert
+    // discovers the id belongs to someone else and returns "forbidden" —
+    // exactly the "failure after close" window reopen() exists for.
+    const collidingId = "12121212-aaaa-4aaa-8aaa-121212121212";
+    await api(U2, "PUT", `/api/payments/${collidingId}`, { amountCents: 500 });
+
+    const draftId = "13131313-dddd-4ddd-8ddd-131313131313";
+    await seedDraft(U1, draftId);
+
+    const res = await api(U1, "POST", `/api/drafts/${draftId}/confirm-payment`, {
+      id: collidingId,
+      amountCents: 1000,
+    });
+    expect(res.status).toBe(404);
+
+    // Not stranded "confirmed" with no payment — back to pending, so
+    // Drafts.tsx lists it again and the user can simply retry.
+    const draft = (await (await api(U1, "GET", `/api/drafts/${draftId}`)).json()) as {
+      status: string;
+    };
+    expect(draft.status).toBe("pending");
+
+    // U2's original payment is untouched.
+    const theirs = (await (await api(U2, "GET", `/api/payments/${collidingId}`)).json()) as {
+      amountCents: number;
+    };
+    expect(theirs.amountCents).toBe(500);
+
+    // And the reopened draft is genuinely usable again, not just
+    // readable — the whole point of reopening is that a retry works.
+    const retryId = "14141414-aaaa-4aaa-8aaa-141414141414";
+    const retry = await api(U1, "POST", `/api/drafts/${draftId}/confirm-payment`, {
+      id: retryId,
+      amountCents: 1000,
+    });
+    expect(retry.status).toBe(201);
+  });
 });
