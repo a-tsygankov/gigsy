@@ -141,6 +141,51 @@ describe("POST /api/drafts/:id/confirm-payment", () => {
     expect(gig?.amount_paid_cents).toBe(5000);
   });
 
+  // The split-preserving guard on AllocationsRepo.replaceSoleAllocation
+  // is a no-op for this door, and structurally so: this route CREATES a
+  // payment — a payment id that already exists is refused with a 409
+  // before any allocation code runs — so there is never a pre-existing
+  // split here for the guard to have an opinion about. Pinned rather
+  // than argued, because "this route can only ever create" is the whole
+  // reason the legacy gigId translation stays unconditional here.
+  it("refuses a payment id that already carries a split, without touching it", async () => {
+    const gigA = "3a3a3a3a-aaaa-4aaa-8aaa-3a3a3a3a3a3a";
+    const gigB = "3a3a3a3a-bbbb-4bbb-8bbb-3a3a3a3a3a3a";
+    const paymentId = "3c3c3c3c-aaaa-4aaa-8aaa-3c3c3c3c3c3c";
+    for (const gigId of [gigA, gigB]) {
+      await api(U1, "PUT", `/api/gigs/${gigId}`, {
+        status: "completed",
+        amountOfferedCents: 20000,
+      });
+    }
+    await api(U1, "PUT", `/api/payments/${paymentId}`, { amountCents: 10000 });
+    await api(U1, "PUT", `/api/allocations/3d3d3d3d-aaaa-4aaa-8aaa-3d3d3d3d3d3d`, {
+      paymentId, gigId: gigA, amountCents: 4000,
+    });
+    await api(U1, "PUT", `/api/allocations/3d3d3d3d-bbbb-4bbb-8bbb-3d3d3d3d3d3d`, {
+      paymentId, gigId: gigB, amountCents: 3000,
+    });
+
+    const draftId = "3b3b3b3b-dddd-4ddd-8ddd-3b3b3b3b3b3b";
+    await seedDraft(U1, draftId);
+    const res = await api(U1, "POST", `/api/drafts/${draftId}/confirm-payment`, {
+      id: paymentId,
+      amountCents: 5000,
+      gigId: gigA,
+    });
+    expect(res.status).toBe(409);
+
+    const allocations = await env.DB.prepare(
+      "SELECT gig_id, amount_cents FROM payment_allocations WHERE user_id = ? AND payment_id = ? ORDER BY gig_id",
+    )
+      .bind(U1, paymentId)
+      .all<{ gig_id: string; amount_cents: number }>();
+    expect(allocations.results).toEqual([
+      { gig_id: gigA, amount_cents: 4000 },
+      { gig_id: gigB, amount_cents: 3000 },
+    ]);
+  });
+
   it("leaves the gig's derived total alone when the confirmation names no gig", async () => {
     // The other half of the branch: an unattributed receipt must not
     // invent an allocation, and no gig's total may move because of it.

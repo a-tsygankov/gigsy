@@ -119,6 +119,118 @@ describe("AllocationsRepo", () => {
   });
 });
 
+// The guard lives on the repo method rather than only in
+// services/payment-invariants.ts because there are three callers, not
+// two: routes/payments.ts and services/sync.ts share the invariants
+// module, but routes/drafts.ts's confirm-payment does not — it runs its
+// own gigId ownership check and calls this method directly. A guard
+// only in the invariants module would leave that door open, and any
+// future caller with it.
+describe("AllocationsRepo.replaceSoleAllocation", () => {
+  const rowsFor = async (paymentId: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT gig_id AS gigId, amount_cents AS amountCents FROM payment_allocations WHERE payment_id = ? ORDER BY gig_id",
+      )
+        .bind(paymentId)
+        .all<{ gigId: string; amountCents: number }>()
+    ).results;
+
+  it("writes one allocation when the payment has none — the creation path", async () => {
+    const repo = AllocationsRepo.for(env.DB);
+    const affected = await repo.replaceSoleAllocation(U1, PAY, GIG_A, 15000, 5);
+    expect(affected).toEqual([GIG_A]);
+    expect(await rowsFor(PAY)).toEqual([{ gigId: GIG_A, amountCents: 15000 }]);
+  });
+
+  it("replaces a lone allocation and reports the gig it moved away from", async () => {
+    const repo = AllocationsRepo.for(env.DB);
+    await repo.upsert(
+      U1,
+      crypto.randomUUID(),
+      { paymentId: PAY, gigId: GIG_A, amountCents: 4000 },
+      { now: 1 },
+    );
+
+    const affected = await repo.replaceSoleAllocation(U1, PAY, GIG_B, 15000, 5);
+    expect([...affected].sort()).toEqual([GIG_A, GIG_B].sort());
+    expect(await rowsFor(PAY)).toEqual([{ gigId: GIG_B, amountCents: 15000 }]);
+  });
+
+  it("declines to collapse a split, and reports no gig as affected", async () => {
+    const repo = AllocationsRepo.for(env.DB);
+    await repo.upsert(
+      U1,
+      crypto.randomUUID(),
+      { paymentId: PAY, gigId: GIG_A, amountCents: 4000 },
+      { now: 1 },
+    );
+    await repo.upsert(
+      U1,
+      crypto.randomUUID(),
+      { paymentId: PAY, gigId: GIG_B, amountCents: 3000 },
+      { now: 1 },
+    );
+
+    const affected = await repo.replaceSoleAllocation(U1, PAY, GIG_A, 15000, 5);
+
+    // Empty, not [GIG_A]: nothing moved, so nothing needs recomputing —
+    // and a caller that recomputed GIG_A anyway would only rewrite the
+    // same 4000 it already holds.
+    expect(affected).toEqual([]);
+    expect(await rowsFor(PAY)).toEqual([
+      { gigId: GIG_A, amountCents: 4000 },
+      { gigId: GIG_B, amountCents: 3000 },
+    ]);
+  });
+
+  it("counts rows, not distinct gigs — two allocations to one gig are still a split", async () => {
+    // Nothing forbids two rows against the same gig, and a payment
+    // holding two rows was necessarily written by an allocations-aware
+    // client. A legacy payload has no business rewriting either.
+    const repo = AllocationsRepo.for(env.DB);
+    await repo.upsert(
+      U1,
+      crypto.randomUUID(),
+      { paymentId: PAY, gigId: GIG_A, amountCents: 4000 },
+      { now: 1 },
+    );
+    await repo.upsert(
+      U1,
+      crypto.randomUUID(),
+      { paymentId: PAY, gigId: GIG_A, amountCents: 3000 },
+      { now: 1 },
+    );
+
+    expect(await repo.replaceSoleAllocation(U1, PAY, GIG_A, 15000, 5)).toEqual([]);
+    expect(await rowsFor(PAY)).toHaveLength(2);
+  });
+
+  it("ignores another payment's allocations when deciding", async () => {
+    // The count must be scoped to this payment — a second payment
+    // carrying its own allocation must not make this one look split.
+    const repo = AllocationsRepo.for(env.DB);
+    const otherPayment = crypto.randomUUID();
+    await seedPayment(otherPayment, U1, 5000);
+    await repo.upsert(
+      U1,
+      crypto.randomUUID(),
+      { paymentId: otherPayment, gigId: GIG_B, amountCents: 5000 },
+      { now: 1 },
+    );
+    await repo.upsert(
+      U1,
+      crypto.randomUUID(),
+      { paymentId: PAY, gigId: GIG_A, amountCents: 4000 },
+      { now: 1 },
+    );
+
+    await repo.replaceSoleAllocation(U1, PAY, GIG_A, 15000, 5);
+    expect(await rowsFor(PAY)).toEqual([{ gigId: GIG_A, amountCents: 15000 }]);
+    expect(await rowsFor(otherPayment)).toEqual([{ gigId: GIG_B, amountCents: 5000 }]);
+  });
+});
+
 describe("recomputePaidTotals", () => {
   it("writes each gig's paid total back to the gig", async () => {
     const repo = AllocationsRepo.for(env.DB);

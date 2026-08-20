@@ -107,6 +107,106 @@ describe("the gigId compat path respects the client rule", () => {
   });
 });
 
+// The route door onto the same guard services/sync.ts is tested for.
+// Both doors reach AllocationsRepo.replaceSoleAllocation, and this
+// codebase has repeatedly had an invariant fixed at one door and not
+// the other — hence a paired test rather than one.
+//
+// Asserted straight out of D1: GET /api/payments/:id computes
+// allocatedCents on the way out, so a route read could look right over
+// rows that are wrong.
+describe("a legacy gigId must not destroy an existing split", () => {
+  const ALLOC_2 = "70000000-7777-4777-8777-700000000007";
+
+  const allocationRows = async (paymentId: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT gig_id AS gigId, amount_cents AS amountCents FROM payment_allocations WHERE payment_id = ? ORDER BY gig_id",
+      )
+        .bind(paymentId)
+        .all<{ gigId: string; amountCents: number }>()
+    ).results;
+
+  const paidCents = async (gigId: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT amount_paid_cents AS amountPaidCents FROM gigs WHERE id = ?",
+      )
+        .bind(gigId)
+        .first<{ amountPaidCents: number | null }>()
+    )?.amountPaidCents ?? null;
+
+  /** A 10000 payment split 4000/3000 across two gigs. The payment
+   *  carries no clientId, which is what lets it allocate to gigs
+   *  belonging to two different clients. */
+  async function seedSplit(): Promise<void> {
+    await api(U1, "PUT", `/api/payments/${PAY}`, { amountCents: 10000 });
+    await api(U1, "PUT", `/api/allocations/${ALLOC}`, {
+      paymentId: PAY, gigId: GIG_1, amountCents: 4000,
+    });
+    await api(U1, "PUT", `/api/allocations/${ALLOC_2}`, {
+      paymentId: PAY, gigId: GIG_2, amountCents: 3000,
+    });
+    expect(await allocationRows(PAY)).toHaveLength(2);
+  }
+
+  it("leaves both allocations and both derived totals untouched", async () => {
+    await seedSplit();
+
+    // Exactly what the shipped webapp sends on any payment edit: it
+    // predates allocations, so gigId rides along on every write.
+    const res = await api(U1, "PUT", `/api/payments/${PAY}`, {
+      amountCents: 10000, gigId: GIG_1, notes: "edited on an old build",
+    });
+    expect(res.status).toBe(200);
+
+    expect(await allocationRows(PAY)).toEqual([
+      { gigId: GIG_1, amountCents: 4000 },
+      { gigId: GIG_2, amountCents: 3000 },
+    ]);
+    expect(await paidCents(GIG_1)).toBe(4000);
+    expect(await paidCents(GIG_2)).toBe(3000);
+    // The rest of the payment write still lands — only the allocations
+    // are off limits.
+    expect((await getPayment(PAY)).amountCents).toBe(10000);
+  });
+
+  it("refuses a legacy write that would shrink the payment below the preserved split", async () => {
+    await seedSplit();
+
+    // I4 is skipped on the compat path because that path used to resize
+    // every allocation to the new amount. It no longer does when a
+    // split survives, so the shrink refusal has to apply here again.
+    const res = await api(U1, "PUT", `/api/payments/${PAY}`, {
+      amountCents: 5000, gigId: GIG_1,
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(
+      /amountCents is less than the payment's allocated total/,
+    );
+    expect((await getPayment(PAY)).amountCents).toBe(10000);
+    expect(await allocationRows(PAY)).toHaveLength(2);
+  });
+
+  it("still replaces a lone allocation, including moving it to another gig", async () => {
+    await api(U1, "PUT", `/api/payments/${PAY}`, { amountCents: 10000 });
+    await api(U1, "PUT", `/api/allocations/${ALLOC}`, {
+      paymentId: PAY, gigId: GIG_1, amountCents: 4000,
+    });
+
+    const res = await api(U1, "PUT", `/api/payments/${PAY}`, {
+      amountCents: 9000, gigId: GIG_2,
+    });
+    expect(res.status).toBe(200);
+
+    expect(await allocationRows(PAY)).toEqual([
+      { gigId: GIG_2, amountCents: 9000 },
+    ]);
+    expect(await paidCents(GIG_1)).toBeNull();
+    expect(await paidCents(GIG_2)).toBe(9000);
+  });
+});
+
 describe("shrinking a payment below its allocated total", () => {
   it("is rejected", async () => {
     await api(U1, "PUT", `/api/payments/${PAY}`, { amountCents: 10000 });

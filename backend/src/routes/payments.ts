@@ -80,9 +80,10 @@ export const paymentsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars
     // for the outbox path — see that file for why it matters there too.
     // replaceSoleAllocation is keyed off the payment id, not any id the
     // client supplies, so replaying the same payment upsert converges
-    // on one allocation instead of adding a second — see that method's
-    // docstring for what it does to a payment that was previously split
-    // across several gigs.
+    // on one allocation instead of adding a second. A payment that
+    // already carries a SPLIT is left untouched by it — see that
+    // method's docstring — so this branch is a no-op there rather than
+    // a legacy device quietly reassigning money between gigs.
     if (input.gigId != null) {
       const affectedGigIds = await allocationsRepo.replaceSoleAllocation(
         userId,

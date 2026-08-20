@@ -677,4 +677,149 @@ describe("POST /api/sync", () => {
       expect((await getGig(GIG_TO)).amountPaidCents).toBe(3000);
     });
   });
+
+  // The legacy `gigId` compat path must not be able to collapse a
+  // payment that is already split across several gigs. Every shipped
+  // webapp build predates allocations and puts `gigId` on EVERY payment
+  // write, so without this guard a note edit queued on an un-updated
+  // device silently reassigns the whole payment to one gig — the split
+  // rows deleted, the other gigs' derived totals dropping to null.
+  //
+  // Asserted straight out of D1 rather than through /api/allocations or
+  // /api/gigs: the point is what is actually stored, not what a read
+  // route recomputes on the way out.
+  describe("a legacy payment gigId must not destroy an existing split", () => {
+    const GIG_A = "65000000-0000-4000-8000-00000000000a";
+    const GIG_B = "65000000-0000-4000-8000-00000000000b";
+    const PID = "65000000-0000-4000-8000-00000000000c";
+    const ALLOC_A = "65000000-0000-4000-8000-00000000000d";
+    const ALLOC_B = "65000000-0000-4000-8000-00000000000e";
+
+    const allocationRows = async (paymentId: string) =>
+      (
+        await env.DB.prepare(
+          "SELECT gig_id AS gigId, amount_cents AS amountCents FROM payment_allocations WHERE payment_id = ? ORDER BY gig_id",
+        )
+          .bind(paymentId)
+          .all<{ gigId: string; amountCents: number }>()
+      ).results;
+
+    const paidCents = async (gigId: string) =>
+      (
+        await env.DB.prepare(
+          "SELECT amount_paid_cents AS amountPaidCents FROM gigs WHERE id = ?",
+        )
+          .bind(gigId)
+          .first<{ amountPaidCents: number | null }>()
+      )?.amountPaidCents ?? null;
+
+    /** A 10000 payment split 4000/3000 across two gigs, exactly the
+     *  shape the split-payment UI is about to start producing. */
+    async function seedSplit(): Promise<void> {
+      await sync(U1, [
+        { entity: "gig", op: "upsert", id: GIG_A, modifiedAt: 1, payload: { status: "completed" } },
+        { entity: "gig", op: "upsert", id: GIG_B, modifiedAt: 1, payload: { status: "completed" } },
+        { entity: "payment", op: "upsert", id: PID, modifiedAt: 1, payload: { amountCents: 10000 } },
+        {
+          entity: "allocation", op: "upsert", id: ALLOC_A, modifiedAt: 1,
+          payload: { paymentId: PID, gigId: GIG_A, amountCents: 4000 },
+        },
+        {
+          entity: "allocation", op: "upsert", id: ALLOC_B, modifiedAt: 1,
+          payload: { paymentId: PID, gigId: GIG_B, amountCents: 3000 },
+        },
+      ]);
+      expect(await allocationRows(PID)).toHaveLength(2);
+      expect(await paidCents(GIG_A)).toBe(4000);
+      expect(await paidCents(GIG_B)).toBe(3000);
+    }
+
+    it("leaves both allocations and both derived totals untouched", async () => {
+      await seedSplit();
+
+      // The un-updated device's outbox op: an ordinary payment edit
+      // that happens to carry the legacy gigId, naming only one of the
+      // two gigs the money is actually split across.
+      const body = await sync(U1, [
+        {
+          entity: "payment", op: "upsert", id: PID, modifiedAt: 2,
+          payload: { amountCents: 10000, gigId: GIG_A, notes: "edited offline" },
+        },
+      ]);
+      expect(body.results[0]?.status).toBe("applied");
+
+      // The payment edit itself still lands — only the allocations are
+      // off limits.
+      const payment = await env.DB.prepare("SELECT notes FROM payments WHERE id = ?")
+        .bind(PID)
+        .first<{ notes: string | null }>();
+      expect(payment?.notes).toBe("edited offline");
+
+      expect(await allocationRows(PID)).toEqual([
+        { gigId: GIG_A, amountCents: 4000 },
+        { gigId: GIG_B, amountCents: 3000 },
+      ]);
+      expect(await paidCents(GIG_A)).toBe(4000);
+      expect(await paidCents(GIG_B)).toBe(3000);
+    });
+
+    // I4 (payment-invariants.ts) is skipped on the compat path because
+    // that path used to resize every allocation to the new amount. It
+    // no longer does when a split is preserved, so the shrink refusal
+    // has to come back — otherwise a legacy op could leave 7000
+    // allocated against a 5000 payment.
+    it("refuses a legacy op that would shrink the payment below the preserved split", async () => {
+      await seedSplit();
+
+      const res = await api(U1, "POST", "/api/sync", {
+        ops: [
+          {
+            entity: "payment", op: "upsert", id: PID, modifiedAt: 2,
+            payload: { amountCents: 5000, gigId: GIG_A },
+          },
+        ],
+      });
+      const body = (await res.json()) as SyncResponse;
+      expect(body.results[0]?.status).toBe("error");
+      expect(body.results[0]?.reason).toMatch(
+        /amountCents is less than the payment's allocated total/,
+      );
+
+      const amount = await env.DB.prepare(
+        "SELECT amount_cents AS amountCents FROM payments WHERE id = ?",
+      )
+        .bind(PID)
+        .first<{ amountCents: number }>();
+      expect(amount?.amountCents).toBe(10000);
+      expect(await allocationRows(PID)).toHaveLength(2);
+    });
+
+    // The other half of the contract: one allocation is the ordinary
+    // legacy shape and must keep behaving exactly as it does today —
+    // replaced in place, moved to whatever gig the payload names.
+    it("still replaces a lone allocation, including moving it to another gig", async () => {
+      await sync(U1, [
+        { entity: "gig", op: "upsert", id: GIG_A, modifiedAt: 1, payload: { status: "completed" } },
+        { entity: "gig", op: "upsert", id: GIG_B, modifiedAt: 1, payload: { status: "completed" } },
+        { entity: "payment", op: "upsert", id: PID, modifiedAt: 1, payload: { amountCents: 10000 } },
+        {
+          entity: "allocation", op: "upsert", id: ALLOC_A, modifiedAt: 1,
+          payload: { paymentId: PID, gigId: GIG_A, amountCents: 4000 },
+        },
+      ]);
+
+      await sync(U1, [
+        {
+          entity: "payment", op: "upsert", id: PID, modifiedAt: 2,
+          payload: { amountCents: 9000, gigId: GIG_B },
+        },
+      ]);
+
+      expect(await allocationRows(PID)).toEqual([
+        { gigId: GIG_B, amountCents: 9000 },
+      ]);
+      expect(await paidCents(GIG_A)).toBeNull();
+      expect(await paidCents(GIG_B)).toBe(9000);
+    });
+  });
 });
