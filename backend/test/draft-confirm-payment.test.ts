@@ -131,4 +131,73 @@ describe("POST /api/drafts/:id/confirm-payment", () => {
     });
     expect(res.status).toBe(409);
   });
+
+  it("409s when the payment id already exists, and never touches it", async () => {
+    const existingId = "eeeeeeee-1111-4111-8111-eeeeeeeeeeee";
+    await api(U1, "PUT", `/api/payments/${existingId}`, {
+      amountCents: 9999,
+      notes: "original",
+    });
+
+    const draftId = "eeeeeeee-2222-4222-8222-eeeeeeeeeeee";
+    await seedDraft(U1, draftId);
+    const res = await api(U1, "POST", `/api/drafts/${draftId}/confirm-payment`, {
+      id: existingId,
+      amountCents: 1000,
+      notes: "from the draft",
+    });
+    expect(res.status).toBe(409);
+
+    // Neither the fields nor the confirmation photo were overwritten —
+    // this route means create, not upsert.
+    const payment = (await (await api(U1, "GET", `/api/payments/${existingId}`)).json()) as {
+      amountCents: number;
+      notes: string;
+    };
+    expect(payment.amountCents).toBe(9999);
+    expect(payment.notes).toBe("original");
+
+    // The draft is untouched too — a rejected confirmation must not
+    // burn the one-way pending→confirmed transition.
+    const draft = (await (await api(U1, "GET", `/api/drafts/${draftId}`)).json()) as {
+      status: string;
+    };
+    expect(draft.status).toBe("pending");
+  });
+
+  it("two concurrent confirmations of the same draft create at most one payment", async () => {
+    // Regression probe for the race where setStatus was read-then-write:
+    // both requests could observe "pending" before either write landed,
+    // and each would go on to create its own payment from the same
+    // receipt. setStatus's WHERE-clause compare-and-set (repos/drafts.ts)
+    // is what makes only one of these two requests able to proceed.
+    const draftId = "ffffffff-1111-4111-8111-ffffffffffff";
+    await seedDraft(U1, draftId);
+    const candidateA = "ffffffff-2222-4222-8222-ffffffffffff";
+    const candidateB = "ffffffff-3333-4333-8333-ffffffffffff";
+
+    const [resA, resB] = await Promise.all([
+      api(U1, "POST", `/api/drafts/${draftId}/confirm-payment`, {
+        id: candidateA,
+        amountCents: 1000,
+      }),
+      api(U1, "POST", `/api/drafts/${draftId}/confirm-payment`, {
+        id: candidateB,
+        amountCents: 1000,
+      }),
+    ]);
+
+    expect([resA.status, resB.status].sort()).toEqual([201, 409]);
+
+    const [gotA, gotB] = await Promise.all([
+      api(U1, "GET", `/api/payments/${candidateA}`),
+      api(U1, "GET", `/api/payments/${candidateB}`),
+    ]);
+    expect([gotA.status, gotB.status].filter((s) => s === 200)).toHaveLength(1);
+
+    const draft = (await (await api(U1, "GET", `/api/drafts/${draftId}`)).json()) as {
+      status: string;
+    };
+    expect(draft.status).toBe("confirmed");
+  });
 });

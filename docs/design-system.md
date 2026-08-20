@@ -113,13 +113,14 @@ cute. Copy explains the money consequence, not the feature.
 
 - **Person.** Second person for the user's things ("Your gigs, clients, and expenses"),
   first-person-plural never. The app describes itself in third person: "Gigsy reads it and
-  drafts the gig or expense for you to review."
+  drafts the gig, expense, or payment for you to review."
 - **Casing.** Sentence case everywhere — headings, buttons, screen titles ("New gig",
   "Add a client", "Sync now"). The **only** uppercase text is the 12px micro-label
   (form labels, section headings): `OFFERED ($)`, `WAITING TO BE PAID`. Status pill text
   stays lowercase always: `lead`, `confirmed`, `completed`, `paid`.
 - **Buttons are verb + object**: "Save gig", "Add a gig", "Delete gig", "Capture a gig or
-  receipt", "Take or choose a photo". Never "Submit", "OK", "Continue".
+  receipt" (Dashboard's entry point), "Capture gig or receipt" (Capture's own button).
+  Never "Submit", "OK", "Continue".
 - **Empty states name the user's real work**, never generic filler:
   "Capture your first lead — tastings, promo shifts, ambassador work." ·
   "Parking, supplies, mileage — track what gigs really cost." ·

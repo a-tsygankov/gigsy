@@ -25,10 +25,11 @@ const ListQuery = z.object({
 // The payment the client wants created, plus the id it generated for
 // it — the same client-generated-UUID convention PUT /api/payments/:id
 // uses, kept here instead of reusing that route because confirming a
-// payment draft is one atomic server-side operation (create the
-// payment, copy the draft's photo to it, close the draft) and splitting
-// that across two requests reopens exactly the race this route exists
-// to avoid: the payment not existing yet when the photo copy runs.
+// payment draft is one atomic server-side operation (close the draft,
+// create the payment, copy the draft's photo to it) and splitting that
+// across two requests reopens exactly the race this route exists to
+// avoid: two concurrent confirms of the same draft each creating their
+// own payment.
 const ConfirmPayment = PaymentInput.extend({ id: entityId });
 
 export const draftsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }>()
@@ -69,18 +70,11 @@ export const draftsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }
   // the payment to already exist server-side. Routing both through the
   // outbox would race: the draft could be marked confirmed before the
   // payment write ever reached the server. Doing it here keeps the
-  // three steps (create, copy, close) in one server-side operation.
+  // three steps (close, create, copy) in one server-side operation.
   .post("/:id/confirm-payment", zValidator("json", ConfirmPayment), async (c) => {
     const userId = c.get("userId");
     const draftId = c.req.param("id");
     const { id: paymentId, ...input } = c.req.valid("json");
-
-    const draftsRepo = DraftsRepo.for(c.env.DB);
-    const draft = await draftsRepo.get(userId, draftId);
-    if (draft === null) return c.json({ error: "not found" }, 404);
-    if (draft.status !== "pending") {
-      return c.json({ error: "draft already reviewed" }, 409);
-    }
 
     if (
       input.gigId != null &&
@@ -89,8 +83,34 @@ export const draftsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }
       return c.json({ error: "gigId does not reference your gig" }, 400);
     }
 
-    const now = Date.now();
     const paymentsRepo = PaymentsRepo.for(c.env.DB);
+    // This route means CREATE, never update. `paymentId` is a
+    // client-generated id that has no business already existing —
+    // PaymentsRepo.upsert would silently overwrite an id collision's
+    // amount/gigId/notes and, worse, let the copy below clobber that
+    // payment's existing confirmation photo with this draft's. Refuse
+    // before either happens rather than let "upsert" mean "upsert".
+    if ((await paymentsRepo.get(userId, paymentId)) !== null) {
+      return c.json({ error: "payment already exists" }, 409);
+    }
+
+    // Close the draft FIRST, atomically (DraftsRepo.setStatus), and
+    // only create the payment if that succeeded. Creating the payment
+    // before this check — the original shape of this route — let two
+    // concurrent confirmations of the same draft both read "pending",
+    // both create a payment, and only then race the close: proven with
+    // two simultaneous requests against one draft, both 201, two
+    // payments. setStatus's own WHERE clause is the compare-and-set
+    // that makes "at most one caller proceeds past this point" true.
+    const now = Date.now();
+    const draftsRepo = DraftsRepo.for(c.env.DB);
+    const confirmed = await draftsRepo.setStatus(userId, draftId, "confirmed", now);
+    if (confirmed === "not-found") return c.json({ error: "not found" }, 404);
+    if (confirmed === "conflict") {
+      return c.json({ error: "draft already reviewed" }, 409);
+    }
+    const draft = confirmed;
+
     const upserted = await paymentsRepo.upsert(
       userId,
       paymentId,
@@ -102,6 +122,10 @@ export const draftsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }
       },
       { now },
     );
+    // Only reachable if `paymentId` belongs to a different user — the
+    // same-user case was already refused above. Kept rather than
+    // trusted away: the pre-check and this write are not one atomic
+    // step, and "not found" costs nothing to also say here.
     if (upserted === "forbidden") return c.json({ error: "not found" }, 404);
     let record = upserted.record;
 
@@ -111,7 +135,11 @@ export const draftsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }
     // being recorded, or a storage hiccup would silently swallow real
     // money. A payment with no confirmation image is a payment the
     // user can still see and fix; a payment that never got created is
-    // one they have to notice is missing and re-enter by hand.
+    // one they have to notice is missing and re-enter by hand. When
+    // this best-effort copy does fail, DraftReview's own fallback
+    // (getDraftRawBlob + uploadPaymentConfirmation) gets a second try
+    // at attaching the same photo — the draft row and its rawR2Key
+    // both survive this confirmation.
     if (draft.rawR2Key !== null) {
       try {
         const source = await c.env.RECEIPTS.get(draft.rawR2Key);
@@ -123,8 +151,17 @@ export const draftsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }
                 source.httpMetadata?.contentType ?? "application/octet-stream",
             },
           });
-          await paymentsRepo.setConfirmationKey(userId, paymentId, key, now);
-          record = { ...record, confirmationR2Key: key };
+          const stored = await paymentsRepo.setConfirmationKey(
+            userId,
+            paymentId,
+            key,
+            now,
+          );
+          // setConfirmationKey returns false when it matched no row —
+          // shouldn't happen (we just created this payment under the
+          // same userId/id) but the response must never claim a key
+          // that was not actually recorded against the payment.
+          if (stored) record = { ...record, confirmationR2Key: key };
         }
       } catch (err) {
         log.warn("draft→payment confirmation copy failed", {
@@ -135,15 +172,7 @@ export const draftsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }
       }
     }
 
-    const confirmed = await draftsRepo.setStatus(userId, draftId, "confirmed", now);
-    if (confirmed === "not-found" || confirmed === "conflict") {
-      // Lost a race with another confirmation of the same draft. The
-      // payment above is already real and stays real — only the
-      // draft's own transition is refused.
-      return c.json({ error: "draft already reviewed" }, 409);
-    }
-
-    return c.json(record, upserted.created ? 201 : 200);
+    return c.json(record, 201);
   })
   .get("/:id/raw", async (c) => {
     const draft = await DraftsRepo.for(c.env.DB).get(

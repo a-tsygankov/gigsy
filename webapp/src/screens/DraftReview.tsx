@@ -39,10 +39,16 @@ const KIND_QUERY_KEY: Record<DraftKind, string> = {
  * nothing exists until Confirm. Confirming a gig or expense creates it
  * through the normal local-first path, then closes the draft
  * server-side; confirming a payment is one server round trip instead
- * (see data.confirmDraftAsPayment) because the draft's photo has to be
- * copied into the new payment's confirmation key before the draft can
- * close, and that copy needs the payment to exist on the server first —
- * a race the offline-first path can't guarantee against. */
+ * (see data.confirmDraftAsPayment / routes/drafts.ts's confirm-payment
+ * endpoint) because that route has to close the draft, create the
+ * payment and copy the draft's photo into its confirmation key as one
+ * atomic sequence — the offline-first path writes the record locally
+ * first and lets the server catch up, which is exactly backwards here:
+ * two concurrent confirms of the same draft could each see it still
+ * "pending" and each create their own payment from one receipt. If the
+ * server's own photo copy still comes back empty (best-effort — a
+ * storage hiccup must not block the payment), this screen makes one
+ * more attempt below with the blob it already has. */
 export function DraftReview() {
   const { id = "" } = useParams();
   const data = useData();
@@ -165,11 +171,35 @@ export function DraftReview() {
           // (it also copies the draft's photo to the payment's
           // confirmation key) — unlike gig/expense, no separate
           // setDraftStatus call follows.
-          await data.confirmDraftAsPayment(id, createdId, {
+          const record = await data.confirmDraftAsPayment(id, createdId, {
             amountCents: cents,
             paidAt: localInputToMs(dateTime),
             notes: notes.trim() === "" ? null : notes.trim(),
           });
+          // The server's copy is best-effort (a storage hiccup must
+          // not block the payment itself). When it did fail, this
+          // screen is the one place left holding the photo: the draft
+          // row and its rawR2Key survive confirmation even though the
+          // draft is no longer "pending" (GET /api/drafts/:id/raw has
+          // no status check), so re-fetch it and attach it the
+          // ordinary way rather than leaving the payment with no proof
+          // and the user re-picking the file from their camera roll.
+          if (
+            record.confirmationR2Key === null &&
+            draft.data?.source === "photo" &&
+            draft.data.rawR2Key !== null
+          ) {
+            try {
+              const blob = await data.getDraftRawBlob(id);
+              if (blob !== null) {
+                await data.uploadPaymentConfirmation(createdId, blob);
+              }
+            } catch {
+              // The payment itself is already real; a second failure
+              // here just means the user attaches proof later from
+              // PaymentEdit, the same way any payment gets one.
+            }
+          }
           return { createdId };
         },
       };
