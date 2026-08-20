@@ -164,45 +164,209 @@ test("a hung refresh cannot freeze startup indefinitely", async ({ page, context
 });
 
 /**
- * Phase 9: a gig's own length (which the calendar then honours) and an
- * expense the client is expected to cover.
+ * EVERY field of a gig, written offline, read back off the server.
  *
- * This test used to save and read straight back, which proved only
- * that Dexie kept the value — and it passed happily for months while
- * neither field was reaching the server at all, because the outbox
- * payload omitted both. So each half now drains the outbox and
- * reloads, forcing the pull that overwrites the local copy with the
- * server's. That reload is the step that used to erase the evidence.
+ * The defect this exists for did not fail anything. Phase 9 added
+ * `durationMinutes` to the local record and forgot it in the outbox
+ * payload, so every gig saved for months reached the server without a
+ * length and calendar sync drew them all at its four-hour fallback.
+ * Dexie kept the value perfectly; a test that saved and read straight
+ * back saw it and said nothing was wrong. `OutboxPayload` is
+ * `Required<...>` and `gigToInput` returns `Required<Omit<GigInput,
+ * "source">>` because of that (lib/gig-input.ts) — this is the same
+ * guard at the other end of the wire, where a type cannot reach.
+ *
+ * Three things make it able to fail:
+ *
+ *   - OFFLINE. Every field has to go through the outbox rather than a
+ *     live PUT, which is the path that dropped them.
+ *   - A FRESH CONTEXT for the readback — new browser, empty IndexedDB,
+ *     a sign-in of its own. Nothing survives from the tab that wrote
+ *     the gig, so what is on screen came from the server or came from
+ *     nowhere. A reload cannot say that: the local copy is still there
+ *     and a pull that quietly no-ops leaves it looking right.
+ *   - The WORK LOG among the fields, and a job-form edit afterwards.
+ *     That form renders none of it, and a save that rebuilt the record
+ *     from the form alone would erase a recorded shift silently.
  */
-test("a gig duration and a billable expense survive a server round-trip", async ({
+test("every field of a gig survives an offline save and a pull from the server", async ({
   page,
+  context,
+  browser,
 }) => {
-  const marker = `dur-booth-${Date.now()}`;
+  const stamp = Date.now();
+  const marker = `full-field-${stamp}`;
+  const title = `Costco tasting ${stamp}`;
+  const clientName = `Full Field Agency ${stamp}`;
+  const notes = `Park behind the loading bay.\nAsk for Dana ${stamp}.`;
+
+  // The client is made while still ONLINE, deliberately. A gig naming a
+  // client the server has never seen is a 400, and sync-engine drops a
+  // rejected op — a real hazard, but a different one from the field
+  // completeness this test is about.
+  await page.getByRole("link", { name: "Clients" }).click();
+  await page.getByRole("link", { name: "Add client" }).click();
+  await page.getByTestId("client-name").fill(clientName);
+  await page.getByTestId("client-save").click();
+  await expect(page.getByText(clientName).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
 
   await page.getByRole("link", { name: "Gigs" }).click();
   await page.getByRole("link", { name: "Add gig" }).click();
-  await page.getByLabel("Location").fill(marker);
-  // A non-round duration — 3h20m — is the entire point of replacing
-  // the old fixed-length `<select>` with DurationField, so both halves
-  // need to survive the round trip, not just the hours.
-  await page.getByTestId("gig-duration-hours").fill("3");
-  await page.getByTestId("gig-duration-minutes").fill("20");
-  await page.getByRole("button", { name: "Save gig" }).click();
 
-  // Let the save land first: click() returns once the click is
-  // dispatched, so reloading straight after cancels the write.
-  // The save lands on the gig's own screen, which states the plan.
-  await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("job-when")).toContainText("3h 20m");
+  // The calendar is a lazy chunk (components/DateTimeField.tsx), and
+  // under `vite dev` there is no service worker to have precached it —
+  // so opening the popover for the first time with the network cut
+  // hangs on a module that will never arrive. The installed app does
+  // not have that problem; the dev server does. Warming it here costs
+  // one open and keeps the offline half honest, because what is being
+  // proven is what the SAVE queues, and the save is still offline.
+  const when = dateTimeField(page, "gig-datetime");
+  await when.open();
+  await when.close();
+
+  await context.setOffline(true);
+
+  await page.getByTestId("gig-title").fill(title);
+  await page.getByTestId("gig-client").selectOption({ label: clientName });
+  await when.set("2027-05-06", "08:15");
+  // A non-round length — 4h05m — because the hours alone surviving is
+  // exactly what the old fixed-length `<select>` could express and the
+  // regression could hide behind.
+  await page.getByTestId("gig-duration-hours").fill("4");
+  await page.getByTestId("gig-duration-minutes").fill("5");
+  await page.getByTestId("gig-location").fill(marker);
+  await page.getByTestId("gig-pay-type").selectOption("hourly");
+  await page.getByTestId("gig-rate").fill("42.50");
+  await page.getByTestId("gig-notes").fill(notes);
+  await page.getByTestId("gig-save").click();
+
+  // The rest of the record lives on the hub, which is where the save
+  // lands — and none of it is on the form above.
+  await expect(page.getByTestId("gig-work-card")).toBeVisible();
+  const gigPath = new URL(page.url()).pathname;
+  await page.getByLabel("Status").selectOption("confirmed");
+  await expect(page.getByTestId("status-pill")).toHaveText("confirmed");
+  await dateTimeField(page, "gig-work-start").set("2027-05-06", "08:20");
+  await dateTimeField(page, "gig-work-end").set("2027-05-06", "13:00");
+  // Each of the two typed fields waits for the previous write's receipt
+  // first. The card re-seeds its draft from the record whenever that
+  // record changes (a documented trade in WorkCard.tsx), so text typed
+  // while a save is still in flight is replaced when it lands.
+  await expect(page.getByTestId("work-save-state")).toContainText(/Saved at/);
+  await page.getByTestId("gig-break").fill("25");
+  await page.getByTestId("gig-break").blur();
+  // The override — the only way to reach `amountOfferedCents` on an
+  // hourly gig, and the field a job-form save is most able to clobber.
+  await expect(page.getByTestId("work-save-state")).toContainText(/Saved at/);
+  await page.getByTestId("gig-override").fill("199.99");
+  await page.getByTestId("gig-override").blur();
+  await expect(page.getByTestId("gig-expected-pay")).toContainText("$199.99");
+
+  // Nothing above touched the network. Now let it.
+  await expect(page.getByTestId("sync-offline")).toBeVisible();
+  await context.setOffline(false);
+  await expect(page.getByTestId("sync-offline")).toBeHidden({ timeout: 20_000 });
   await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
-  await page.reload();
 
-  // Both halves, in the form the server's copy fills in.
-  await page.getByTestId("gig-edit").click();
-  await expect(page.getByTestId("gig-duration-hours")).toHaveValue("3");
-  await expect(page.getByTestId("gig-duration-minutes")).toHaveValue("20");
+  // ── The readback, with nothing carried over ──
+  const fresh = await browser.newContext();
+  const freshPage = await fresh.newPage();
+  await freshPage.goto("/login");
+  await freshPage.getByTestId("test-signin").click();
+  await expect(freshPage.getByTestId("tab-bar")).toBeVisible();
+  // Wait for the first pull to have brought the CLIENT down before
+  // opening the gig. The gig's client row resolves an id against a
+  // separate query with a 30s staleTime, so a screen that mounted
+  // while that list was still empty shows no client name and does not
+  // re-render when the pull lands — a failure about timing wearing the
+  // costume of a lost field. Reloading is what re-reads the store.
+  await expect(async () => {
+    await freshPage.goto("/clients");
+    await expect(freshPage.getByText(clientName)).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 40_000 });
+  await freshPage.goto(gigPath);
 
-  // …and an expense flagged as the client's to cover.
+  await expect(freshPage.getByTestId("gig-heading")).toHaveText(title, {
+    timeout: 15_000,
+  });
+  await expect(freshPage.getByTestId("status-pill")).toHaveText("confirmed");
+  await expect(freshPage.getByTestId("job-client")).toHaveText(clientName);
+  await expect(freshPage.getByTestId("job-title")).toHaveText(title);
+  await expect(freshPage.getByTestId("job-when")).toHaveAttribute(
+    "data-value",
+    "2027-05-06T08:15",
+  );
+  await expect(freshPage.getByTestId("job-when")).toContainText("4h 5m");
+  await expect(freshPage.getByTestId("job-location")).toHaveText(marker);
+  await expect(freshPage.getByTestId("job-pay")).toContainText("$42.50 / hour");
+  await expect(freshPage.getByTestId("job-notes")).toContainText("loading bay");
+  await expect(freshPage.getByTestId("job-notes")).toContainText(`Dana ${stamp}`);
+
+  // The work log, which no form on the screen that was edited renders.
+  await expect(freshPage.getByTestId("gig-work-start")).toHaveAttribute(
+    "data-value",
+    "2027-05-06T08:20",
+  );
+  await expect(freshPage.getByTestId("gig-work-end")).toHaveAttribute(
+    "data-value",
+    "2027-05-06T13:00",
+  );
+  await expect(freshPage.getByTestId("gig-break")).toHaveValue("25");
+  await expect(freshPage.getByTestId("gig-override")).toHaveValue("199.99");
+  await expect(freshPage.getByTestId("gig-expected-pay")).toContainText("$199.99");
+
+  // And the three the job form owns but the hub does not state.
+  //
+  // What has been PAID is deliberately not among them, here or in the
+  // offline writes above. It is no longer a field of the gig anyone
+  // can send: `gigs.amountPaidCents` is summed server-side from the
+  // gig's payment allocations (migration 0016), the form's "Paid ($)"
+  // box went with the write path (GigEdit.tsx), and the backend's own
+  // GigInput has no such key — so there is nothing here for a round
+  // trip to lose. The chain that DOES carry money now, from a recorded
+  // payment to the badge on the gig, is money.spec.ts's business.
+  await freshPage.getByTestId("gig-edit").click();
+  await expect(freshPage.getByTestId("gig-rate")).toHaveValue("42.50");
+  await expect(freshPage.getByTestId("gig-duration-hours")).toHaveValue("4");
+  await expect(freshPage.getByTestId("gig-duration-minutes")).toHaveValue("5");
+
+  // ── A job edit must not take the work log with it ──
+  // This form shows none of the four fields asserted again below, and
+  // rebuilds the record on save. `commitGigPatch` merges over the
+  // STORED gig for exactly this reason (lib/gig-write.ts).
+  await freshPage.getByTestId("gig-location").fill(`${marker}-moved`);
+  await freshPage.getByTestId("gig-save").click();
+  await expect(freshPage.getByTestId("gig-work-card")).toBeVisible({ timeout: 15_000 });
+  await expect(freshPage.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+  await freshPage.reload();
+
+  await expect(freshPage.getByTestId("job-location")).toHaveText(`${marker}-moved`);
+  await expect(freshPage.getByTestId("status-pill")).toHaveText("confirmed");
+  await expect(freshPage.getByTestId("gig-work-start")).toHaveAttribute(
+    "data-value",
+    "2027-05-06T08:20",
+  );
+  await expect(freshPage.getByTestId("gig-work-end")).toHaveAttribute(
+    "data-value",
+    "2027-05-06T13:00",
+  );
+  await expect(freshPage.getByTestId("gig-break")).toHaveValue("25");
+  await expect(freshPage.getByTestId("gig-override")).toHaveValue("199.99");
+  await fresh.close();
+});
+
+/**
+ * Phase 9's other half: an expense the client is expected to cover.
+ *
+ * Same trap as the gig fields above and the same shape of proof —
+ * `reimbursable` was the second field left out of the outbox payload,
+ * so this drains and reloads rather than reading its own Dexie write
+ * straight back.
+ */
+test("a billable expense survives a server round-trip", async ({ page }) => {
+  const marker = `expense-booth-${Date.now()}`;
+
   await page.getByRole("link", { name: "Expenses" }).click();
   await page.getByRole("link", { name: "Add expense" }).click();
   await page.getByLabel("Amount ($)").fill("18.75");
@@ -410,9 +574,19 @@ test("an hourly gig prices itself from the time worked", async ({ page }) => {
  * The whole point of the phase: recording what happened cannot move
  * what was planned.
  *
- * The two assertions on `job-when` either side of Start/Stop are what
- * would catch a work control writing into `dateTime` — the fault the
- * old single form made possible.
+ * The assertions on `job-when` either side of Start/Stop are what would
+ * catch a work control writing into `dateTime` — the fault the old
+ * single form made possible.
+ *
+ * The plan is then asserted a THIRD time, after the outbox has drained
+ * and the page has been reloaded, and that pass is the one that cannot
+ * be fooled. Until the reload every reading comes from a record this
+ * tab wrote and is still holding; only the pull can show what was
+ * actually sent. A work-card write that merged onto a stale base would
+ * revert the plan locally AND queue the reverted copy — the plan is
+ * what the calendar event and the public availability page are built
+ * from (domain/gig-time.ts), so a shift moved sideways here turns into
+ * an agency being offered a booked afternoon.
  */
 test("recording work never touches the planned time", async ({ page }) => {
   await page.goto("/gigs/new");
@@ -457,26 +631,105 @@ test("recording work never touches the planned time", async ({ page }) => {
 
   // …and the override, which is the only way to reach amountOfferedCents
   // on an hourly gig (Phase 3 Task 4b).
+  //
+  // Typed only once Stop's write has landed. The card re-seeds its
+  // draft from the record every time that record changes — a documented
+  // trade in WorkCard.tsx, and the right one for a card whose job is to
+  // be current — so text typed while a save is still in flight is
+  // replaced when the saved copy comes back. Waiting for the receipt is
+  // waiting for the last thing that could do that.
+  await expect(page.getByTestId("work-save-state")).toContainText(/Saved at/);
   await page.getByTestId("gig-override").fill("189.17");
   await page.getByTestId("gig-override").blur();
   await expect(page.getByTestId("gig-expected-pay")).toContainText("$189.17");
   await page.getByTestId("gig-override-clear").click();
   await expect(page.getByTestId("gig-expected-pay")).not.toContainText("$189.17");
+
+  // Byte-identical after the round trip: the same instant and the same
+  // booked length, read back off the record the server now holds.
+  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+  await page.reload();
+  await expect(page.getByTestId("job-when")).toHaveAttribute(
+    "data-value",
+    "2027-03-04T09:00",
+  );
+  await expect(page.getByTestId("job-when")).toContainText("3h");
+  // …and in the form that owns the plan, where the duration is stated
+  // as the two numbers that were typed rather than as prose.
+  await page.getByTestId("gig-edit").click();
+  await dateTimeField(page, "gig-datetime").expectValue("2027-03-04T09:00");
+  await expect(page.getByTestId("gig-duration-hours")).toHaveValue("3");
+  await expect(page.getByTestId("gig-duration-minutes")).toHaveValue("0");
 });
 
-// A zero rate parses fine (parseMoney("0") === 0) but must still be
-// refused: saved as-is it fails the backend's positiveCents check later
-// and sync-engine.ts drops the whole op, silently losing the edit.
-test("an hourly gig with a zero rate is refused, not silently saved", async ({
+/**
+ * A rate that is missing or non-positive has to be stopped HERE, or it
+ * is lost silently.
+ *
+ * Zero and -50 both parse — `parseMoney` returns 0 and -5000, not null
+ * — so nothing downstream refuses them until the backend's
+ * `positiveCents` does, by which time the gig has been written locally
+ * and queued. sync-engine.ts drops an op the server rejects with a
+ * warn and no UI at all, so the record sits in Dexie looking saved and
+ * never exists on the server. Refusing the submit is the only place
+ * this can be caught where somebody is still looking at it.
+ *
+ * A BLANK rate is the third route to the same nowhere, and it fails a
+ * different branch of the guard (`parseMoney("")` is null, so it never
+ * reaches the `<= 0` test). It matters for its own reason: an hourly
+ * gig with no rate is the one gig `expectedCents` cannot price at all
+ * (lib/gig-pay.ts), so a form that let one through would put a gig
+ * with no knowable worth into a ledger — and the backend refuses it
+ * too, as `GigInput`'s "an hourly gig needs a rate"
+ * (domain/schemas.ts), which is the same silent drop with an extra
+ * round trip. What an unpriced hourly gig looks like when it is
+ * reached legitimately — rated, but not yet worked — is money.spec.ts.
+ *
+ * The message alone is not the assertion. What matters is that nothing
+ * was WRITTEN: a form that showed the error and queued the gig anyway
+ * would pass a message check and still lose the edit.
+ */
+test("a missing or non-positive hourly rate is refused, and nothing is queued", async ({
   page,
 }) => {
+  const marker = `zero-rate-${Date.now()}`;
+
   await page.goto("/gigs/new");
+  await page.getByTestId("gig-location").fill(marker);
   await page.getByTestId("gig-pay-type").selectOption("hourly");
-  await page.getByTestId("gig-rate").fill("0");
-  await page.getByRole("button", { name: "Save gig" }).click();
+
+  // Each attempt is checked for BOTH: the message, and still being on
+  // the form the save was refused from. A save that fired lands on the
+  // new gig's hub, so the URL is what says the guard actually stopped
+  // it rather than merely complaining alongside it.
+  const attempts: [rate: string, refusal: string][] = [
+    // Left blank: refused before there is a number to compare.
+    ["", "An hourly gig needs a rate."],
+    // 0 fails the `<= 0` guard as itself; -50 fails it after parsing to
+    // -5000 — two routes to the same refusal.
+    ["0", "The hourly rate must be greater than zero."],
+    ["-50", "The hourly rate must be greater than zero."],
+  ];
+  for (const [rate, message] of attempts) {
+    await page.getByTestId("gig-rate").fill(rate);
+    await page.getByRole("button", { name: "Save gig" }).click();
+    await expect(page.getByText(message)).toBeVisible();
+    await expect(page).toHaveURL(/\/gigs\/new$/);
+    await expect(page.getByTestId("gig-rate")).toHaveValue(rate);
+    await expect(page.getByTestId("gig-work-card")).toHaveCount(0);
+  }
+
+  // Nothing queued, and nothing stored: the outbox badge never appears,
+  // and the gig is on no list. Both, because a local write and its
+  // outbox op happen in the same call (lib/local-store.ts) — either one
+  // showing up means the guard let a poison record through.
+  await expect(page.getByTestId("sync-pending")).toBeHidden();
+  await page.getByRole("link", { name: "Gigs" }).click();
+  await expect(page.getByRole("heading", { name: "Gigs" })).toBeVisible();
+  // Wait for the list to have actually rendered before claiming the gig
+  // is absent from it — an empty screen agrees with any such claim.
   await expect(
-    page.getByText("The hourly rate must be greater than zero."),
-  ).toBeVisible();
-  // The save never fired — still on the form, rate field untouched.
-  await expect(page.getByTestId("gig-rate")).toHaveValue("0");
+    page.getByTestId("gig-list").or(page.getByText("No gigs yet")),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(marker)).toHaveCount(0);
 });
