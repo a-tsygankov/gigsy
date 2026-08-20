@@ -210,10 +210,9 @@ export const payments = sqliteTable(
  *
  * `payments.gigId` remains for compatibility — a later change to
  * routes/payments.ts will turn it into one of these — but this table is
- * meant to become the truth going forward. The sum for a gig is meant
- * to be written back to `gigs.amountPaidCents`, derived and
- * server-owned, by a recompute step that does not exist yet in this
- * commit (planned as services/paid-totals.ts).
+ * meant to become the truth going forward. The sum for a gig is written
+ * back to `gigs.amountPaidCents`, derived and server-owned, by
+ * services/paid-totals.ts.
  *
  * Deliberately allowed: the allocations for a payment may sum to LESS
  * than the payment. A deposit can land before anyone knows which gigs
