@@ -40,6 +40,7 @@ export class OfflineDataService {
       | "listDrafts"
       | "getDraft"
       | "setDraftStatus"
+      | "confirmDraftAsPayment"
       | "getDraftRawBlob"
       | "getPushConfig"
       | "savePushSubscription"
@@ -213,6 +214,25 @@ export class OfflineDataService {
   }
   getDraftRawBlob(id: string) {
     return this.reportsApi.getDraftRawBlob(id);
+  }
+  /** Commits a receipt draft straight to the server (see ApiClient) and
+   * seeds the local store with the result via `applyServerRecord`, the
+   * same server-authoritative write path a pull uses — never through
+   * `putPayment`'s outbox, which would race the server-side photo copy
+   * this call performs. */
+  async confirmDraftAsPayment(
+    draftId: string,
+    paymentId: string,
+    input: PaymentInput,
+  ): Promise<Payment> {
+    this.assertPositive({ amountCents: input.amountCents });
+    const record = await this.reportsApi.confirmDraftAsPayment(
+      draftId,
+      paymentId,
+      input,
+    );
+    await this.store.applyServerRecord("payment", record);
+    return record;
   }
 
   // ── calendar (online-only) ───────────────────────────────────────
