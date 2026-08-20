@@ -9,6 +9,7 @@
  * so the edit moment (not the upload moment) must win ties.
  */
 import {
+  AllocationInput,
   ClientInput,
   ExpenseInput,
   GigInput,
@@ -24,7 +25,13 @@ import { AllocationsRepo } from "../repos/allocations.ts";
 import { recomputePaidTotals } from "./paid-totals.ts";
 import type { UpsertResult } from "../repos/clients.ts";
 
-export type SyncEntity = "client" | "gig" | "expense" | "service" | "payment";
+export type SyncEntity =
+  | "client"
+  | "gig"
+  | "expense"
+  | "service"
+  | "payment"
+  | "allocation";
 
 export interface SyncOpBase {
   entity: SyncEntity;
@@ -104,6 +111,18 @@ export async function applySyncOps(
         const removed = await paymentsRepo.remove(userId, op.id);
         if (removed && affectedGigIds.length > 0) {
           await recomputePaidTotals(d1, userId, affectedGigIds, now);
+        }
+        results.push(removed ? applied(op.id) : skipped(op.id, "not found"));
+        continue;
+      }
+      // An allocation delete must recompute the gig's derived total, and
+      // the gigId it recomputes against has to be read before the row is
+      // gone — there is nothing left to look it up from afterward.
+      if (op.entity === "allocation") {
+        const existingAllocation = await allocationsRepo.get(userId, op.id);
+        const removed = await allocationsRepo.remove(userId, op.id);
+        if (removed && existingAllocation !== null) {
+          await recomputePaidTotals(d1, userId, [existingAllocation.gigId], now);
         }
         results.push(removed ? applied(op.id) : skipped(op.id, "not found"));
         continue;
@@ -229,12 +248,13 @@ export async function applySyncOps(
           results.push(errored(op.id, "invalid payload"));
           break;
         }
-        if (
-          parsed.data.gigId != null &&
-          (await gigsRepo.get(userId, parsed.data.gigId)) === null
-        ) {
-          results.push(errored(op.id, "gigId does not reference your gig"));
-          break;
+        let gig: Awaited<ReturnType<typeof gigsRepo.get>> = null;
+        if (parsed.data.gigId != null) {
+          gig = await gigsRepo.get(userId, parsed.data.gigId);
+          if (gig === null) {
+            results.push(errored(op.id, "gigId does not reference your gig"));
+            break;
+          }
         }
         if (
           parsed.data.clientId != null &&
@@ -244,28 +264,194 @@ export async function applySyncOps(
           break;
         }
         const existing = await paymentsRepo.get(userId, op.id);
-        results.push(
-          await lwwUpsert(op.id, op.modifiedAt, existing, () =>
-            paymentsRepo.upsert(
-              userId,
-              op.id,
-              {
-                gigId: parsed.data.gigId ?? null,
-                // Not `?? null`: absent (undefined) must preserve the
-                // stored value rather than wipe it — see
-                // repos/payments.ts's PaymentData.clientId doc comment.
-                clientId: parsed.data.clientId,
-                amountCents: parsed.data.amountCents,
-                paidAt: parsed.data.paidAt ?? null,
-                notes: parsed.data.notes ?? null,
-              },
-              { now, modifiedAt: op.modifiedAt },
-            ),
+
+        // I3 (routes/payments.ts, carried here): the client rule the
+        // gigId compat path below is about to act on. Once the payment
+        // names a client — this op's, or the stored one when clientId
+        // is absent — every gig it allocates to must belong to that
+        // client. Checked before any write: the offline path is the
+        // same client hitting a different door, and a check the route
+        // enforces but sync doesn't is a check that door can skip.
+        if (parsed.data.gigId != null) {
+          const effectiveClientId =
+            parsed.data.clientId !== undefined
+              ? parsed.data.clientId
+              : (existing?.clientId ?? null);
+          if (effectiveClientId != null && gig!.clientId !== effectiveClientId) {
+            results.push(errored(op.id, "gigId does not reference the payment's client"));
+            break;
+          }
+        }
+
+        // I4 (routes/payments.ts, carried here): shrinking a payment
+        // below what is already allocated to it would leave those
+        // allocations over-claiming money the payment no longer has.
+        // Skipped when gigId is present, same as the route — the
+        // compat path below replaces every existing allocation with one
+        // sized to the new amountCents, so there's nothing stale left
+        // for this to catch.
+        if (parsed.data.gigId == null) {
+          const currentAllocations = await allocationsRepo.listByPayment(userId, op.id);
+          const allocatedCents = currentAllocations.reduce(
+            (sum, a) => sum + a.amountCents,
+            0,
+          );
+          if (allocatedCents > parsed.data.amountCents) {
+            results.push(
+              errored(op.id, "amountCents is less than the payment's allocated total"),
+            );
+            break;
+          }
+        }
+
+        // I5 (routes/payments.ts, carried here): changing a payment's
+        // clientId to a different, non-null client while it already has
+        // allocations against another client's gigs would leave those
+        // allocations stale. Rejected rather than silently cascaded, so
+        // the caller resolves the conflict first — narrowing to null
+        // stays unrestricted, since a null-client payment allocates
+        // freely.
+        if (
+          parsed.data.clientId !== undefined &&
+          parsed.data.clientId != null &&
+          existing !== null &&
+          existing.clientId !== parsed.data.clientId
+        ) {
+          const currentAllocations = await allocationsRepo.listByPayment(userId, op.id);
+          const allocatedGigIds = [...new Set(currentAllocations.map((a) => a.gigId))];
+          const allocatedGigs = await Promise.all(
+            allocatedGigIds.map((gigId) => gigsRepo.get(userId, gigId)),
+          );
+          const conflicts = allocatedGigs.some(
+            (g) => g === null || g.clientId !== parsed.data.clientId,
+          );
+          if (conflicts) {
+            results.push(
+              errored(
+                op.id,
+                "clientId does not match one or more gigs this payment is already allocated to",
+              ),
+            );
+            break;
+          }
+        }
+
+        const result = await lwwUpsert(op.id, op.modifiedAt, existing, () =>
+          paymentsRepo.upsert(
+            userId,
+            op.id,
+            {
+              gigId: parsed.data.gigId ?? null,
+              // Not `?? null`: absent (undefined) must preserve the
+              // stored value rather than wipe it — see
+              // repos/payments.ts's PaymentData.clientId doc comment.
+              clientId: parsed.data.clientId,
+              amountCents: parsed.data.amountCents,
+              paidAt: parsed.data.paidAt ?? null,
+              notes: parsed.data.notes ?? null,
+            },
+            { now, modifiedAt: op.modifiedAt },
           ),
         );
-        // The allocations translation for a legacy gigId (and the
-        // "allocation" sync entity itself) belong to Task 4 of the
-        // phase-4 plan, not this task — left untouched here.
+        results.push(result);
+
+        // The legacy gigId compat path (Task 4 of the phase-4 plan): a
+        // client that queued this op before the allocations release
+        // still sends PaymentInput.gigId. Translated into a single
+        // allocation here exactly as routes/payments.ts does for a
+        // direct write — this is the outbox's own drain, so skipping it
+        // here is what used to leave a queued legacy payment with no
+        // allocation at all, silently dropping its contribution the
+        // next time some other allocation change recomputed the gig's
+        // total. replaceSoleAllocation is keyed off the payment id, not
+        // any id the client supplies, so replaying the same op
+        // converges on one allocation instead of adding a second.
+        //
+        // Only runs when the upsert actually applied: a stale
+        // (LWW-skipped) or errored op must not resurrect or rewrite an
+        // allocation that a newer op already moved past.
+        if (result.status === "applied" && parsed.data.gigId != null) {
+          const affectedGigIds = await allocationsRepo.replaceSoleAllocation(
+            userId,
+            op.id,
+            parsed.data.gigId,
+            parsed.data.amountCents,
+            now,
+          );
+          await recomputePaidTotals(d1, userId, affectedGigIds, now);
+        }
+        break;
+      }
+      case "allocation": {
+        const parsed = AllocationInput.safeParse(op.payload);
+        if (!parsed.success) {
+          results.push(errored(op.id, "invalid payload"));
+          break;
+        }
+        const payment = await paymentsRepo.get(userId, parsed.data.paymentId);
+        if (payment === null) {
+          results.push(errored(op.id, "paymentId does not reference your payment"));
+          break;
+        }
+        const gig = await gigsRepo.get(userId, parsed.data.gigId);
+        if (gig === null) {
+          results.push(errored(op.id, "gigId does not reference your gig"));
+          break;
+        }
+
+        // The client rule (routes/allocations.ts, carried here): once a
+        // payment names a client, every gig it allocates to must belong
+        // to that client. A null-client payment allocates freely.
+        if (payment.clientId != null && gig.clientId !== payment.clientId) {
+          results.push(errored(op.id, "gigId does not reference the payment's client"));
+          break;
+        }
+
+        const existing = await allocationsRepo.get(userId, op.id);
+
+        // Over-allocation (routes/allocations.ts, carried here): sum
+        // every *other* allocation against this payment — excluding
+        // this id, so an update compares against its own replacement,
+        // not its own past value twice. Partial allocation is fine; a
+        // total over the payment's amount is not.
+        const existingForPayment = await allocationsRepo.listByPayment(
+          userId,
+          parsed.data.paymentId,
+        );
+        const priorSelf = existingForPayment.find((a) => a.id === op.id);
+        const othersTotal = existingForPayment
+          .filter((a) => a.id !== op.id)
+          .reduce((sum, a) => sum + a.amountCents, 0);
+        if (othersTotal + parsed.data.amountCents > payment.amountCents) {
+          results.push(errored(op.id, "allocations exceed the payment"));
+          break;
+        }
+
+        const result = await lwwUpsert(op.id, op.modifiedAt, existing, () =>
+          allocationsRepo.upsert(
+            userId,
+            op.id,
+            {
+              paymentId: parsed.data.paymentId,
+              gigId: parsed.data.gigId,
+              amountCents: parsed.data.amountCents,
+            },
+            { now, modifiedAt: op.modifiedAt },
+          ),
+        );
+        results.push(result);
+
+        // Recompute the gig this allocation now points at, and — if it
+        // moved — the gig it used to point at too, so neither total is
+        // left stale. Same as routes/allocations.ts. Skipped for a
+        // stale/errored op: nothing was written, so nothing changed.
+        if (result.status === "applied") {
+          const affectedGigIds = new Set([parsed.data.gigId]);
+          if (priorSelf !== undefined && priorSelf.gigId !== parsed.data.gigId) {
+            affectedGigIds.add(priorSelf.gigId);
+          }
+          await recomputePaidTotals(d1, userId, [...affectedGigIds], now);
+        }
         break;
       }
       case "expense": {

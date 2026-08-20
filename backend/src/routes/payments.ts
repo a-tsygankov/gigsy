@@ -151,15 +151,13 @@ export const paymentsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars
     // sends payments.gigId. This route translates it into a single
     // allocation rather than refusing it, so a direct write through
     // this endpoint doesn't lose the link between the money and the
-    // work. (The /api/sync "payment" case does not perform this
-    // translation yet — that is Phase 4 Task 4's job, not this route's
-    // — so a legacy op that only reaches the server through the outbox
-    // does not get an allocation until that lands.) replaceSoleAllocation
-    // is keyed off the payment id, not any id the client supplies, so
-    // replaying the same payment upsert converges on one allocation
-    // instead of adding a second — see that method's docstring for what
-    // it does to a payment that was previously split across several
-    // gigs.
+    // work. services/sync.ts's "payment" case does the same translation
+    // for the outbox path — see that file for why it matters there too.
+    // replaceSoleAllocation is keyed off the payment id, not any id the
+    // client supplies, so replaying the same payment upsert converges
+    // on one allocation instead of adding a second — see that method's
+    // docstring for what it does to a payment that was previously split
+    // across several gigs.
     if (input.gigId != null) {
       const affectedGigIds = await allocationsRepo.replaceSoleAllocation(
         userId,
