@@ -25,8 +25,8 @@ export function Capture() {
       <main className="mx-auto max-w-lg space-y-4 p-4">
         <p className="text-sm leading-relaxed text-slate-600">
           Snap a flyer, booking sheet, or receipt — Gigsy reads it and
-          drafts the gig or expense for you to review. Nothing is saved
-          until you confirm.
+          drafts the gig, expense, or payment for you to review. Nothing
+          is saved until you confirm.
         </p>
 
         {offline && (
@@ -57,7 +57,7 @@ export function Capture() {
           disabled={offline || capture.isPending}
           onClick={() => fileInput.current?.click()}
         >
-          {capture.isPending ? "Reading the photo…" : "📸 Take or choose a photo"}
+          {capture.isPending ? "Reading the photo…" : "📸 Capture gig or receipt"}
         </Button>
 
         {capture.isError && (

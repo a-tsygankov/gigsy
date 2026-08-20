@@ -237,6 +237,24 @@ export class ApiClient {
     return this.request("PUT", `/api/drafts/${id}`, { status });
   }
 
+  /** Commits a receipt draft as a payment in one server round trip:
+   * the server creates the payment, copies the draft's photo (already
+   * in R2) to be its confirmation, and closes the draft — all before
+   * this resolves, so the caller never has to poll for the photo to
+   * "catch up" the way an offline-queued write would. `id` is the
+   * client-generated id for the new payment (PUT /api/payments/:id's
+   * convention, kept here rather than a second request). */
+  confirmDraftAsPayment(
+    draftId: string,
+    paymentId: string,
+    input: PaymentInput,
+  ): Promise<Payment> {
+    return this.request("POST", `/api/drafts/${draftId}/confirm-payment`, {
+      ...input,
+      id: paymentId,
+    });
+  }
+
   async getDraftRawBlob(id: string): Promise<Blob | null> {
     const token = await this.tokens.getAccessToken();
     const res = await this.fetchFn(`/api/drafts/${id}/raw`, {

@@ -19,6 +19,18 @@
  * GigsRepo.upsert (migration 0014). `gig_services` has no pay type —
  * a service is a flat amount — so its own offered column is still the
  * right thing to sum.
+ *
+ * `paid`, here, always asks "how much has THIS gig (or this service)
+ * been paid" — never "how much money did I receive". `amount_paid_cents`
+ * is the per-gig sum of its `payment_allocations` rows, recomputed by
+ * services/paid-totals.ts whenever an allocation changes (migration
+ * 0016), so a payment split across several gigs is already counted
+ * once at each gig it actually funded — summing it again here, or
+ * joining `payments` directly, would double it. Money received but not
+ * yet allocated to any gig is real (a deposit banked before anyone
+ * decides which jobs it covers) but deliberately doesn't appear here:
+ * it isn't "unpaid work", it's unattributed money, which is a reports
+ * question (reports.ts's `totals.paidCents`), not a dashboard one.
  */
 export interface DashboardWindow {
   futureFrom?: number;
@@ -96,6 +108,13 @@ export async function dashboardSummary(
     .bind(...futureParams)
     .first<{ total: number | null }>();
 
+  // "How much has THIS gig been paid" — g.amount_paid_cents is the
+  // per-gig sum of its payment_allocations rows (services/paid-totals.ts),
+  // not a join against `payments`. No join against payments.gig_id
+  // belongs here even in principle: a payment can fund several gigs, so
+  // attributing it by joining payments directly would double-count it
+  // at every gig it touched instead of splitting it the way the
+  // allocations already do.
   const unpaidRows = (
     await d1
       .prepare(

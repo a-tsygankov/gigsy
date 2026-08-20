@@ -11,6 +11,7 @@
  */
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { requireTestAuth, resetGigListView } from "../helpers/test-auth.ts";
+import { RECORD_WORK_GIG_ID } from "../../src/help/scenarios/record-work.ts";
 import type { HelpScenario } from "../../src/help/types.ts";
 
 /** Hosts a local stack can legitimately be reached at. `"[::1]"` keeps
@@ -186,6 +187,62 @@ async function ensureAtLeastOneGig(request: APIRequestContext, baseURL: string):
   });
 }
 
+/** Title marker for the `record-work` fixture gig, matching
+ *  `SEEDED_GIG_TITLE`'s purpose above for a different scenario. */
+const RECORD_WORK_GIG_TITLE = "[help-fixtures] record-work's own gig — do not edit";
+
+/**
+ * Upsert `record-work`'s one gig into a known shape, every run.
+ *
+ * Unlike `ensureAtLeastOneGig`, this is not "seed one if the account has
+ * none" — it is "make THIS id mean this" unconditionally, the same
+ * `resetWorkingWeek` pattern for the same reason: `record-work` does not
+ * find its gig through the list the way `find-a-gig` hands one over
+ * (see that scenario's header on why no scenario can point at "a row"),
+ * it starts on this fixed id directly (`RECORD_WORK_GIG_ID`,
+ * `record-work.ts`'s `startRoute`). A PUT with the same id replaces the
+ * record (`backend/src/routes/gigs.ts`), so re-running this after a
+ * previous `record-work` pass — which writes work-log fields onto this
+ * exact gig — resets it rather than accumulating whatever the last run
+ * left behind.
+ *
+ * `payType: "hourly"` is load-bearing, not a random choice: WorkCard's
+ * `GigOverride` control only renders on an hourly gig
+ * (`WorkCard.tsx`'s `isHourly && <HourlyOverride ...>`), so a fixed-fee
+ * fixture would leave that scenario step's target permanently
+ * unresolved. `status: "confirmed"` and a real `dateTime` keep the gig
+ * off any "needs a date" empty state the rest of the screen might show;
+ * `workStartedAt`/`workEndedAt` stay unset so Start renders enabled and
+ * Stop disabled, same as WorkCard.tsx's own guard on a not-yet-started
+ * gig — a highlight step never clicks either one, but there is no
+ * reason to start the fixture off in a state its own screen wouldn't
+ * reach on its own.
+ */
+async function ensureRecordWorkGig(request: APIRequestContext, baseURL: string): Promise<void> {
+  const login = await request.post(`${baseURL}/api/auth/test-login`, {
+    data: { email: "dev@test.local" },
+  });
+  if (!login.ok()) return; // No test auth here; the spec skips anyway.
+  const { accessToken } = (await login.json()) as { accessToken: string };
+
+  await request.put(`${baseURL}/api/gigs/${RECORD_WORK_GIG_ID}`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+    data: {
+      title: RECORD_WORK_GIG_TITLE,
+      status: "confirmed",
+      dateTime: Date.now() + 24 * 60 * 60 * 1000,
+      durationMinutes: 180,
+      payType: "hourly",
+      hourlyRateCents: 4500,
+      workStartedAt: null,
+      workEndedAt: null,
+      breakMinutes: null,
+      amountOfferedCents: null,
+      source: "manual",
+    },
+  });
+}
+
 /**
  * Wait until the gig list a scenario is about to read actually reflects
  * the server.
@@ -294,8 +351,16 @@ async function waitForGigsToHydrate(
  * behind — a dependency this fixture now removes by making the
  * precondition true itself.
  *
+ * Pins `record-work`'s own gig into shape for the same reason, and
+ * unconditionally like `resetWorkingWeek` rather than "only if missing"
+ * like `ensureAtLeastOneGig`: `record-work` starts on one fixed id
+ * (`RECORD_WORK_GIG_ID`) rather than finding a gig through the list, so
+ * a stale copy left mid-shift by an earlier `record-work` run — a start
+ * stamp with no stop, an override already set — is exactly the kind of
+ * leftover state a later run must not inherit.
+ *
  * Note what this is NOT: no help scenario creates, updates or deletes a
- * record, so nothing here is cleanup after a scenario. All three resets
+ * record, so nothing here is cleanup after a scenario. All four resets
  * pin a PRECONDITION that other suites (or a bare freshly migrated D1)
  * would otherwise leave unpredictable.
  */
@@ -310,6 +375,7 @@ export async function prepareHelpScenario(
   await resetWorkingWeek(request, baseURL);
   await resetGigListView(request, baseURL);
   await ensureAtLeastOneGig(request, baseURL);
+  await ensureRecordWorkGig(request, baseURL);
 
   await page.goto("/login");
   await page.getByTestId("test-signin").click();

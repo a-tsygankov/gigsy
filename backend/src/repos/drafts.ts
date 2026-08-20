@@ -74,21 +74,68 @@ export class DraftsRepo {
       : (await this.list(userId)).filter((d) => d.createdAt >= sinceMs).length;
   }
 
-  /** Only `pending` drafts may transition (one-way review gate). */
+  /**
+   * Only `pending` drafts may transition (one-way review gate).
+   *
+   * The `eq(drafts.status, "pending")` in the WHERE clause is load-
+   * bearing, not decorative: this used to be read-then-write (SELECT,
+   * check in JS, UPDATE), and two concurrent confirmations of the same
+   * draft could both pass the JS check before either write landed —
+   * proven by a two-request race against POST
+   * /api/drafts/:id/confirm-payment, which created two payments from
+   * one receipt. Folding the check into the UPDATE's WHERE makes the
+   * transition a single atomic compare-and-set: of two concurrent
+   * callers, at most one UPDATE can match a still-`pending` row, so at
+   * most one gets a record back. The other gets zero rows — which the
+   * one extra SELECT below turns into "not-found" or "conflict" for
+   * the caller's error message, but only after the race is already
+   * decided.
+   */
   async setStatus(
     userId: string,
     id: string,
     status: Exclude<DraftStatus, "pending">,
     now: number,
   ): Promise<DraftRecord | "not-found" | "conflict"> {
-    const existing = await this.get(userId, id);
-    if (existing === null) return "not-found";
-    if (existing.status !== "pending") return "conflict";
     const updated = await this.db
       .update(drafts)
       .set({ status, modifiedAt: now })
+      .where(
+        and(
+          eq(drafts.id, id),
+          eq(drafts.userId, userId),
+          eq(drafts.status, "pending"),
+        ),
+      )
+      .returning();
+    if (updated[0] !== undefined) return updated[0];
+    const existing = await this.get(userId, id);
+    return existing === null ? "not-found" : "conflict";
+  }
+
+  /**
+   * Reverses a confirmation that did not finish — NOT a general escape
+   * from the one-way pending→reviewed gate `setStatus` enforces above.
+   * The only caller is routes/drafts.ts's confirm-payment: it closes
+   * the draft first (so two concurrent confirms can't both create a
+   * payment) and only then creates the payment, which means a failure
+   * in that second step happens after the draft already says
+   * "confirmed". Left alone, that draft is stranded permanently: it no
+   * longer appears in the pending list, a retry hits `setStatus`'s own
+   * WHERE clause and gets "conflict", and nothing in the app can turn
+   * it back into a payment. Going back to `pending` here is what makes
+   * "the user sees it in Drafts and tries again" true instead.
+   */
+  async reopen(
+    userId: string,
+    id: string,
+    now: number,
+  ): Promise<DraftRecord | "not-found"> {
+    const updated = await this.db
+      .update(drafts)
+      .set({ status: "pending", modifiedAt: now })
       .where(and(eq(drafts.id, id), eq(drafts.userId, userId)))
       .returning();
-    return updated[0]!;
+    return updated[0] ?? "not-found";
   }
 }

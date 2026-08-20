@@ -3,6 +3,8 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { applyMigrations, seedUser } from "./helpers/db.ts";
 import { api } from "./helpers/api.ts";
+import { AllocationsRepo } from "../src/repos/allocations.ts";
+import { recomputePaidTotals } from "../src/services/paid-totals.ts";
 
 const U1 = "user-1";
 const U2 = "user-2";
@@ -452,5 +454,142 @@ describe("hourly gigs in the summary", () => {
 
     // 5.5h at $50/h — the actuals beat the eight-hour plan.
     expect((await summary(U1)).totals.offeredCents).toBe(before + 27500);
+  });
+});
+
+/**
+ * Phase 4 (payment allocations, migration 0016): money received vs.
+ * money attributed to a gig are two different questions, and
+ * totals.paidCents answers the first — see reports.ts's header. These
+ * pin the case that made the old model wrong: a payment banked before
+ * (or without ever) being fully allocated must still show up as money
+ * received, not vanish until someone finishes the bookkeeping.
+ *
+ * The allocation ROUTES and the sync entity that create allocations are
+ * still in review as of this test — only AllocationsRepo and
+ * recomputePaidTotals (this phase's Task 2) are merged on this branch.
+ * So the split here is seeded by calling them directly, the same way
+ * dashboard.test.ts's equivalent block does; an equivalent route-level
+ * test belongs in allocations-routes.test.ts once PUT /api/allocations
+ * exists.
+ */
+describe("money received vs. money allocated", () => {
+  const U6 = "user-6";
+  const CHARLIE = "81111111-1111-4111-8111-111111111111";
+  const GIG_R = "82222222-2222-4222-8222-222222222222";
+  const PAY_R = "83333333-3333-4333-8333-333333333333";
+
+  // Each `it` in this file rolls back to the shared beforeAll snapshot
+  // afterward (vitest-pool-workers isolated storage — see
+  // dashboard.test.ts), so a test that seeds U6 cannot assume another
+  // test's U6 writes are still there. Both tests below that need this
+  // fixture call this helper themselves rather than sharing state.
+  async function seedU6SplitPayment(): Promise<void> {
+    await seedUser(env.DB, U6);
+    await api(U6, "PUT", `/api/clients/${CHARLIE}`, { name: "Charlie" });
+    await api(U6, "PUT", `/api/gigs/${GIG_R}`, {
+      clientId: CHARLIE,
+      status: "completed",
+      dateTime: OCT,
+      amountOfferedCents: 20000,
+    });
+    // A $150 payment, paid in October, of which only $60 has been
+    // allocated to the gig so far — the other $90 is banked but not
+    // yet assigned to any work.
+    await api(U6, "PUT", `/api/payments/${PAY_R}`, {
+      amountCents: 15000,
+      paidAt: OCT,
+    });
+    // PaymentInput doesn't accept clientId yet — that's this phase's
+    // Task 3, still in review — so the route can't do this. Setting it
+    // directly is how this test exercises reports.ts's clientId filter
+    // on the unallocated remainder ahead of that route landing; once it
+    // does, this can go through `PUT /api/payments` like everything
+    // else here.
+    await env.DB.prepare("UPDATE payments SET client_id = ? WHERE id = ?")
+      .bind(CHARLIE, PAY_R)
+      .run();
+    await AllocationsRepo.for(env.DB).upsert(
+      U6,
+      crypto.randomUUID(),
+      { paymentId: PAY_R, gigId: GIG_R, amountCents: 6000 },
+      { now: 1 },
+    );
+    await recomputePaidTotals(env.DB, U6, [GIG_R], 1);
+  }
+
+  it("counts the unallocated remainder of a payment as received but unassigned", async () => {
+    await seedU6SplitPayment();
+
+    const s = await summary(U6);
+
+    // The gig itself only shows what was actually allocated to it —
+    // this is the "how much has this gig been paid" question, and
+    // must not be inflated by money that hasn't been assigned to it.
+    expect(s.byMonth).toEqual([
+      { month: "2026-10", offeredCents: 20000, paidCents: 6000, expensesCents: 0, netCents: 6000 },
+    ]);
+    expect(s.byClient).toEqual([
+      { clientId: CHARLIE, clientName: "Charlie", offeredCents: 20000, paidCents: 6000 },
+    ]);
+
+    // But the top-level total is "how much money did I receive" — the
+    // full $150, not just the $60 that has found a gig so far. If the
+    // unallocated $90 were silently dropped, this would read 6000
+    // instead; if it were double-counted on top of the per-gig figure
+    // that already includes the allocated $60, this would read 21000.
+    expect(s.totals.paidCents).toBe(15000);
+    expect(s.totals.netCents).toBe(15000);
+  });
+
+  it("does not double-count once the payment is fully allocated", async () => {
+    const U7 = "user-7";
+    const GIG_F = "84444444-4444-4444-8444-444444444444";
+    const PAY_F = "85555555-5555-4555-8555-555555555555";
+    await seedUser(env.DB, U7);
+    await api(U7, "PUT", `/api/gigs/${GIG_F}`, {
+      status: "completed",
+      dateTime: OCT,
+      amountOfferedCents: 10000,
+    });
+    await api(U7, "PUT", `/api/payments/${PAY_F}`, {
+      amountCents: 10000,
+      paidAt: OCT,
+    });
+    await AllocationsRepo.for(env.DB).upsert(
+      U7,
+      crypto.randomUUID(),
+      { paymentId: PAY_F, gigId: GIG_F, amountCents: 10000 },
+      { now: 1 },
+    );
+    await recomputePaidTotals(env.DB, U7, [GIG_F], 1);
+
+    const s = await summary(U7);
+    // Fully allocated: the per-gig figure and the received figure agree
+    // exactly, with nothing left over to add.
+    expect(s.totals.paidCents).toBe(10000);
+    expect(s.byMonth[0]?.paidCents).toBe(10000);
+  });
+
+  it("respects the date and clientId filters on the unallocated remainder", async () => {
+    // Same fixture as the first test — re-seeded here because per-test
+    // rollback means that test's writes aren't visible to this one.
+    // $150 paid in October, $90 of it unallocated, against Charlie's gig.
+    await seedU6SplitPayment();
+
+    const outsideWindow = await summary(
+      U6,
+      `?from=${Date.UTC(2026, 8, 1)}&to=${Date.UTC(2026, 8, 30)}`,
+    );
+    expect(outsideWindow.totals.paidCents).toBe(0);
+
+    const wrongClient = await summary(U6, `?clientId=${GIG_R}`);
+    // GIG_R is not a real client id, so this filters to nothing — the
+    // unallocated remainder must not leak into a client it wasn't
+    // recorded against.
+    expect(wrongClient.totals.paidCents).toBe(0);
+
+    const rightClient = await summary(U6, `?clientId=${CHARLIE}`);
+    expect(rightClient.totals.paidCents).toBe(15000);
   });
 });

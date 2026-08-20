@@ -176,11 +176,17 @@ export interface DashboardSummary {
 
 // AI-capture drafts (review gate — server records, docs/plan.md §8).
 export interface DraftExtracted {
-  kind: "gig" | "expense" | "unknown";
+  // "payment" (Phase 4): a receipt/slip proving the user was PAID, as
+  // opposed to "expense" (the user paid). Mirrors backend/src/capture/
+  // extraction.ts's ExtractedData exactly — this type only exists so
+  // the review screen can read what the server already validated.
+  kind: "gig" | "expense" | "payment" | "unknown";
   clientName?: string | null;
   matchedClientId?: string | null;
   matchConfidence?: number | null;
   location?: string | null;
+  // Doubles as a payment's received date — see extraction.ts's comment
+  // on the same field for why there is no separate paidAtMs.
   dateTimeMs?: number | null;
   amountOfferedCents?: number | null;
   amountCents?: number | null;
