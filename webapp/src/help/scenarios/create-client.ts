@@ -16,11 +16,13 @@ import type { HelpScenario } from "../types.ts";
  * unconditionally and skips the client query entirely, so there is no
  * second legitimate state to branch on. `client-jobs` and
  * `client-delete` are the `!isNew`-only blocks and are deliberately not
- * part of this walkthrough: unlike `gig-services`/`gig-payments`, which
- * were changed to render an explanation on `/gigs/new`, neither has any
- * presence on the new-client form at all. They are described in prose on
- * the save step instead, which is the most a tour can honestly do about
- * a section that does not exist yet.
+ * part of this walkthrough: neither has any presence on the new-client
+ * form at all. They are described in prose on the save step instead,
+ * which is the most a tour can honestly do about a section that does
+ * not exist yet. `gig-services`/`gig-payments` briefly took the other
+ * route — an explain-only state on `/gigs/new` — and Phase 3 undid it
+ * when those sections moved to the gig's detail hub; prose on the save
+ * step is now the only answer either form gives.
  *
  * The copy explains what a field is FOR. What it is called is already on
  * screen; what a client's name does to the gig list, Reports and your

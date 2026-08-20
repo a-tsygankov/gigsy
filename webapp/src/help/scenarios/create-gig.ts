@@ -2,7 +2,18 @@ import { HelpTarget } from "../targets.ts";
 import type { HelpScenario } from "../types.ts";
 
 /**
- * The whole gig form, field by field.
+ * The whole job form, field by field.
+ *
+ * What this walk covers shrank in Phase 3, and not by choice: the gig
+ * screen split in two. `/gigs/new` and `/gigs/:id/edit` are now the JOB
+ * — who it is for, when, where, how it pays — while the status, the
+ * work log, the services, the payments and the delete button live on
+ * the detail hub at `/gigs/:id` (GigDetail.tsx). None of those exists on
+ * the empty form this scenario starts on, and every step here is a
+ * highlight that cannot save a gig to reach them (see below), so they
+ * are simply not walkable from here. Task 5 of that phase adds a
+ * `record-work` scenario that starts on a saved gig and covers them
+ * properly; until it lands, the work half of a gig has no tour.
  *
  * Every step is a `highlight`, including the last one, and that is a
  * constraint rather than an oversight. This scenario runs in CI on every
@@ -22,9 +33,10 @@ import type { HelpScenario } from "../types.ts";
  * nothing here changes it.
  *
  * `/gigs/new` is `isNew` (GigEdit.tsx's `const isNew = id === "new"`),
- * which skips the gig query entirely; the delete button below is the one
- * `!isNew`-only block on the form, and it is deliberately not part of
- * this walkthrough.
+ * which skips the gig query entirely. Since the split there is no
+ * `!isNew`-only block left on the form at all — the delete button that
+ * used to be the exception is on the hub now — so every target below
+ * resolves on the empty form as well as on a saved one.
  *
  * One conditional IS on screen here: the form shows Offered ($) or Rate
  * ($ per hour) depending on `form.payType` (GigEdit.tsx). That still
@@ -36,13 +48,14 @@ import type { HelpScenario } from "../types.ts";
  * `GigRate` target would only ever resolve if the tour itself switched
  * pay types, which the highlight-only rule above rules out.
  *
- * The services and payments sections ARE part of it. They used to be
- * `!isNew` too, which meant the first gig anybody made was the one gig
- * whose form never mentioned either feature — and a tour could not fill
- * the gap, because explaining them needed a saved gig and a saved gig
- * needs this scenario to press save. They now render on `/gigs/new` as
- * explanation with no control attached, so the two steps below have a
- * target that exists before the record does.
+ * The services and payments sections USED to be part of it. They had
+ * been given an explain-only state on `/gigs/new` precisely so this
+ * walk could reach them, because explaining them needs a saved gig and
+ * a saved gig needs this scenario to press save. That state is gone:
+ * both sections moved to the hub with the rest of the "a gig that
+ * exists" half, where they can carry the real list and its "+ Add …"
+ * link instead of a paragraph about a control that is not there. The
+ * two steps went with them, to `record-work`.
  *
  * The copy explains what a field is FOR. What it is called is already
  * on screen; what `lead` does to your availability page is not.
@@ -68,13 +81,6 @@ export const createGig: HelpScenario = {
       title: "Client",
       description:
         "Who the work is for. Leaving it on \"No client\" is fine — the gig still saves — but a client is what groups this gig with the rest of their work in Reports, and what the list falls back to for a name.",
-    },
-    {
-      action: "highlight",
-      target: HelpTarget.GigStatus,
-      title: "Status",
-      description:
-        "lead → confirmed → completed → paid, and it drives real behaviour. A lead never blocks time on your public availability page and never reaches Google Calendar — it is an offer, not a commitment. Confirmed does both. Completed is the one the dashboard reads as work waiting to be paid; paid closes it off.",
     },
     {
       action: "highlight",
@@ -127,45 +133,10 @@ export const createGig: HelpScenario = {
     },
     {
       action: "highlight",
-      target: HelpTarget.GigWorkStart,
-      title: "Started",
-      description:
-        "When the shift actually began — as opposed to the date and time near the top, which is what was agreed. Same control, same calendar. On an hourly gig, once this and Finished are both filled in, Gigsy prices the shift on the real time worked instead of the booked duration.",
-    },
-    {
-      action: "highlight",
-      target: HelpTarget.GigWorkEnd,
-      title: "Finished",
-      description:
-        "When it actually ended. Leave it blank while the shift is still in progress — a start with no finish yet is what open work looks like, not a mistake.",
-    },
-    {
-      action: "highlight",
-      target: HelpTarget.GigBreak,
-      title: "Off-time breaks (minutes)",
-      description:
-        "Minutes not worked inside that span — a lunch break, a gap between two client visits. Subtracted before an hourly gig is priced; it has no effect on a fixed fee.",
-    },
-    {
-      action: "highlight",
       target: HelpTarget.GigNotes,
       title: "Notes",
       description:
         "Anything you'll want on the day — parking, the contact's name, what the client asked for. Its first line doubles as the gig's name in the list whenever you left the title blank, so it's worth putting the useful bit first.",
-    },
-    {
-      action: "highlight",
-      target: HelpTarget.GigServices,
-      title: "Additional services",
-      description:
-        "Work billed on top of the fee — the overtime hour, the second booth, the extra day. Each one is its own line with its own offered and paid amounts, which is why an unpaid extra still shows as owed after the gig's own fee has landed. Right now it only explains itself; a saved gig gets a \"+ Add service\" link here.",
-    },
-    {
-      action: "highlight",
-      target: HelpTarget.GigPayments,
-      title: "Payments",
-      description:
-        "Money in the parts it actually arrives in — a deposit in March, the balance in May, each with its date and a photo of the proof. Paid ($) above is the total; this is the record of where that total came from, and what you show a client who says they already paid. It appears as a list you can add to once the gig is saved.",
     },
     {
       action: "highlight",
@@ -174,7 +145,7 @@ export const createGig: HelpScenario = {
       target: HelpTarget.GigSave,
       title: "Save it yourself",
       description:
-        "Press \"Save gig\" when the form says what you mean. This walkthrough stops here on purpose and will not press it for you: nothing is written until you do. Saving takes you back to the gig list, with the new gig on it.",
+        "Press \"Save gig\" when the form says what you mean. This walkthrough stops here on purpose and will not press it for you: nothing is written until you do. Saving opens the gig's own screen, where its status, the hours you actually work, its extra services and its payments all live.",
     },
   ],
 };

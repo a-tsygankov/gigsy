@@ -1,35 +1,36 @@
+/**
+ * What a job IS, as a form — and nothing about what happened.
+ *
+ * Serves two routes: `/gigs/new` (create) and `/gigs/:id/edit`. The
+ * status, the work log, the expected-pay readout, the services and
+ * payments lists and the delete button all moved to the detail hub
+ * (GigDetail.tsx) when the gig screen split, because they are records
+ * of a gig that exists rather than statements of what was agreed. What
+ * is left is the agreement: who, what, when, where, and how it pays.
+ */
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
-import { GIG_STATUSES, type GigInput, type GigStatus, type PayType } from "../lib/types.ts";
-import { expectedCents, workedMinutes, type PayableGig } from "../lib/gig-pay.ts";
+import type { GigInput, PayType } from "../lib/types.ts";
+import { gigToInput } from "../lib/gig-input.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
-import { formatMoney } from "../lib/format.ts";
+import { formatDuration } from "../lib/format.ts";
 import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
 import {
   AppHeader,
   Button,
-  CardLink,
   DateTimeField,
   DurationField,
   Field,
   Input,
-  SectionHeading,
   Select,
   Textarea,
 } from "../components/index.ts";
 
-function formatDuration(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return [h > 0 ? `${h}h` : "", m > 0 ? `${m}m` : ""].filter(Boolean).join(" ");
-}
-
 interface FormState {
   clientId: string; // "" = none
   title: string;
-  status: GigStatus;
   dateTime: string; // "YYYY-MM-DDTHH:mm", the DateTimeField value
   durationMinutes: string; // "" = not set
   location: string;
@@ -37,16 +38,12 @@ interface FormState {
   hourlyRate: string; // dollars text, hourly rate
   offered: string; // dollars text
   paid: string;
-  workStart: string; // "YYYY-MM-DDTHH:mm", the DateTimeField value
-  workEnd: string; // "YYYY-MM-DDTHH:mm", the DateTimeField value
-  breakMinutes: string; // "" = not set
   notes: string;
 }
 
 const BLANK: FormState = {
   clientId: "",
   title: "",
-  status: "lead",
   dateTime: "",
   durationMinutes: "",
   location: "",
@@ -54,9 +51,6 @@ const BLANK: FormState = {
   hourlyRate: "",
   offered: "",
   paid: "",
-  workStart: "",
-  workEnd: "",
-  breakMinutes: "",
   notes: "",
 };
 
@@ -79,7 +73,6 @@ export function GigEdit() {
 
   const [form, setForm] = useState<FormState>(BLANK);
   const [moneyError, setMoneyError] = useState<string | null>(null);
-  const [workError, setWorkError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   useEffect(() => {
@@ -87,7 +80,6 @@ export function GigEdit() {
     setForm({
       clientId: gig.data.clientId ?? "",
       title: gig.data.title ?? "",
-      status: gig.data.status,
       dateTime: msToLocalInput(gig.data.dateTime),
       durationMinutes:
         gig.data.durationMinutes !== null ? String(gig.data.durationMinutes) : "",
@@ -98,33 +90,19 @@ export function GigEdit() {
           ? centsToInput(gig.data.hourlyRateCents)
           : "",
       offered:
-        gig.data.amountOfferedCents !== null
+        gig.data.amountOfferedCents !== null && gig.data.payType === "fixed"
           ? centsToInput(gig.data.amountOfferedCents)
           : "",
       paid:
         gig.data.amountPaidCents !== null
           ? centsToInput(gig.data.amountPaidCents)
           : "",
-      workStart: msToLocalInput(gig.data.workStartedAt),
-      workEnd: msToLocalInput(gig.data.workEndedAt),
-      breakMinutes: gig.data.breakMinutes !== null ? String(gig.data.breakMinutes) : "",
       notes: gig.data.notes ?? "",
     });
   }, [gig.data]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
-
-  const services = useQuery({
-    queryKey: ["services", id],
-    queryFn: () => api.listServicesByGig(id),
-    enabled: !isNew,
-  });
-  const payments = useQuery({
-    queryKey: ["payments", id],
-    queryFn: () => api.listPaymentsByGig(id),
-    enabled: !isNew,
-  });
 
   const save = useMutation({
     mutationFn: (input: GigInput) =>
@@ -135,15 +113,10 @@ export function GigEdit() {
     onSuccess: async (saved) => {
       await queryClient.invalidateQueries({ queryKey: ["gigs"] });
       await queryClient.invalidateQueries({ queryKey: ["gig", saved.id] });
-      navigate("/gigs");
-    },
-  });
-
-  const remove = useMutation({
-    mutationFn: () => api.deleteGig(id),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["gigs"] });
-      navigate("/gigs");
+      // The hub, not the list: saving a job definition is the middle of
+      // a task, not the end of one — the next thing anyone does with a
+      // gig is look at it or start work on it.
+      navigate(`/gigs/${saved.id}`);
     },
   });
 
@@ -156,27 +129,6 @@ export function GigEdit() {
           { weekday: "short", hour: "numeric", minute: "2-digit" },
         )
       : null;
-
-  /** The live readout: what has been entered so far, priced. Recomputed
-   *  from form state rather than from the saved record, so it answers
-   *  while you are still typing. */
-  const draftPay: PayableGig = {
-    payType: form.payType,
-    hourlyRateCents: form.hourlyRate.trim() === "" ? null : parseMoney(form.hourlyRate),
-    amountOfferedCents: form.offered.trim() === "" ? null : parseMoney(form.offered),
-    durationMinutes: form.durationMinutes === "" ? null : Number(form.durationMinutes),
-    workStartedAt: localInputToMs(form.workStart),
-    workEndedAt: localInputToMs(form.workEnd),
-    breakMinutes: form.breakMinutes === "" ? null : Number(form.breakMinutes),
-  };
-  const worked = workedMinutes(draftPay);
-  const expected = expectedCents(draftPay);
-  const payLine =
-    expected === null
-      ? null
-      : worked !== null
-        ? `Worked ${formatDuration(worked)} → ${formatMoney(expected)}`
-        : `Expected ${formatMoney(expected)}`;
 
   /** Coordinates come from the device; the worker turns them into a
    * place name. A failed lookup still fills the field with the raw
@@ -238,48 +190,41 @@ export function GigEdit() {
     }
     setMoneyError(null);
 
-    const workStartedAt = localInputToMs(form.workStart);
-    const workEndedAt = localInputToMs(form.workEnd);
-    const breakMinutes = form.breakMinutes.trim() === "" ? null : Number(form.breakMinutes);
-    // Mirrors backend/src/domain/schemas.ts's superRefine, so a mistyped
-    // work log fails here rather than as a 400 after "Save" — the same
-    // reasoning as the hourly-rate guard above.
-    if (workEndedAt !== null && workStartedAt === null) {
-      setWorkError("Work can't end without a start time.");
-      return;
-    }
-    if (workStartedAt !== null && workEndedAt !== null) {
-      if (workEndedAt <= workStartedAt) {
-        setWorkError("Finished must be after Started.");
-        return;
-      }
-      if (breakMinutes !== null && breakMinutes * 60_000 >= workEndedAt - workStartedAt) {
-        setWorkError("The break can't fill the whole shift.");
-        return;
-      }
-    }
-    setWorkError(null);
-
     save.mutate({
+      // The stored gig underneath, so this form's save carries the
+      // fields it does not show — the work log and any hourly override
+      // — through untouched. `putGig` REPLACES rather than patches
+      // (lib/gig-input.ts), so without this base a job edit would erase
+      // the shift someone recorded on the hub.
+      ...(gig.data !== undefined ? gigToInput(gig.data) : {}),
       clientId: form.clientId === "" ? null : form.clientId,
       title: form.title.trim() === "" ? null : form.title.trim(),
-      status: form.status,
       dateTime: localInputToMs(form.dateTime),
       durationMinutes:
         form.durationMinutes === "" ? null : Number(form.durationMinutes),
       location: form.location.trim() === "" ? null : form.location.trim(),
       payType: form.payType,
       hourlyRateCents: form.payType === "hourly" ? parseMoney(form.hourlyRate) : null,
-      workStartedAt,
-      workEndedAt,
-      breakMinutes,
       // amountOfferedCents is the fee on a fixed gig; on an hourly gig
-      // it is an OVERRIDE of rate × time (lib/gig-pay.ts), and this
-      // screen has no control that sets one — the Offered field above
-      // is only rendered for a fixed gig. Forcing it to null here is
-      // what keeps a value typed before switching to hourly from being
-      // saved as an override nobody meant to set.
-      amountOfferedCents: form.payType === "hourly" ? null : offered,
+      // it is an OVERRIDE of rate × time (lib/gig-pay.ts), which is the
+      // work card's to set and not this form's — an override is a claim
+      // about what a gig earned, not about what was agreed.
+      //
+      // Three cases, and the middle one is new. Fixed: the box above is
+      // the fee. Still hourly: leave whatever the work card put there,
+      // because `putGig` replaces and nulling it here would delete an
+      // override every time somebody corrected a location. Newly
+      // hourly: null, which is the original force-null — a fee typed
+      // while the gig was fixed must not become an override nobody
+      // meant to set. Same reason the effect above leaves `offered`
+      // empty for an hourly gig: a value shown in a box this form nulls
+      // on save is that trap from the other end.
+      amountOfferedCents:
+        form.payType !== "hourly"
+          ? offered
+          : gig.data?.payType === "hourly"
+            ? gig.data.amountOfferedCents
+            : null,
       amountPaidCents: paid,
       notes: form.notes.trim() === "" ? null : form.notes.trim(),
     });
@@ -287,7 +232,7 @@ export function GigEdit() {
 
   return (
     <>
-      <AppHeader title={isNew ? "New gig" : "Edit gig"} />
+      <AppHeader title={isNew ? "New gig" : "Edit job"} />
       <main className="mx-auto max-w-lg space-y-4 p-4">
         {!isNew && gig.isPending ? (
           <p className="text-sm text-slate-500">Loading…</p>
@@ -313,20 +258,6 @@ export function GigEdit() {
                 {clients.data?.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-
-            <Field label="Status">
-              <Select
-                data-testid="gig-status"
-                value={form.status}
-                onChange={(e) => set("status", e.target.value as GigStatus)}
-              >
-                {GIG_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
                   </option>
                 ))}
               </Select>
@@ -419,41 +350,6 @@ export function GigEdit() {
               />
             </Field>
 
-            <SectionHeading>Work done</SectionHeading>
-            <Field label="Started">
-              <DateTimeField
-                testId="gig-work-start"
-                label="Started"
-                value={form.workStart}
-                onChange={(v) => set("workStart", v)}
-              />
-            </Field>
-            <Field label="Finished">
-              <DateTimeField
-                testId="gig-work-end"
-                label="Finished"
-                value={form.workEnd}
-                onChange={(v) => set("workEnd", v)}
-              />
-            </Field>
-            <Field label="Off-time breaks (minutes)" error={workError}>
-              <Input
-                type="number"
-                min={0}
-                inputMode="numeric"
-                className="w-24"
-                data-testid="gig-break"
-                placeholder="0"
-                value={form.breakMinutes}
-                onChange={(e) => set("breakMinutes", e.target.value)}
-              />
-            </Field>
-            {payLine !== null && (
-              <p className="text-sm text-slate-600" data-testid="gig-expected-pay">
-                {payLine}
-              </p>
-            )}
-
             <Field label="Notes">
               <Textarea
                 data-testid="gig-notes"
@@ -478,138 +374,13 @@ export function GigEdit() {
               <Button
                 data-testid="gig-cancel"
                 variant="ghost"
-                onClick={() => navigate("/gigs")}
+                // Back where you came from: the hub for a gig that
+                // exists, the list for one that does not yet.
+                onClick={() => navigate(isNew ? "/gigs" : `/gigs/${id}`)}
               >
                 Cancel
               </Button>
             </div>
-
-            {/* ── Additional services (addable at any time) ──
-                Rendered on a new gig too, explained rather than offered.
-                Both live on a gig id that does not exist until the save,
-                so there is nothing here to operate yet — but a form that
-                simply omits them is how someone finishes their first gig
-                without ever learning that the extra hour they worked has
-                a place to go. Same `data-testid` in both states so one
-                help target covers both.
-
-                The explanatory state deliberately renders NO link and no
-                button. `SectionHeading` drops its action entirely when
-                `actionLabel`/`actionTo` are absent, which keeps
-                "+ Add service" a unique accessible name on the one screen
-                that has it — e2e/signed-in.spec.ts reaches the real
-                control by that name, and a second match is a strict-mode
-                failure, not a cosmetic one. */}
-            <section className="pt-2" data-testid="gig-services">
-              {isNew ? (
-                <>
-                  <SectionHeading>Additional services</SectionHeading>
-                  <p className="text-xs text-slate-500">
-                    Extra work billed on top of the fee — an overtime hour, a
-                    second booth. Each one carries its own offered and paid
-                    amounts, so what a gig really earned stays right. Save the
-                    gig and you can add them here.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <SectionHeading
-                    actionLabel="+ Add service"
-                    actionTo={`/services/new?gigId=${id}`}
-                    actionTestId="gig-add-service"
-                  >
-                    Additional services
-                  </SectionHeading>
-                  {services.data?.length === 0 && (
-                    <p className="text-xs text-slate-400">None yet.</p>
-                  )}
-                  <div className="space-y-2">
-                    {services.data?.map((svc) => (
-                      <CardLink
-                        key={svc.id}
-                        to={`/services/${svc.id}`}
-                        dense
-                        className="flex items-center justify-between"
-                      >
-                        <span className="min-w-0 truncate">
-                          <span className={svc.isCompleted ? "text-slate-900" : "text-slate-600"}>
-                            {svc.isCompleted ? "✓ " : "○ "}
-                            {svc.description}
-                          </span>
-                        </span>
-                        <span className="ml-2 shrink-0 text-xs font-semibold text-slate-700">
-                          {formatMoney(svc.amountPaidCents ?? 0)} /{" "}
-                          {formatMoney(svc.amountOfferedCents ?? 0)}
-                        </span>
-                      </CardLink>
-                    ))}
-                  </div>
-                </>
-              )}
-            </section>
-
-            {/* ── Payments received for this gig ── */}
-            <section className="pt-2" data-testid="gig-payments">
-              {isNew ? (
-                <>
-                  <SectionHeading>Payments</SectionHeading>
-                  <p className="text-xs text-slate-500">
-                    Money as it actually lands — a deposit now, the balance
-                    weeks later, each with its own date and a photo of the
-                    proof. Paid ($) above is the running total; this is where
-                    the parts of it live. Save the gig and you can add them
-                    here.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <SectionHeading
-                    actionLabel="+ Add payment"
-                    actionTo={`/payments/new?gigId=${id}`}
-                    actionTestId="gig-add-payment"
-                  >
-                    Payments
-                  </SectionHeading>
-                  {payments.data?.length === 0 && (
-                    <p className="text-xs text-slate-400">None yet.</p>
-                  )}
-                  <div className="space-y-2">
-                    {payments.data?.map((payment) => (
-                      <CardLink
-                        key={payment.id}
-                        to={`/payments/${payment.id}`}
-                        dense
-                        className="flex items-center justify-between"
-                      >
-                        <span className="text-slate-600">
-                          {payment.paidAt !== null
-                            ? new Date(payment.paidAt).toLocaleDateString()
-                            : "No date"}
-                          {payment.confirmationR2Key !== null && " · 📎 proof"}
-                        </span>
-                        <span className="shrink-0 font-semibold text-emerald-700">
-                          {formatMoney(payment.amountCents)}
-                        </span>
-                      </CardLink>
-                    ))}
-                  </div>
-                </>
-              )}
-            </section>
-
-            {!isNew && (
-              <Button
-                data-testid="gig-delete"
-                variant="danger"
-                block
-                disabled={remove.isPending}
-                onClick={() => {
-                  if (window.confirm("Delete this gig?")) remove.mutate();
-                }}
-              >
-                Delete gig
-              </Button>
-            )}
           </>
         )}
       </main>

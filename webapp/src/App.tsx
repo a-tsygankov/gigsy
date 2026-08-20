@@ -7,6 +7,7 @@ import { Login } from "./screens/Login.tsx";
 import { Dashboard } from "./screens/Dashboard.tsx";
 import { Gigs } from "./screens/Gigs.tsx";
 import { GigEdit } from "./screens/GigEdit.tsx";
+import { GigDetail } from "./screens/GigDetail.tsx";
 import { Clients } from "./screens/Clients.tsx";
 import { ClientEdit } from "./screens/ClientEdit.tsx";
 import { Expenses } from "./screens/Expenses.tsx";
@@ -49,9 +50,17 @@ export function App() {
           </Route>
           <Route element={<AuthGate />}>
             <Route path="/gigs" element={<Gigs />} />
-            {/* "…/new" rides the :id route — edit screens treat the
-                literal id "new" as create mode. */}
-            <Route path="/gigs/:id" element={<GigEdit />} />
+            {/* Order matters: "/gigs/new" must come first, or ":id"
+                matches it and "new" is read as a gig id. GigEdit still
+                treats the literal id "new" as create mode — the two
+                routes below it are the same form, one with a record
+                behind it and one without. */}
+            <Route path="/gigs/new" element={<GigEdit />} />
+            {/* A gig opens on its detail hub, never straight into a
+                form: the job half is read-only there and the work half
+                saves as you touch it (Phase 3). */}
+            <Route path="/gigs/:id" element={<GigDetail />} />
+            <Route path="/gigs/:id/edit" element={<GigEdit />} />
             <Route path="/services/:id" element={<ServiceEdit />} />
             <Route path="/payments/:id" element={<PaymentEdit />} />
             <Route path="/capture" element={<Capture />} />

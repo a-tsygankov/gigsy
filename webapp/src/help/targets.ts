@@ -59,7 +59,7 @@ export const HelpTarget = {
   // The Fab is a <Link>, not a Button — an element either way.
   GigAdd: element("gig-add"),
 
-  // ── the gig form (GigEdit.tsx) ──
+  // ── the job form (GigEdit.tsx, `/gigs/new` and `/gigs/:id/edit`) ──
   // Every one of these is an Input, Select, Textarea or Button, so every
   // one is `element`. DateTimeField is one control now — a popover
   // trigger carrying the id it is given — so a moment is one target, not
@@ -72,7 +72,6 @@ export const HelpTarget = {
   // target — there is no separate scenario step for the minutes input.
   GigTitle: element("gig-title"),
   GigClient: element("gig-client"),
-  GigStatus: element("gig-status"),
   GigDateTime: element("gig-datetime"),
   GigDurationHours: element("gig-duration-hours"),
   GigLocation: element("gig-location"),
@@ -89,17 +88,30 @@ export const HelpTarget = {
   // the whole run (see create-gig.ts's header for the full reasoning).
   GigOffered: element("gig-offered"),
   GigPaid: element("gig-paid"),
+  GigNotes: element("gig-notes"),
+  GigSave: element("gig-save"),
+
+  // ── the detail hub (GigDetail.tsx, gigs/WorkCard.tsx) ──
+  // `/gigs/:id`, which is where a row on the gig list now opens. None of
+  // these exists on `/gigs/new`: they are all about a gig that has been
+  // saved, which is why `create-gig` — a walk of the empty form — no
+  // longer has steps for them (see that file's header). Reaching them
+  // needs a scenario that starts on a saved gig, which Phase 3 Task 5
+  // adds as `record-work`.
+  //
+  // The ids are unchanged from when these controls lived on the form, so
+  // anything already pointing at them still resolves; what changed is
+  // the screen they resolve on.
+  GigEditButton: element("gig-edit"),
+  GigStatus: element("gig-status"),
+  GigWorkStartButton: element("work-start"),
+  GigWorkStopButton: element("work-stop"),
   GigWorkStart: element("gig-work-start"),
   GigWorkEnd: element("gig-work-end"),
   GigBreak: element("gig-break"),
-  GigNotes: element("gig-notes"),
-  GigSave: element("gig-save"),
-  // The two blocks below the save button. Both are `<section>`s carrying
-  // the id themselves, and GigEdit.tsx renders them in BOTH states — the
-  // real list plus its "+ Add …" link on a saved gig, a paragraph
-  // explaining what they are for on `/gigs/new`. That is what lets one
-  // target work on a gig that does not exist yet, which is the only way
-  // a tour can explain either feature: a tour cannot save a gig first.
+  GigExpectedPay: element("gig-expected-pay"),
+  GigOverride: element("gig-override"),
+  // Both are `<section>`s carrying the id themselves.
   GigServices: element("gig-services"),
   GigPayments: element("gig-payments"),
 

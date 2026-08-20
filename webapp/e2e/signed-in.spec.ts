@@ -29,17 +29,24 @@ test("a completed unpaid gig with a service reaches the dashboard drill-down", a
 }) => {
   const marker = `unpaid-booth-${Date.now()}`;
 
-  // Create a completed gig: offered 200, paid 50.
+  // Create a completed gig: offered 200, paid 50. The status is not on
+  // the job form any more — it is a fact about the work, so it lives on
+  // the hub the save lands on.
   await page.getByRole("link", { name: "Gigs" }).click();
   await page.getByRole("link", { name: "Add gig" }).click();
   await page.getByLabel("Location").fill(marker);
-  await page.getByLabel("Status").selectOption("completed");
   await page.getByLabel("Offered ($)").fill("200");
   await page.getByLabel("Paid ($)").fill("50");
   await page.getByRole("button", { name: "Save gig" }).click();
 
-  // Add a service on it: offered 40, unpaid.
-  await page.getByText(marker).click();
+  await expect(page.getByTestId("gig-work-card")).toBeVisible({ timeout: 15_000 });
+  await page.getByLabel("Status").selectOption("completed");
+  // The pill is fed by the saved record, so waiting for it is waiting
+  // for the write — the work card has no Save button to press.
+  await expect(page.getByTestId("status-pill")).toHaveText("completed");
+
+  // Add a service on it: offered 40, unpaid. That section is on this
+  // screen now, not on the form.
   await page.getByRole("link", { name: "+ Add service" }).click();
   await page.getByLabel("Description").fill("Overtime hour");
   await page.getByLabel("Offered ($)").fill("40");
@@ -72,6 +79,9 @@ test("a gig created while offline shows up instantly and drains on reconnect", a
   await page.getByRole("link", { name: "Add gig" }).click();
   await page.getByLabel("Location").fill(marker);
   await page.getByRole("button", { name: "Save gig" }).click();
+  // Saving opens the new gig's own screen; the list is one tap back.
+  await expect(page.getByTestId("gig-work-card")).toBeVisible();
+  await page.getByRole("link", { name: "Gigs" }).click();
 
   // Local-first: the gig is on the list with zero network, and the
   // header shows we're offline with unsynced work.
@@ -155,11 +165,14 @@ test("a gig duration and a billable expense survive a server round-trip", async 
 
   // Let the save land first: click() returns once the click is
   // dispatched, so reloading straight after cancels the write.
+  // The save lands on the gig's own screen, which states the plan.
   await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("job-when")).toContainText("3h 20m");
   await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
   await page.reload();
 
-  await page.getByText(marker).click();
+  // Both halves, in the form the server's copy fills in.
+  await page.getByTestId("gig-edit").click();
   await expect(page.getByTestId("gig-duration-hours")).toHaveValue("3");
   await expect(page.getByTestId("gig-duration-minutes")).toHaveValue("20");
 
@@ -191,13 +204,14 @@ test("reopening a just-edited gig shows the new values", async ({ page }) => {
   await page.getByRole("button", { name: "Save gig" }).click();
   await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
 
-  // Edit it: change the duration, save, reopen immediately.
-  await page.getByText(marker).click();
+  // Edit it: change the duration, save, reopen immediately. Both saves
+  // land on the hub, so the form is one "Edit" away each time.
+  await page.getByTestId("gig-edit").click();
   await page.getByTestId("gig-duration-hours").fill("5");
   await page.getByRole("button", { name: "Save gig" }).click();
-  await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("job-when")).toBeVisible({ timeout: 15_000 });
 
-  await page.getByText(marker).click();
+  await page.getByTestId("gig-edit").click();
   await expect(page.getByTestId("gig-duration-hours")).toHaveValue("5");
 });
 
@@ -226,8 +240,10 @@ test("a gig title survives a server round-trip", async ({ page }) => {
   await page.reload();
 
   // The list is now populated from the server copy.
+  await page.getByRole("link", { name: "Gigs" }).click();
   await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
   await page.getByText(marker).click();
+  await page.getByTestId("gig-edit").click();
   await expect(page.getByTestId("gig-title")).toHaveValue(title);
 });
 
@@ -255,8 +271,15 @@ test("a gig date and time are stored together and come back", async ({
   await page.getByRole("button", { name: "Save gig" }).click();
   await expect(page.getByText(marker)).toBeVisible({ timeout: 15_000 });
 
+  // The hub states the same moment in canonical form — what the row
+  // READS is localised, so `data-value` is what a spec can assert on.
+  await expect(page.getByTestId("job-when")).toHaveAttribute(
+    "data-value",
+    "2027-03-04T10:45",
+  );
+
   // Reopened from storage, not from the form state left behind.
-  await page.getByText(marker).click();
+  await page.getByTestId("gig-edit").click();
   await dateTimeField(page, "gig-datetime").expectValue("2027-03-04T10:45");
 });
 
@@ -305,6 +328,8 @@ test("a gig with unsent changes is marked, and the mark clears on sync", async (
   await page.getByRole("link", { name: "Add gig" }).click();
   await page.getByLabel("Location").fill(first);
   await page.getByRole("button", { name: "Save gig" }).click();
+  // The save opens the gig itself; the dot being tested is a list mark.
+  await page.getByRole("link", { name: "Gigs" }).click();
 
   await expect(page.getByText(first)).toBeVisible();
   await expect(rowFor(first).getByTestId("gig-unsynced")).toBeVisible();
@@ -320,6 +345,7 @@ test("a gig with unsent changes is marked, and the mark clears on sync", async (
   await page.getByRole("link", { name: "Add gig" }).click();
   await page.getByLabel("Location").fill(second);
   await page.getByRole("button", { name: "Save gig" }).click();
+  await page.getByRole("link", { name: "Gigs" }).click();
 
   await expect(page.getByText(second)).toBeVisible();
   await expect(rowFor(second).getByTestId("gig-unsynced")).toBeVisible();
@@ -335,14 +361,81 @@ test("a gig with unsent changes is marked, and the mark clears on sync", async (
 // 09:00 to 12:18 is 198 minutes; an 18-minute break leaves 180 worked,
 // which at $50/h is $150.00 — proves the whole chain (lib/gig-pay.ts's
 // workedMinutes → expectedCents) reaches the screen, not just the model.
+//
+// The work log lives on the gig's own screen since the Phase 3 split,
+// so this creates the gig first and records against it — which is also
+// the real sequence: nobody logs a shift they have not been booked for.
 test("an hourly gig prices itself from the time worked", async ({ page }) => {
   await page.goto("/gigs/new");
   await page.getByTestId("gig-pay-type").selectOption("hourly");
   await page.getByTestId("gig-rate").fill("50");
+  await page.getByTestId("gig-save").click();
+
+  await expect(page.getByTestId("gig-work-card")).toBeVisible({ timeout: 15_000 });
   await dateTimeField(page, "gig-work-start").set("2027-03-04", "09:00");
   await dateTimeField(page, "gig-work-end").set("2027-03-04", "12:18");
   await page.getByTestId("gig-break").fill("18");
+  // Committed on blur — the card saves as you go and has no button.
+  await page.getByTestId("gig-break").blur();
   await expect(page.getByTestId("gig-expected-pay")).toContainText("$150.00");
+});
+
+/**
+ * The whole point of the phase: recording what happened cannot move
+ * what was planned.
+ *
+ * The two assertions on `job-when` either side of Start/Stop are what
+ * would catch a work control writing into `dateTime` — the fault the
+ * old single form made possible.
+ */
+test("recording work never touches the planned time", async ({ page }) => {
+  await page.goto("/gigs/new");
+  await page.getByTestId("gig-pay-type").selectOption("hourly");
+  await page.getByTestId("gig-rate").fill("50");
+  await dateTimeField(page, "gig-datetime").set("2027-03-04", "09:00");
+  await page.getByTestId("gig-duration-hours").fill("3");
+  await page.getByTestId("gig-save").click();
+
+  // Saving lands on the detail hub, not the list.
+  await expect(page.getByTestId("gig-work-card")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("job-when")).toHaveAttribute(
+    "data-value",
+    "2027-03-04T09:00",
+  );
+
+  // Start stamps the current minute…
+  await page.getByTestId("work-start").click();
+  await expect(page.getByTestId("gig-work-start")).not.toHaveAttribute(
+    "data-value",
+    "",
+  );
+
+  // …then the stamp is corrected backwards, which is what the field
+  // under the button is for. Stop below then closes a real span:
+  // stopping in the same minute you started is a zero-length shift and
+  // the card refuses it, exactly as the write schema does.
+  const started = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  await dateTimeField(page, "gig-work-start").set(
+    `${started.getFullYear()}-${pad(started.getMonth() + 1)}-${pad(started.getDate())}`,
+    `${pad(started.getHours())}:${pad(started.getMinutes())}`,
+  );
+  await page.getByTestId("work-stop").click();
+
+  // The plan is untouched; the actuals now exist and are priced.
+  await expect(page.getByTestId("job-when")).toHaveAttribute(
+    "data-value",
+    "2027-03-04T09:00",
+  );
+  await expect(page.getByTestId("gig-expected-pay")).toContainText("$");
+
+  // …and the override, which is the only way to reach amountOfferedCents
+  // on an hourly gig (Phase 3 Task 4b).
+  await page.getByTestId("gig-override").fill("189.17");
+  await page.getByTestId("gig-override").blur();
+  await expect(page.getByTestId("gig-expected-pay")).toContainText("$189.17");
+  await page.getByTestId("gig-override-clear").click();
+  await expect(page.getByTestId("gig-expected-pay")).not.toContainText("$189.17");
 });
 
 // A zero rate parses fine (parseMoney("0") === 0) but must still be
