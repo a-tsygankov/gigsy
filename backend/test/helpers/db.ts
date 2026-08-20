@@ -15,6 +15,7 @@ import activityEventsSql from "../../migrations/0012_activity_events.sql?raw";
 import gigPayAndWorkLogSql from "../../migrations/0013_gig_pay_and_work_log.sql?raw";
 import gigExpectedCentsSql from "../../migrations/0014_gig_expected_cents.sql?raw";
 import gigStatusCancelledSql from "../../migrations/0015_gig_status_cancelled.sql?raw";
+import paymentAllocationsSql from "../../migrations/0016_payment_allocations.sql?raw";
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
@@ -58,9 +59,24 @@ export const MIGRATIONS_BEFORE_STATUS_CANCELLED = [
 
 export const STATUS_CANCELLED_MIGRATION = gigStatusCancelledSql;
 
-const MIGRATIONS = [
+// Split again at 0016, for the same reason as 0014 and 0015: it
+// backfills payment_allocations from every existing payments.gig_id,
+// derives payments.client_id from the gig each payment pointed at, and
+// rewrites gigs.amount_paid_cents from the allocations it just created
+// — three UPDATE/INSERT statements that only prove anything against a
+// database that already has payments, gigs and clients in it. Applied
+// to an empty database (every other suite) they exercise the CREATE
+// TABLE and ALTER TABLE but never a single row of backfill logic.
+export const MIGRATIONS_BEFORE_PAYMENT_ALLOCATIONS = [
   ...MIGRATIONS_BEFORE_STATUS_CANCELLED,
   STATUS_CANCELLED_MIGRATION,
+];
+
+export const PAYMENT_ALLOCATIONS_MIGRATION = paymentAllocationsSql;
+
+const MIGRATIONS = [
+  ...MIGRATIONS_BEFORE_PAYMENT_ALLOCATIONS,
+  PAYMENT_ALLOCATIONS_MIGRATION,
 ];
 
 /**
