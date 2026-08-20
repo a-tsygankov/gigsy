@@ -7,14 +7,27 @@
 import { z } from "zod";
 
 export const ExtractedData = z.object({
-  kind: z.enum(["gig", "expense", "unknown"]),
+  // "payment" (Phase 4, 2026-08-19): a receipt or slip proving money
+  // was paid TO the user by a client — distinct from "expense", which
+  // is money the user spent. A booking sheet and a payment slip must
+  // land on different kinds so a misread offer never becomes a paid
+  // total, or vice versa.
+  kind: z.enum(["gig", "expense", "payment", "unknown"]),
   clientName: z.string().min(1).nullish(),
   /** Filled by the fuzzy matcher, not the model. */
   matchedClientId: z.string().nullish(),
   matchConfidence: z.number().min(0).max(1).nullish(),
   location: z.string().nullish(),
+  // Doubles as a payment's received date. A fourth field ("paidAtMs")
+  // would mean the same thing as this one under a different name —
+  // both answer "when did this happen" — and DraftReview already maps
+  // whichever field a kind actually uses onto the record it creates
+  // (gig.dateTime for "gig", payment.paidAt for "payment").
   dateTimeMs: z.number().int().nullish(),
   amountOfferedCents: z.number().int().positive().nullish(),
+  // Receipt/slip total — shared by "expense" (what the user paid out)
+  // and "payment" (what the user was paid); the two never coexist on
+  // one draft since kind picks one reading.
   amountCents: z.number().int().positive().nullish(),
   category: z.string().nullish(),
   notes: z.string().nullish(),
@@ -49,17 +62,17 @@ export interface ExtractionProvider {
   extract(input: ExtractionInput): Promise<ExtractedDataT | null>;
 }
 
-export const EXTRACTION_PROMPT = `You extract gig-work data from flyers, receipts, and forwarded emails for a personal gig tracker.
+export const EXTRACTION_PROMPT = `You extract gig-work data from flyers, receipts, payment slips, and forwarded emails for a personal gig tracker.
 Reply with ONLY a JSON object (no prose, no markdown fences) with these fields:
-- "kind": "gig" for offered work/shifts, "expense" for receipts/purchases, "unknown" if unclear
-- "clientName": the agency/company offering the work, or the merchant for expenses (string or null)
+- "kind": "gig" for offered work/shifts/booking sheets, "expense" for a receipt of something the USER bought, "payment" for a receipt or slip proving a client PAID the user (bank transfer confirmation, cash receipt, invoice marked paid), "unknown" if unclear
+- "clientName": the agency/company offering the work or paying the user, or the merchant for expenses (string or null)
 - "location": venue/address if present (string or null)
-- "dateTimeMs": event date-time as epoch milliseconds UTC (number or null)
+- "dateTimeMs": event date-time for a gig, or the date the payment was received, as epoch milliseconds UTC (number or null)
 - "amountOfferedCents": offered pay in integer cents, gigs only (number or null)
-- "amountCents": receipt total in integer cents, expenses only (number or null)
+- "amountCents": total in integer cents — the expense's cost, or the payment's amount (number or null)
 - "category": short expense category like "parking", "supplies" (string or null)
 - "notes": anything else useful, one short sentence (string or null)
-Amounts must be positive integers in cents. Use null when unsure — never guess.`;
+Amounts must be positive integers in cents. Use null when unsure — never guess. Choosing "unknown" is correct when you cannot tell whether money moved toward the user or away from them.`;
 
 /** Models love markdown fences despite instructions — strip them
  * before parsing, then validate hard. */

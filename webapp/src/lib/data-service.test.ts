@@ -13,6 +13,7 @@ function makeService() {
   const engine = { notifyLocalChange: vi.fn(async () => undefined) };
   const reports = {
     getReportSummary: vi.fn(async () => ({ totals: {} }) as ReportSummary),
+    confirmDraftAsPayment: vi.fn(),
   };
   const data = new OfflineDataService(
     store,
@@ -93,6 +94,49 @@ describe("OfflineDataService", () => {
     await expect(
       data.putGig(G1, { amountOfferedCents: 15000, amountPaidCents: null }),
     ).resolves.toMatchObject({ amountOfferedCents: 15000 });
+  });
+
+  it("confirmDraftAsPayment rejects a non-positive amount before it can reach the network", async () => {
+    const { data, reports } = makeService();
+    const PAY = "55555555-5555-4555-8555-555555555555";
+
+    await expect(
+      data.confirmDraftAsPayment("draft-1", PAY, { amountCents: 0 }),
+    ).rejects.toThrow(/positive/);
+    expect(reports.confirmDraftAsPayment).not.toHaveBeenCalled();
+  });
+
+  it("confirmDraftAsPayment calls the server directly and seeds the local store — not the outbox", async () => {
+    const { data, store, engine, reports } = makeService();
+    const PAY = "66666666-6666-4666-8666-666666666666";
+    const record = {
+      id: PAY,
+      gigId: null,
+      amountCents: 5000,
+      paidAt: null,
+      confirmationR2Key: "u/x/payments/66666666-6666-4666-8666-666666666666/confirmation",
+      notes: null,
+      createdAt: 1000,
+      modifiedAt: 1000,
+    };
+    reports.confirmDraftAsPayment.mockResolvedValueOnce(record);
+
+    const result = await data.confirmDraftAsPayment("draft-1", PAY, {
+      amountCents: 5000,
+    });
+
+    expect(result).toEqual(record);
+    expect(reports.confirmDraftAsPayment).toHaveBeenCalledWith(
+      "draft-1",
+      PAY,
+      { amountCents: 5000 },
+    );
+    // applyServerRecord, the same server-authoritative write a pull
+    // uses — never putPayment's outbox, which would race the server's
+    // own photo copy (routes/drafts.ts's confirm-payment endpoint).
+    expect(await store.getPayment(PAY)).toEqual(record);
+    expect(await store.hasPendingOp("payment", PAY)).toBe(false);
+    expect(engine.notifyLocalChange).not.toHaveBeenCalled();
   });
 
   it("rejects a zero or negative hourly rate before it can reach the outbox", async () => {
