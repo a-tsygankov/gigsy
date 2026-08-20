@@ -301,4 +301,43 @@ describe("POST /api/sync", () => {
     const res = await api(U1, "POST", "/api/sync", { ops: [{ entity: "cat" }] });
     expect(res.status).toBe(400);
   });
+
+  // C2: payment_allocations.payment_id references payments(id) with no
+  // ON DELETE CASCADE. Before this fix, deleting a payment through
+  // /api/sync while it still had allocations (true of every legacy
+  // payment after migration 0016's backfill) failed the delete's own
+  // FOREIGN KEY constraint and left the gig's derived total stale.
+  it("deletes a payment's allocations first, so the delete succeeds and the gig total clears", async () => {
+    const GID2 = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const PID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    await sync(U1, [
+      { entity: "gig", op: "upsert", id: GID2, modifiedAt: 1, payload: { status: "completed" } },
+      {
+        entity: "payment",
+        op: "upsert",
+        id: PID,
+        modifiedAt: 1,
+        payload: { amountCents: 6000, gigId: GID2 },
+      },
+    ]);
+    // The legacy gigId translation is Task 4's job (see services/sync.ts's
+    // "payment" case), so seed the allocation directly through
+    // /api/allocations instead of relying on the sync payload above.
+    const AID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    await api(U1, "PUT", `/api/allocations/${AID}`, {
+      paymentId: PID, gigId: GID2, amountCents: 6000,
+    });
+    expect((await (await api(U1, "GET", `/api/gigs/${GID2}`)).json() as {
+      amountPaidCents: number | null;
+    }).amountPaidCents).toBe(6000);
+
+    const body = await sync(U1, [
+      { entity: "payment", op: "delete", id: PID, modifiedAt: 2 },
+    ]);
+    expect(body.results[0]?.status).toBe("applied");
+    expect((await api(U1, "GET", `/api/payments/${PID}`)).status).toBe(404);
+    expect((await (await api(U1, "GET", `/api/gigs/${GID2}`)).json() as {
+      amountPaidCents: number | null;
+    }).amountPaidCents).toBeNull();
+  });
 });

@@ -4,7 +4,7 @@ import type { Bindings } from "../env.ts";
 import { requireAuth, type AuthVars } from "../middleware/auth.ts";
 import { PaymentInput, entityId } from "../domain/schemas.ts";
 import { PaymentsRepo } from "../repos/payments.ts";
-import { GigsRepo } from "../repos/gigs.ts";
+import { GigsRepo, type GigRecord } from "../repos/gigs.ts";
 import { ClientsRepo } from "../repos/clients.ts";
 import { AllocationsRepo } from "../repos/allocations.ts";
 import { recomputePaidTotals } from "../services/paid-totals.ts";
@@ -47,12 +47,15 @@ export const paymentsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars
     const userId = c.get("userId");
     const input = c.req.valid("json");
     const now = Date.now();
+    const paymentsRepo = PaymentsRepo.for(c.env.DB);
+    const allocationsRepo = AllocationsRepo.for(c.env.DB);
 
-    if (
-      input.gigId != null &&
-      (await GigsRepo.for(c.env.DB).get(userId, input.gigId)) === null
-    ) {
-      return c.json({ error: "gigId does not reference your gig" }, 400);
+    let gig: GigRecord | null = null;
+    if (input.gigId != null) {
+      gig = await GigsRepo.for(c.env.DB).get(userId, input.gigId);
+      if (gig === null) {
+        return c.json({ error: "gigId does not reference your gig" }, 400);
+      }
     }
     if (
       input.clientId != null &&
@@ -61,12 +64,81 @@ export const paymentsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars
       return c.json({ error: "clientId does not reference your client" }, 400);
     }
 
-    const result = await PaymentsRepo.for(c.env.DB).upsert(
+    const existing = await paymentsRepo.get(userId, id);
+
+    // The client rule applies here exactly as it does in
+    // routes/allocations.ts: once the payment names a client — either
+    // in this request, or already stored and left untouched because
+    // `clientId` is absent from the payload — the gig the legacy
+    // compat path below is about to allocate to must belong to that
+    // client. Checked before any write, so a rejection here leaves
+    // nothing half-changed.
+    if (input.gigId != null) {
+      const effectiveClientId =
+        input.clientId !== undefined ? input.clientId : (existing?.clientId ?? null);
+      if (effectiveClientId != null && gig!.clientId !== effectiveClientId) {
+        return c.json({ error: "gigId does not reference the payment's client" }, 400);
+      }
+    }
+
+    // Shrinking a payment below what is already allocated to it would
+    // leave those allocations over-claiming money the payment no
+    // longer has — the same invariant routes/allocations.ts enforces
+    // from the other direction. Skipped when this request also carries
+    // a gigId: the compat path below replaces every existing
+    // allocation with a single one sized to the new amountCents, so
+    // there is nothing stale left for this check to catch.
+    if (input.gigId == null) {
+      const currentAllocations = await allocationsRepo.listByPayment(userId, id);
+      const allocatedCents = currentAllocations.reduce((sum, a) => sum + a.amountCents, 0);
+      if (allocatedCents > input.amountCents) {
+        return c.json(
+          { error: "amountCents is less than the payment's allocated total" },
+          400,
+        );
+      }
+    }
+
+    // Changing which client a payment came from, while it already has
+    // allocations against gigs belonging to a *different* client, would
+    // leave those allocations stale — pointing at gigs the payment's
+    // new client rule says they shouldn't. Rather than silently
+    // cascading a delete through someone's money records, this rejects
+    // the clientId change outright; the caller has to clear the
+    // conflicting allocations first. Narrowing to null is always safe
+    // (a null-client payment allocates freely), so only a change to a
+    // *different, non-null* client is checked.
+    if (
+      input.clientId !== undefined &&
+      input.clientId != null &&
+      existing !== null &&
+      existing.clientId !== input.clientId
+    ) {
+      const currentAllocations = await allocationsRepo.listByPayment(userId, id);
+      const allocatedGigIds = [...new Set(currentAllocations.map((a) => a.gigId))];
+      const allocatedGigs = await Promise.all(
+        allocatedGigIds.map((gigId) => GigsRepo.for(c.env.DB).get(userId, gigId)),
+      );
+      const conflicts = allocatedGigs.some(
+        (g) => g === null || g.clientId !== input.clientId,
+      );
+      if (conflicts) {
+        return c.json(
+          {
+            error:
+              "clientId does not match one or more gigs this payment is already allocated to",
+          },
+          400,
+        );
+      }
+    }
+
+    const result = await paymentsRepo.upsert(
       userId,
       id,
       {
         gigId: input.gigId ?? null,
-        clientId: input.clientId ?? null,
+        clientId: input.clientId,
         amountCents: input.amountCents,
         paidAt: input.paidAt ?? null,
         notes: input.notes ?? null,
@@ -76,14 +148,20 @@ export const paymentsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars
     if (result === "forbidden") return c.json({ error: "not found" }, 404);
 
     // A client that was offline across the allocations release still
-    // sends payments.gigId. Translating it here — rather than refusing
-    // it — is what lets that outbox drain without losing the link
-    // between the money and the work. replaceSoleAllocation is keyed
-    // off the payment id, not any id the client supplies, so replaying
-    // the same payment upsert converges on one allocation instead of
-    // adding a second.
+    // sends payments.gigId. This route translates it into a single
+    // allocation rather than refusing it, so a direct write through
+    // this endpoint doesn't lose the link between the money and the
+    // work. (The /api/sync "payment" case does not perform this
+    // translation yet — that is Phase 4 Task 4's job, not this route's
+    // — so a legacy op that only reaches the server through the outbox
+    // does not get an allocation until that lands.) replaceSoleAllocation
+    // is keyed off the payment id, not any id the client supplies, so
+    // replaying the same payment upsert converges on one allocation
+    // instead of adding a second — see that method's docstring for what
+    // it does to a payment that was previously split across several
+    // gigs.
     if (input.gigId != null) {
-      const affectedGigIds = await AllocationsRepo.for(c.env.DB).replaceSoleAllocation(
+      const affectedGigIds = await allocationsRepo.replaceSoleAllocation(
         userId,
         result.record.id,
         input.gigId,
@@ -92,13 +170,34 @@ export const paymentsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars
       );
       await recomputePaidTotals(c.env.DB, userId, affectedGigIds, now);
     }
+    // A payload that omits gigId (or sends it as null) does not remove
+    // an allocation the payment already has — same preserve-not-destroy
+    // choice as clientId above. A bare edit to, say, notes should not
+    // silently un-link money from work it was already tied to.
 
     return c.json(result.record, result.created ? 201 : 200);
   })
   .delete("/:id", async (c) => {
+    const userId = c.get("userId");
+    const id = c.req.param("id");
     const repo = PaymentsRepo.for(c.env.DB);
-    const removed = await repo.remove(c.get("userId"), c.req.param("id"));
-    return removed ? c.body(null, 204) : c.json({ error: "not found" }, 404);
+    // payment_allocations.payment_id references payments(id) with no
+    // ON DELETE CASCADE, so the allocations have to go first or the
+    // delete below fails with a FOREIGN KEY constraint error — which is
+    // exactly what happened before this: any payment with at least one
+    // allocation (which, after migration 0016's backfill, is every
+    // payment that named a gig) 500'd on delete and left the gig's
+    // derived total stale forever.
+    const affectedGigIds = await AllocationsRepo.for(c.env.DB).removeAllForPayment(
+      userId,
+      id,
+    );
+    const removed = await repo.remove(userId, id);
+    if (!removed) return c.json({ error: "not found" }, 404);
+    if (affectedGigIds.length > 0) {
+      await recomputePaidTotals(c.env.DB, userId, affectedGigIds, Date.now());
+    }
+    return c.body(null, 204);
   })
   // ── confirmation object (photo / mail proving the payment) ───────
   .put("/:id/confirmation", async (c) => {

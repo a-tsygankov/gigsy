@@ -20,6 +20,8 @@ import { ExpensesRepo } from "../repos/expenses.ts";
 import { GigsRepo } from "../repos/gigs.ts";
 import { PaymentsRepo } from "../repos/payments.ts";
 import { ServicesRepo } from "../repos/services.ts";
+import { AllocationsRepo } from "../repos/allocations.ts";
+import { recomputePaidTotals } from "./paid-totals.ts";
 import type { UpsertResult } from "../repos/clients.ts";
 
 export type SyncEntity = "client" | "gig" | "expense" | "service" | "payment";
@@ -84,10 +86,28 @@ export async function applySyncOps(
   const expensesRepo = ExpensesRepo.for(d1);
   const servicesRepo = ServicesRepo.for(d1);
   const paymentsRepo = PaymentsRepo.for(d1);
+  const allocationsRepo = AllocationsRepo.for(d1);
   const results: SyncOpResult[] = [];
 
   for (const op of ops) {
     if (op.op === "delete") {
+      // A payment can't go through the generic path below:
+      // payment_allocations.payment_id references payments(id) with no
+      // ON DELETE CASCADE, so deleting a payment that still has
+      // allocations (which, after migration 0016's backfill, is every
+      // payment that ever named a gig) fails the delete with a FOREIGN
+      // KEY constraint error and leaves the gig's derived total stale.
+      // Same fix as routes/payments.ts's DELETE handler, mirrored here
+      // because the outbox drains through this path too.
+      if (op.entity === "payment") {
+        const affectedGigIds = await allocationsRepo.removeAllForPayment(userId, op.id);
+        const removed = await paymentsRepo.remove(userId, op.id);
+        if (removed && affectedGigIds.length > 0) {
+          await recomputePaidTotals(d1, userId, affectedGigIds, now);
+        }
+        results.push(removed ? applied(op.id) : skipped(op.id, "not found"));
+        continue;
+      }
       const repo = {
         client: clientsRepo,
         gig: gigsRepo,
@@ -231,7 +251,10 @@ export async function applySyncOps(
               op.id,
               {
                 gigId: parsed.data.gigId ?? null,
-                clientId: parsed.data.clientId ?? null,
+                // Not `?? null`: absent (undefined) must preserve the
+                // stored value rather than wipe it — see
+                // repos/payments.ts's PaymentData.clientId doc comment.
+                clientId: parsed.data.clientId,
                 amountCents: parsed.data.amountCents,
                 paidAt: parsed.data.paidAt ?? null,
                 notes: parsed.data.notes ?? null,

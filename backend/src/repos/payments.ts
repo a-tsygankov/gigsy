@@ -10,7 +10,20 @@ export type PaymentRecord = typeof payments.$inferSelect;
 
 export interface PaymentData {
   gigId: string | null;
-  clientId: string | null;
+  /**
+   * `undefined` means "the payload didn't mention it — leave the
+   * stored value alone"; `null` means "clear it". The distinction
+   * matters because the currently-shipped webapp's outbox payload
+   * omits `clientId` entirely on every write (it predates this field).
+   * Without preserve-on-absent, every ordinary payment edit from that
+   * build would silently null out migration 0016's clientId backfill,
+   * and the client rule (routes/allocations.ts) would stop applying to
+   * that payment forever. Same shape as confirmationR2Key being left
+   * out of this type altogether — except clientId IS user-settable, so
+   * it can't just be excluded; it has to distinguish "not sent" from
+   * "sent as empty".
+   */
+  clientId: string | null | undefined;
   amountCents: number;
   paidAt: number | null;
   notes: string | null;
@@ -59,7 +72,12 @@ export class PaymentsRepo {
     if (existing !== undefined) {
       const updated = await this.db
         .update(payments)
-        .set({ ...data, modifiedAt })
+        .set({
+          ...data,
+          // Preserve-on-absent: see the field's doc comment above.
+          clientId: data.clientId === undefined ? existing.clientId : data.clientId,
+          modifiedAt,
+        })
         .where(and(eq(payments.id, id), eq(payments.userId, userId)))
         .returning();
       return { record: updated[0]!, created: false };
@@ -67,7 +85,16 @@ export class PaymentsRepo {
 
     const inserted = await this.db
       .insert(payments)
-      .values({ id, userId, ...data, createdAt: stamps.now, modifiedAt })
+      .values({
+        id,
+        userId,
+        ...data,
+        // A brand-new payment has no stored value to preserve — an
+        // absent clientId here just means "none given".
+        clientId: data.clientId ?? null,
+        createdAt: stamps.now,
+        modifiedAt,
+      })
       .returning();
     return { record: inserted[0]!, created: true };
   }

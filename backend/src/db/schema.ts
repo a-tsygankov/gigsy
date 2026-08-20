@@ -187,8 +187,16 @@ export const payments = sqliteTable(
      * on purpose: a transfer recorded before you know who sent it is
      * better than no record at all. Backfilled once from the gig this
      * payment already pointed at; a payment's split now covers only
-     * this client's gigs, enforced in routes/allocations.ts because it
-     * needs the database.
+     * this client's gigs, enforced in the database from both
+     * directions — routes/allocations.ts on every allocation write,
+     * and routes/payments.ts both on the gigId compat path and by
+     * refusing to change clientId out from under allocations that
+     * would no longer satisfy it.
+     *
+     * repos/payments.ts's upsert preserves this field when a caller's
+     * payload omits it rather than nulling it out — the currently
+     * shipped webapp doesn't send it at all yet, and every ordinary
+     * payment edit must not silently erase the backfill.
      */
     clientId: text("client_id").references(() => clients.id),
     amountCents: integer("amount_cents").notNull(),
@@ -216,9 +224,11 @@ export const payments = sqliteTable(
  * Deliberately allowed: the allocations for a payment may sum to LESS
  * than the payment. A deposit can land before anyone knows which gigs
  * it covers, and refusing to record it until they do is how money stops
- * being recorded at all. More than the payment is rejected —
- * routes/allocations.ts checks the sum against the payment's total on
- * every write.
+ * being recorded at all. More than the payment is rejected from both
+ * directions: routes/allocations.ts checks the sum against the
+ * payment's total on every allocation write, and routes/payments.ts
+ * refuses to shrink a payment's amountCents below what is already
+ * allocated to it.
  */
 export const paymentAllocations = sqliteTable(
   "payment_allocations",
