@@ -50,6 +50,20 @@ export interface AllocationData {
   amountCents: number;
 }
 
+/**
+ * Does a payment holding this many allocations count as split?
+ *
+ * The one rule behind `replaceSoleAllocation`'s refusal to let a legacy
+ * `gigId` rewrite a split payment. Exported as a function of the count
+ * — not re-derived at each call site — so that
+ * services/payment-invariants.ts can gate I4 on exactly the same
+ * question, from a list it has already fetched, without a second query
+ * and without a second copy of the rule to drift.
+ */
+export function isSplitPayment(allocationCount: number): boolean {
+  return allocationCount > 1;
+}
+
 export class AllocationsRepo {
   constructor(private readonly db: DrizzleD1Database) {}
 
@@ -187,28 +201,65 @@ export class AllocationsRepo {
 
   /**
    * The compatibility path for a legacy client that still sends
-   * `PaymentInput.gigId` (routes/payments.ts). Deletes whatever
-   * allocations already exist for the payment and writes exactly one,
-   * for the whole amount, keyed off the payment id rather than any id
-   * the caller supplies — so replaying the same payment upsert (an
-   * offline outbox retry) always converges on one allocation instead of
-   * piling up a second.
+   * `PaymentInput.gigId` (routes/payments.ts). Deletes the payment's
+   * one existing allocation, if it has one, and writes exactly one for
+   * the whole amount — keyed off the payment id rather than any id the
+   * caller supplies, so replaying the same payment upsert (an offline
+   * outbox retry) always converges on one allocation instead of piling
+   * up a second.
    *
-   * If the payment was previously split across several gigs (through
-   * `/api/allocations`), this discards that split without asking —
-   * a legacy client has no way to express a split, so a payload from
-   * one is read as "this payment is, in full, for this one gig now."
-   * That is a real loss of information the caller should be aware of,
-   * not a hidden implementation detail.
+   * WHAT IT REFUSES TO DO, and why. A payment that already carries MORE
+   * THAN ONE allocation is left completely alone: no delete, no insert,
+   * an empty return. The legacy `gigId` is read as "no new information",
+   * not as "this payment is, in full, for this one gig now."
+   *
+   * Every shipped webapp build predates allocations and puts `gigId` on
+   * EVERY payment write, so the alternative is not a rare edge case: it
+   * is a legacy device editing a payment's notes, or an outbox draining
+   * a queue written before the update, silently deleting the split and
+   * reassigning the whole payment to whichever gig that device happens
+   * to remember. Money moves between gigs and nothing on any screen says
+   * so. Reading the field as stale — which is exactly what it is, since
+   * a device that can't express a split cannot have authored the split
+   * it is overwriting — is the only reading that cannot lose money.
+   *
+   * The narrower rule "no-op only when the split already totals the
+   * payment" was considered and rejected: it still destroys a PARTIAL
+   * split (4000+3000 against a 10000 payment — the ordinary state of a
+   * payment mid-allocation), which is the same data loss with a smaller
+   * blast radius.
+   *
+   * Rows, not distinct gigs: two allocations against one gig still mean
+   * an allocations-aware client wrote this payment, and a legacy payload
+   * has no business rewriting either of them.
+   *
+   * A payment holding exactly one allocation keeps the old behaviour in
+   * full — that is the ordinary legacy path (including migration 0016's
+   * backfill of every pre-allocations payment), and a legacy client
+   * moving its one gig or changing its one amount is information, not
+   * staleness.
+   *
+   * The guard lives here rather than in services/payment-invariants.ts
+   * because this method has THREE callers, not two: routes/payments.ts
+   * and services/sync.ts share the invariants module, but
+   * routes/drafts.ts's confirm-payment does not — it runs its own
+   * ownership check and calls straight through. This is the one place
+   * every legacy translation funnels through, so it is the one place the
+   * guard can't be skipped by a caller that forgets it. The invariant
+   * that DEPENDS on the outcome (I4, the shrink-below-allocated
+   * refusal, which the compat path used to be exempt from because it
+   * resized every allocation) does live in the invariants module, so
+   * both doors get it identically.
    *
    * The delete and the insert run as one D1 batch so a failure between
    * them can't leave the payment allocation-less: either both apply or
    * neither does.
    *
-   * Returns every gig id that was affected — the gig(s) the payment
-   * used to be allocated to, plus the new one — so the caller can
-   * recompute `amountPaidCents` for all of them, including a gig the
-   * allocation just moved away from.
+   * Returns every gig id that was affected — the gig the payment used to
+   * be allocated to, plus the new one — so the caller can recompute
+   * `amountPaidCents` for both, including a gig the allocation just
+   * moved away from. Empty when a split was preserved: nothing moved, so
+   * nothing needs recomputing.
    */
   async replaceSoleAllocation(
     userId: string,
@@ -226,6 +277,8 @@ export class AllocationsRepo {
           eq(paymentAllocations.paymentId, paymentId),
         ),
       );
+
+    if (isSplitPayment(previous.length)) return [];
 
     await this.db.batch([
       this.db

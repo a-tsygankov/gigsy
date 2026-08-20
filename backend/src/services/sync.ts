@@ -288,7 +288,11 @@ export async function applySyncOps(
         // next time some other allocation change recomputed the gig's
         // total. replaceSoleAllocation is keyed off the payment id, not
         // any id the client supplies, so replaying the same op
-        // converges on one allocation instead of adding a second.
+        // converges on one allocation instead of adding a second — and
+        // it leaves a payment that already carries a SPLIT alone, so an
+        // outbox queued before the allocations release drains without
+        // reassigning money between gigs. This door and the route door
+        // therefore behave identically; both are tested.
         //
         // Only runs when the upsert actually applied: a stale
         // (LWW-skipped) or errored op must not resurrect or rewrite an

@@ -32,7 +32,11 @@
  * changed nothing a caller observes, only where the logic that
  * produces them lives.
  */
-import { AllocationsRepo, type AllocationRecord } from "../repos/allocations.ts";
+import {
+  AllocationsRepo,
+  isSplitPayment,
+  type AllocationRecord,
+} from "../repos/allocations.ts";
 import { GigsRepo } from "../repos/gigs.ts";
 import { PaymentsRepo, type PaymentRecord } from "../repos/payments.ts";
 import { ClientsRepo } from "../repos/clients.ts";
@@ -193,15 +197,29 @@ export async function checkPaymentWrite(
     }
   }
 
+  const currentAllocations = await allocationsRepo.listByPayment(userId, id);
+
+  // Whether the legacy `gigId` on this write is actually going to
+  // rewrite the payment's allocations. It is not, once the payment
+  // carries a split: AllocationsRepo.replaceSoleAllocation leaves such a
+  // payment alone rather than collapsing somebody's split because an
+  // un-updated device still puts `gigId` on every payment write. Asked
+  // through `isSplitPayment` so this cannot drift from the rule the
+  // repo actually applies.
+  const gigIdWillReplaceAllocations =
+    input.gigId != null && !isSplitPayment(currentAllocations.length);
+
   // I4: shrinking a payment below what is already allocated to it
   // would leave those allocations over-claiming money the payment no
   // longer has — the same invariant an allocation write enforces from
-  // the other direction. Skipped when this write also carries a
-  // gigId: the compat path replaces every existing allocation with one
-  // sized to the new amountCents, so there's nothing stale left for
-  // this to catch.
-  if (input.gigId == null) {
-    const currentAllocations = await allocationsRepo.listByPayment(userId, id);
+  // the other direction. Skipped only when the compat path is really
+  // about to replace every existing allocation with one sized to the
+  // new amountCents, since then there is nothing stale left for this to
+  // catch. When a split survives the write, the allocations DO outlive
+  // the amount and this is the only thing standing between a legacy
+  // payload and a 10000 payment shrunk to 5000 with 7000 still
+  // allocated against it.
+  if (!gigIdWillReplaceAllocations) {
     const allocatedCents = currentAllocations.reduce((sum, a) => sum + a.amountCents, 0);
     if (allocatedCents > input.amountCents) {
       return violation("amountCents is less than the payment's allocated total");
@@ -222,7 +240,8 @@ export async function checkPaymentWrite(
     existing !== null &&
     existing.clientId !== input.clientId
   ) {
-    const currentAllocations = await allocationsRepo.listByPayment(userId, id);
+    // Same list I4 read above — nothing has written since, so re-reading
+    // it would only cost a second query.
     const allocatedGigIds = [...new Set(currentAllocations.map((a) => a.gigId))];
     const allocatedGigs = await Promise.all(
       allocatedGigIds.map((gigId) => gigsRepo.get(userId, gigId)),
