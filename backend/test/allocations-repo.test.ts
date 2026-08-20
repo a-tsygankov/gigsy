@@ -82,6 +82,41 @@ describe("AllocationsRepo", () => {
     );
     expect(result).toBe("forbidden");
   });
+
+  it("lists only the allocations against one gig", async () => {
+    const repo = AllocationsRepo.for(env.DB);
+    await repo.upsert(
+      U1,
+      crypto.randomUUID(),
+      { paymentId: PAY, gigId: GIG_A, amountCents: 10000 },
+      { now: 1 },
+    );
+    await repo.upsert(
+      U1,
+      crypto.randomUUID(),
+      { paymentId: PAY, gigId: GIG_B, amountCents: 5000 },
+      { now: 1 },
+    );
+
+    const forA = await repo.listByGig(U1, GIG_A);
+    expect(forA).toHaveLength(1);
+    expect(forA[0]!.amountCents).toBe(10000);
+    expect(await repo.listByGig(U1, GIG_B)).toHaveLength(1);
+  });
+
+  it("does not let one user read another user's allocation", async () => {
+    const repo = AllocationsRepo.for(env.DB);
+    const id = crypto.randomUUID();
+    await repo.upsert(
+      U1,
+      id,
+      { paymentId: PAY, gigId: GIG_A, amountCents: 10000 },
+      { now: 1 },
+    );
+
+    expect(await repo.get(U2, id)).toBeNull();
+    expect(await repo.list(U2)).toHaveLength(0);
+  });
 });
 
 describe("recomputePaidTotals", () => {
@@ -140,5 +175,16 @@ describe("recomputePaidTotals", () => {
     await recomputePaidTotals(env.DB, U1, [GIG_B], 9);
 
     expect((await gigsRepo.get(U1, GIG_B))!.serverModifiedAt).toBeGreaterThan(before);
+  });
+
+  it("is a no-op for an empty gig list, rather than touching every gig", async () => {
+    const gigsRepo = GigsRepo.for(env.DB);
+    const before = await gigsRepo.get(U1, GIG_A);
+
+    await recomputePaidTotals(env.DB, U1, [], 99);
+
+    const after = await gigsRepo.get(U1, GIG_A);
+    expect(after?.amountPaidCents).toBe(before?.amountPaidCents);
+    expect(after?.serverModifiedAt).toBe(before?.serverModifiedAt);
   });
 });

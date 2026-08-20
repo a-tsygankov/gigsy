@@ -9,6 +9,33 @@
  * two rows the caller owns — accepting one that points at somebody
  * else's payment or gig would let a caller read (via the totals it
  * produces) or spend against money and work that isn't theirs.
+ *
+ * IMPORTANT for callers, and especially for whoever wires up the route
+ * or the sync case: this check is defence-in-depth, not the caller's
+ * ownership check. `"forbidden"` here means one of two different
+ * things — the row itself belongs to someone else (the same case every
+ * other repo reports, and the convention is to turn it into a generic
+ * 404, e.g. routes/gigs.ts and lwwUpsert in services/sync.ts), OR the
+ * `paymentId`/`gigId` named in the payload belongs to someone else. The
+ * result deliberately does not distinguish which, because turning it
+ * into a richer type would break the shared `UpsertResult<T> |
+ * "forbidden"` shape every repo returns — the shape services/sync.ts
+ * dispatches generic LWW handling over.
+ *
+ * That means a bare `"forbidden"` cannot produce what the plan actually
+ * requires: the route needs a 400 with "…does not reference your
+ * client"-style wording (mirroring routes/gigs.ts's clientId check),
+ * and the sync case needs an error matching /does not reference your
+ * gig/. Both of those must still run their OWN ownership check and
+ * produce their own message — do not treat this repo-level check as
+ * having already done that job.
+ *
+ * The two extra SELECTs this adds to every upsert are cheap
+ * (indexed primary-key lookups) and are kept even though the route and
+ * sync case each check the same thing themselves: this is the one
+ * place every write path — CRUD route, /api/sync, and any future
+ * caller — funnels through, so it is the one place the invariant can't
+ * be skipped by a caller that forgets its own check.
  */
 import { and, desc, eq } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
