@@ -20,6 +20,8 @@ import type {
 /** Startup must never wait longer than this for a session refresh. */
 const REFRESH_TIMEOUT_MS = 8_000;
 import type {
+  Allocation,
+  AllocationInput,
   Client,
   ClientInput,
   DashboardSummary,
@@ -167,6 +169,33 @@ export class ApiClient {
   }
   deletePayment(id: string): Promise<void> {
     return this.request("DELETE", `/api/payments/${id}`);
+  }
+
+  // ── allocations (which gigs a payment paid for) ──────────────────
+  /** Unfiltered by default — the pull needs every row to spot the ones
+   *  deleted elsewhere. `paymentId`/`gigId` narrow it for screens. */
+  async listAllocations(
+    filter: { paymentId?: string; gigId?: string } = {},
+  ): Promise<Allocation[]> {
+    const params = new URLSearchParams();
+    if (filter.paymentId !== undefined) params.set("paymentId", filter.paymentId);
+    if (filter.gigId !== undefined) params.set("gigId", filter.gigId);
+    const qs = params.toString();
+    return (
+      await this.request<{ items: Allocation[] }>(
+        "GET",
+        `/api/allocations${qs ? `?${qs}` : ""}`,
+      )
+    ).items;
+  }
+  getAllocation(id: string): Promise<Allocation> {
+    return this.request("GET", `/api/allocations/${id}`);
+  }
+  putAllocation(id: string, input: AllocationInput): Promise<Allocation> {
+    return this.request("PUT", `/api/allocations/${id}`, input);
+  }
+  deleteAllocation(id: string): Promise<void> {
+    return this.request("DELETE", `/api/allocations/${id}`);
   }
 
   /** Online-only: upload the proof photo/mail for a payment. */
@@ -429,7 +458,7 @@ export class ApiClient {
 }
 
 export interface SyncOp {
-  entity: "client" | "gig" | "expense" | "service" | "payment";
+  entity: "client" | "gig" | "expense" | "service" | "payment" | "allocation";
   op: "upsert" | "delete";
   id: string;
   /** Client edit time (epoch ms) — the LWW conflict signal. */

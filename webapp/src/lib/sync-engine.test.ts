@@ -7,8 +7,8 @@ import {
   type SyncApi,
   type SyncEngineOptions,
 } from "./sync-engine.ts";
-import { ApiError, type SyncOp } from "./api.ts";
-import type { Gig } from "./types.ts";
+import { ApiError, type SyncOp, type SyncOpResult } from "./api.ts";
+import type { Allocation, Gig, Payment } from "./types.ts";
 
 let seq = 0;
 const G1 = "11111111-1111-4111-8111-111111111111";
@@ -53,11 +53,13 @@ function stubApi(overrides: Partial<SyncApi> = {}): SyncApi {
     listExpenses: vi.fn(async () => []),
     listServices: vi.fn(async () => []),
     listPayments: vi.fn(async () => []),
+    listAllocations: vi.fn(async () => []),
     getGig: vi.fn(async () => serverGig()),
     getClient: unexpected as never,
     getExpense: unexpected as never,
     getService: unexpected as never,
     getPayment: unexpected as never,
+    getAllocation: unexpected as never,
     ...overrides,
   };
 }
@@ -67,7 +69,8 @@ function makeEngine(
   clockValue = () => 1000,
   options: SyncEngineOptions = {},
 ) {
-  const store = new LocalStore(openUserDb(`sync-${++seq}`), clockValue);
+  const db = openUserDb(`sync-${++seq}`);
+  const store = new LocalStore(db, clockValue);
   // Every delay the engine asked for, in order — the only way to assert
   // on backoff without letting real time into a unit test.
   const delays: number[] = [];
@@ -82,7 +85,26 @@ function makeEngine(
     events: null,
     ...options,
   });
-  return { store, engine, api, delays };
+  return { store, db, engine, api, delays };
+}
+
+/** An outbox entry as the pre-allocations build wrote it: the payment
+ *  payload still carries `gigId`. Written straight to the table because
+ *  no code path in this build produces one any more. */
+async function queueLegacyPaymentOp(
+  db: ReturnType<typeof openUserDb>,
+  paymentId: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  await db.pendingOps.put({
+    opKey: `payment:${paymentId}`,
+    entity: "payment",
+    entityId: paymentId,
+    op: "upsert",
+    payload,
+    modifiedAt: 500,
+    queuedAt: 500,
+  });
 }
 
 const rejects = (status = 401) =>
@@ -480,5 +502,321 @@ describe("SyncEngine state + triggers", () => {
 
     expect(engine.getState().online).toBe(true);
     expect(seen.length).toBeGreaterThan(0);
+  });
+});
+
+// ── Phase 4: payments and allocations over the wire ────────────────
+
+const P1 = "44444444-4444-4444-8444-444444444444";
+const SERVER_ALLOC = "88888888-8888-4888-8888-888888888888";
+
+/**
+ * A miniature of the server's money rules — enough of
+ * services/payment-invariants.ts and repos/allocations.ts to make the
+ * ordering hazards real rather than assumed:
+ *
+ *  - an allocation may not exceed the payment it splits (over-allocation),
+ *  - a payment may not shrink below what is allocated to it (I4),
+ *  - an allocation needs its payment to exist,
+ *  - a legacy `gigId` on a payment write is translated into a single
+ *    full-amount allocation, unless the payment already carries a split.
+ *
+ * The messages are the server's own, so a test asserting on one is
+ * asserting on the contract and not on a paraphrase of it.
+ */
+class FakeMoneyServer {
+  readonly payments = new Map<string, { amountCents: number; gigId: string | null }>();
+  readonly allocations = new Map<
+    string,
+    { paymentId: string; gigId: string; amountCents: number }
+  >();
+  /** Every batch posted, in order — the retry pass shows up here. */
+  readonly batches: SyncOp[][] = [];
+
+  readonly sync = async (ops: SyncOp[]): Promise<{ results: SyncOpResult[] }> => {
+    this.batches.push(ops);
+    return { results: ops.map((op) => this.apply(op)) };
+  };
+
+  allocationsFor(paymentId: string): { id: string; amountCents: number; gigId: string }[] {
+    return [...this.allocations.entries()]
+      .filter(([, a]) => a.paymentId === paymentId)
+      .map(([id, a]) => ({ id, amountCents: a.amountCents, gigId: a.gigId }));
+  }
+
+  private apply(op: SyncOp): SyncOpResult {
+    const applied = { id: op.id, status: "applied" as const };
+    if (op.op === "delete") {
+      if (op.entity === "payment") {
+        for (const [id, a] of this.allocations) {
+          if (a.paymentId === op.id) this.allocations.delete(id);
+        }
+        this.payments.delete(op.id);
+      }
+      if (op.entity === "allocation") this.allocations.delete(op.id);
+      return applied;
+    }
+    if (op.entity === "payment") {
+      const payload = op.payload as { amountCents: number; gigId?: string | null };
+      const current = this.allocationsFor(op.id);
+      // The compat path resizes every allocation itself, so I4 has
+      // nothing stale to catch when it is about to run.
+      const gigIdWillReplace = payload.gigId != null && current.length <= 1;
+      const allocated = current.reduce((sum, a) => sum + a.amountCents, 0);
+      if (!gigIdWillReplace && allocated > payload.amountCents) {
+        return {
+          id: op.id,
+          status: "error",
+          reason: "amountCents is less than the payment's allocated total",
+        };
+      }
+      this.payments.set(op.id, {
+        amountCents: payload.amountCents,
+        gigId: payload.gigId ?? null,
+      });
+      if (gigIdWillReplace) {
+        for (const a of current) this.allocations.delete(a.id);
+        this.allocations.set(`srv-${op.id}`, {
+          paymentId: op.id,
+          gigId: payload.gigId!,
+          amountCents: payload.amountCents,
+        });
+      }
+      return applied;
+    }
+    if (op.entity === "allocation") {
+      const payload = op.payload as {
+        paymentId: string;
+        gigId: string;
+        amountCents: number;
+      };
+      const payment = this.payments.get(payload.paymentId);
+      if (payment === undefined) {
+        return {
+          id: op.id,
+          status: "error",
+          reason: "paymentId does not reference your payment",
+        };
+      }
+      const others = this.allocationsFor(payload.paymentId)
+        .filter((a) => a.id !== op.id)
+        .reduce((sum, a) => sum + a.amountCents, 0);
+      if (others + payload.amountCents > payment.amountCents) {
+        return { id: op.id, status: "error", reason: "allocations exceed the payment" };
+      }
+      this.allocations.set(op.id, { ...payload });
+      return applied;
+    }
+    return applied;
+  }
+}
+
+function moneyApi(server: FakeMoneyServer): SyncApi {
+  return stubApi({
+    sync: server.sync,
+    getPayment: vi.fn(async (id: string) => {
+      const row = server.payments.get(id);
+      if (row === undefined) throw new ApiError(404, "not found");
+      return {
+        id,
+        gigId: row.gigId,
+        amountCents: row.amountCents,
+        paidAt: null,
+        confirmationR2Key: null,
+        notes: null,
+        createdAt: 1,
+        modifiedAt: 1,
+      } satisfies Payment;
+    }),
+    getAllocation: vi.fn(async (id: string) => {
+      const row = server.allocations.get(id);
+      if (row === undefined) throw new ApiError(404, "not found");
+      return { id, ...row, createdAt: 1, modifiedAt: 1 } satisfies Allocation;
+    }),
+  });
+}
+
+describe("SyncEngine allocations", () => {
+  it("pulls allocations, and drops ones deleted elsewhere", async () => {
+    const server: Allocation[] = [
+      { id: SERVER_ALLOC, paymentId: P1, gigId: G1, amountCents: 5000, createdAt: 1, modifiedAt: 2 },
+    ];
+    const api = stubApi({ listAllocations: vi.fn(async () => server) });
+    const { store, engine } = makeEngine(api);
+
+    await engine.pull();
+    expect((await store.getAllocation(SERVER_ALLOC))?.amountCents).toBe(5000);
+
+    server.length = 0;
+    await engine.pull();
+    expect(await store.getAllocation(SERVER_ALLOC)).toBeNull();
+  });
+
+  it("lands a payment and its first allocation together, whatever order the outbox is in", async () => {
+    // A payment and the allocation that says what it paid for are
+    // created in one save, so they reach the server in one batch — and
+    // the allocation is meaningless until the payment exists. Nothing
+    // about the outbox guarantees which comes first (both are queued at
+    // the same millisecond, and Dexie breaks that tie on the op key,
+    // where "allocation:" sorts ahead of "payment:").
+    const server = new FakeMoneyServer();
+    const { store, engine } = makeEngine(moneyApi(server));
+    await store.putPayment(P1, { gigId: G1, amountCents: 15000 });
+
+    await engine.drain();
+
+    expect(server.payments.get(P1)?.amountCents).toBe(15000);
+    expect(server.allocationsFor(P1)).toEqual([
+      expect.objectContaining({ gigId: G1, amountCents: 15000 }),
+    ]);
+    expect(await store.pendingCount()).toBe(0);
+  });
+
+  it("MIGRATION: shrinking an OLD client's payment moves its server-made allocation with it", async () => {
+    // The payment came from a build that predates allocations: the
+    // server holds a gigId and the single allocation it minted itself.
+    // Correcting the amount downwards is the case that cannot be
+    // ordered away — the payment write is refused while the old
+    // allocation still over-claims it, and the allocation write would be
+    // refused first if the payment had grown instead.
+    const server = new FakeMoneyServer();
+    server.payments.set(P1, { amountCents: 15000, gigId: G1 });
+    server.allocations.set(SERVER_ALLOC, {
+      paymentId: P1,
+      gigId: G1,
+      amountCents: 15000,
+    });
+    const { store, engine } = makeEngine(moneyApi(server));
+    await store.applyServerRecord("payment", {
+      id: P1,
+      gigId: G1,
+      amountCents: 15000,
+      paidAt: null,
+      confirmationR2Key: null,
+      notes: null,
+      createdAt: 1,
+      modifiedAt: 1,
+    } satisfies Payment);
+    await store.applyServerRecord("allocation", {
+      id: SERVER_ALLOC,
+      paymentId: P1,
+      gigId: G1,
+      amountCents: 15000,
+      createdAt: 1,
+      modifiedAt: 1,
+    } satisfies Allocation);
+
+    await store.putPayment(P1, { gigId: G1, amountCents: 5000 });
+    await engine.drain();
+
+    expect(server.payments.get(P1)?.amountCents).toBe(5000);
+    // The same row, moved — not a second one, and not the old figure.
+    expect(server.allocationsFor(P1)).toEqual([
+      { id: SERVER_ALLOC, gigId: G1, amountCents: 5000 },
+    ]);
+    // …and the legacy column is empty now: this build stopped sending it.
+    expect(server.payments.get(P1)?.gigId).toBeNull();
+    expect(await store.pendingCount()).toBe(0);
+  });
+
+  it("raising a payment and its allocation together lands too", async () => {
+    // The mirror image of the shrink, and it needs the opposite order.
+    const server = new FakeMoneyServer();
+    server.payments.set(P1, { amountCents: 15000, gigId: null });
+    server.allocations.set(SERVER_ALLOC, {
+      paymentId: P1,
+      gigId: G1,
+      amountCents: 15000,
+    });
+    const { store, engine } = makeEngine(moneyApi(server));
+    await store.applyServerRecord("payment", {
+      id: P1,
+      gigId: null,
+      amountCents: 15000,
+      paidAt: null,
+      confirmationR2Key: null,
+      notes: null,
+      createdAt: 1,
+      modifiedAt: 1,
+    } satisfies Payment);
+    await store.applyServerRecord("allocation", {
+      id: SERVER_ALLOC,
+      paymentId: P1,
+      gigId: G1,
+      amountCents: 15000,
+      createdAt: 1,
+      modifiedAt: 1,
+    } satisfies Allocation);
+
+    await store.putPayment(P1, { gigId: G1, amountCents: 20000 });
+    await engine.drain();
+
+    expect(server.payments.get(P1)?.amountCents).toBe(20000);
+    expect(server.allocationsFor(P1)).toEqual([
+      { id: SERVER_ALLOC, gigId: G1, amountCents: 20000 },
+    ]);
+    expect(await store.pendingCount()).toBe(0);
+  });
+
+  it("MIGRATION: an outbox op queued by the OLD build drains through the server's compat path", async () => {
+    // Written by a build that predates allocations and left unsent. The
+    // engine forwards it exactly as queued — gigId and all — and the
+    // server turns it into the single allocation it always did. Nothing
+    // in the new client strips or rewrites it.
+    const server = new FakeMoneyServer();
+    const { store, db, engine } = makeEngine(moneyApi(server));
+    await store.applyServerRecord("payment", {
+      id: P1,
+      gigId: G1,
+      amountCents: 15000,
+      paidAt: null,
+      confirmationR2Key: null,
+      notes: null,
+      createdAt: 1,
+      modifiedAt: 1,
+    } satisfies Payment);
+    await queueLegacyPaymentOp(db, P1, {
+      gigId: G1,
+      amountCents: 15000,
+      paidAt: null,
+      notes: null,
+    });
+
+    await engine.drain();
+
+    expect(server.batches[0]?.[0]?.payload).toEqual({
+      gigId: G1,
+      amountCents: 15000,
+      paidAt: null,
+      notes: null,
+    });
+    expect(server.allocationsFor(P1)).toEqual([
+      { id: `srv-${P1}`, gigId: G1, amountCents: 15000 },
+    ]);
+    expect(await store.pendingCount()).toBe(0);
+  });
+
+  it("MIGRATION: a legacy op cannot collapse a split made on this build", async () => {
+    // Same queued op, but the payment has since been split across two
+    // gigs from another device. The server's guard (>1 allocation) is
+    // what stops the stale gigId from reassigning the whole payment.
+    const server = new FakeMoneyServer();
+    server.payments.set(P1, { amountCents: 15000, gigId: null });
+    server.allocations.set("a-1", { paymentId: P1, gigId: G1, amountCents: 10000 });
+    server.allocations.set("a-2", { paymentId: P1, gigId: C1, amountCents: 5000 });
+    const { db, engine } = makeEngine(moneyApi(server));
+    await queueLegacyPaymentOp(db, P1, {
+      gigId: G1,
+      amountCents: 15000,
+      paidAt: null,
+      notes: null,
+    });
+
+    await engine.drain();
+
+    expect(server.allocationsFor(P1)).toEqual([
+      { id: "a-1", gigId: G1, amountCents: 10000 },
+      { id: "a-2", gigId: C1, amountCents: 5000 },
+    ]);
   });
 });

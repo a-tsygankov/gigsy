@@ -10,6 +10,8 @@ import type { LocalStore } from "./local-store.ts";
 import type { SyncEngine } from "./sync-engine.ts";
 import type { ApiClient } from "./api.ts";
 import type {
+  Allocation,
+  AllocationInput,
   Client,
   ClientInput,
   DashboardSummary,
@@ -188,6 +190,31 @@ export class OfflineDataService {
   }
   async deletePayment(id: string): Promise<void> {
     await this.store.removePayment(id);
+    this.nudge();
+  }
+
+  // ── allocations ──────────────────────────────────────────────────
+  listAllocationsByPayment(paymentId: string): Promise<Allocation[]> {
+    return this.store.listAllocationsByPayment(paymentId);
+  }
+  listAllocationsByGig(gigId: string): Promise<Allocation[]> {
+    return this.store.listAllocationsByGig(gigId);
+  }
+  async getAllocation(id: string): Promise<Allocation> {
+    return this.require(await this.store.getAllocation(id));
+  }
+  async putAllocation(id: string, input: AllocationInput): Promise<Allocation> {
+    // A zero or negative allocation is a deleted allocation with extra
+    // steps — the server says so too (AllocationInput.positiveCents),
+    // and an offline write it would refuse is a write this device would
+    // lose on the next drain.
+    this.assertPositive({ amountCents: input.amountCents });
+    const record = await this.store.putAllocation(id, input);
+    this.nudge();
+    return record;
+  }
+  async deleteAllocation(id: string): Promise<void> {
+    await this.store.removeAllocation(id);
     this.nudge();
   }
 

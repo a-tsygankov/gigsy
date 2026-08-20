@@ -139,6 +139,21 @@ export interface ServiceInput {
 // the upload endpoint only).
 export interface Payment {
   id: string;
+  /**
+   * LEGACY, and on its way out (migration 0016, phase-4 plan Task 1).
+   * What a payment paid for is an `Allocation` now — possibly several,
+   * possibly covering only part of the payment, neither of which this
+   * one nullable column can say.
+   *
+   * The server still stores it and still translates a non-null one
+   * into a single allocation (`AllocationsRepo.replaceSoleAllocation`),
+   * for the builds that were queued or installed before allocations
+   * existed. THIS build no longer sends it — see `putPayment` in
+   * lib/local-store.ts for why sending it would destroy a partial
+   * split — so the column empties out as records are re-saved, and the
+   * screens read it through `LocalStore`'s allocation-backed view
+   * rather than off the wire.
+   */
   gigId: string | null;
   amountCents: number;
   paidAt: number | null;
@@ -149,10 +164,42 @@ export interface Payment {
 }
 
 export interface PaymentInput {
+  /** Accepted from callers (the payment screen still asks for one gig
+   *  until Task 7 replaces it with a split editor) and turned into the
+   *  payment's sole allocation locally. It is deliberately NOT part of
+   *  the outbox payload — lib/local-store.ts's `putPayment`. */
   gigId?: string | null;
   amountCents: number;
   paidAt?: number | null;
   notes?: string | null;
+}
+
+/**
+ * How much of one payment paid for one gig — the sixth sync entity
+ * (migration 0016). A payment may have several, and they may sum to
+ * LESS than the payment: an unallocated remainder is a legitimate,
+ * visible state (a transfer can land before you know what it covers),
+ * which is exactly why `Payment.gigId` could not express this.
+ *
+ * Over-allocation is not legitimate and the server rejects it
+ * ("allocations exceed the payment").
+ */
+export interface Allocation {
+  id: string;
+  paymentId: string;
+  gigId: string;
+  amountCents: number;
+  createdAt: number;
+  modifiedAt: number;
+}
+
+/** Both ends are required — an allocation is the link itself, and a
+ *  link missing an end is nothing (backend AllocationInput says the
+ *  same). */
+export interface AllocationInput {
+  paymentId: string;
+  gigId: string;
+  amountCents: number;
 }
 
 export interface UnpaidJob {

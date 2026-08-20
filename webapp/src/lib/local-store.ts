@@ -7,6 +7,8 @@
  */
 import type { GigsyUserDB, PendingOp, SyncEntityName } from "./db.ts";
 import type {
+  Allocation,
+  AllocationInput,
   Client,
   ClientInput,
   Expense,
@@ -19,7 +21,7 @@ import type {
   ServiceInput,
 } from "./types.ts";
 
-export type ServerRecord = Gig | Client | Expense | Service | Payment;
+export type ServerRecord = Gig | Client | Expense | Service | Payment | Allocation;
 
 /**
  * An outbox payload must name EVERY field the server accepts.
@@ -49,6 +51,10 @@ export class LocalStore {
   constructor(
     private readonly db: GigsyUserDB,
     private readonly clock: () => number = Date.now,
+    /** Injected for the same reason `clock` is: `putPayment` has to
+     *  mint an allocation id of its own, and a test that cannot predict
+     *  it cannot assert on the op it queues. */
+    private readonly newId: () => string = () => crypto.randomUUID(),
   ) {}
 
   // ── gigs ─────────────────────────────────────────────────────────
@@ -269,24 +275,84 @@ export class LocalStore {
 
   // ── payments ─────────────────────────────────────────────────────
   async listPayments(): Promise<Payment[]> {
-    const payments = await this.db.payments.toArray();
+    const payments = await this.resolveGigs(await this.db.payments.toArray());
     return payments.sort((a, b) => b.createdAt - a.createdAt);
   }
 
   async listPaymentsByGig(gigId: string): Promise<Payment[]> {
-    const payments = await this.db.payments.where("gigId").equals(gigId).toArray();
+    // Two sources, because both are true during the migration: the
+    // allocations this build writes, and the legacy `gigId` column the
+    // server still holds for payments no allocations-aware client has
+    // re-saved yet. A payment reachable either way belongs in the list.
+    const allocated = await this.db.allocations.where("gigId").equals(gigId).toArray();
+    const byColumn = await this.db.payments.where("gigId").equals(gigId).toArray();
+    const ids = new Set([
+      ...allocated.map((a) => a.paymentId),
+      ...byColumn.map((p) => p.id),
+    ]);
+    const rows = await this.db.payments.bulkGet([...ids]);
+    const payments = await this.resolveGigs(
+      rows.filter((row): row is Payment => row !== undefined),
+    );
     return payments.sort((a, b) => a.createdAt - b.createdAt);
   }
 
   async getPayment(id: string): Promise<Payment | null> {
-    return (await this.db.payments.get(id)) ?? null;
+    const payment = await this.db.payments.get(id);
+    if (payment === undefined) return null;
+    return this.withResolvedGig(
+      payment,
+      await this.db.allocations.where("paymentId").equals(id).toArray(),
+    );
   }
 
+  /**
+   * Writes the payment, and — only when the caller supplies a `gigId` —
+   * the single allocation that `gigId` stands for.
+   *
+   * THE PAYLOAD DOES NOT CARRY `gigId`, and that is the whole point.
+   *
+   * Server-side, a payment write carrying a non-null `gigId` runs
+   * `AllocationsRepo.replaceSoleAllocation`: the payment's allocations
+   * are deleted and replaced by ONE for the payment's full amount. That
+   * is right for a client that predates allocations, and catastrophic
+   * for one that manages them. A user who records a 150.00 payment,
+   * allocates 50.00 to a gig and deliberately leaves 100.00 unallocated
+   * has a payment with exactly one allocation — which the server's
+   * split guard (>1) does not protect — so the next save would inflate
+   * that allocation to 150.00 and the remainder would vanish. That
+   * partially-allocated state is the normal one, not an edge case.
+   *
+   * So this build stops sending the field and does the translation
+   * itself, against the local allocations it already holds. The server
+   * keeps its compat path for the builds still in the field:
+   *
+   *  - A payment created by an OLD client arrives here with a `gigId`
+   *    and one server-made allocation, which the pull hands us. We
+   *    update THAT row (by its own id) rather than minting a second, so
+   *    the server sees an ordinary update and the two never double up.
+   *  - An outbox op queued by an old build keeps its old payload —
+   *    `gigId` and all — and drains through the server's compat path
+   *    untouched. Nothing here rewrites a queued op; a later edit on
+   *    this build simply replaces it wholesale.
+   *
+   * The amount written to the sole allocation is the payment's full
+   * amount, matching `replaceSoleAllocation` exactly: a caller that
+   * says "this payment was for that gig" and nothing else is saying the
+   * whole of it was. Callers that mean something finer (Task 7's split
+   * editor) pass no `gigId` at all and write allocations directly, and
+   * this branch never runs for them.
+   */
   async putPayment(id: string, input: PaymentInput): Promise<Payment> {
     const now = this.clock();
     const existing = await this.db.payments.get(id);
     const record: Payment = {
       id,
+      // Kept in step with what the server will hold after this write:
+      // it takes `gigId` as absent-means-null too. Nothing reads it
+      // directly any more — `resolveGigs` below answers "which gig" from
+      // the allocations, falling back to this column only for payments
+      // no allocations-aware client has touched yet.
       gigId: input.gigId ?? null,
       amountCents: input.amountCents,
       paidAt: input.paidAt ?? null,
@@ -296,18 +362,83 @@ export class LocalStore {
       createdAt: existing?.createdAt ?? now,
       modifiedAt: now,
     };
-    const payload: OutboxPayload<PaymentInput> = {
-      gigId: record.gigId,
+    // `Omit`, not a hand-written object type: the `Required<T>` guard
+    // still has to bite if PaymentInput grows a field (that is what it
+    // is for), while `gigId` is excluded deliberately and in one place.
+    const payload: OutboxPayload<Omit<PaymentInput, "gigId">> = {
       amountCents: record.amountCents,
       paidAt: record.paidAt,
       notes: record.notes,
     };
-    await this.write("payment", id, record, payload, now);
+    // One transaction over both tables: a payment that reached the disk
+    // without its allocation would show as unallocated money the user
+    // never left unallocated. `write` opens a sub-transaction whose
+    // scope is a subset of this one, so Dexie joins them rather than
+    // nesting a second.
+    await this.db.transaction(
+      "rw",
+      this.db.payments,
+      this.db.allocations,
+      this.db.pendingOps,
+      async () => {
+        await this.write("payment", id, record, payload, now);
+        if (input.gigId != null) {
+          await this.writeSoleAllocation(id, input.gigId, record.amountCents, now);
+        }
+      },
+    );
     return record;
   }
 
   async removePayment(id: string): Promise<void> {
-    await this.removeEntity("payment", id);
+    const now = this.clock();
+    await this.db.transaction(
+      "rw",
+      this.db.payments,
+      this.db.allocations,
+      this.db.pendingOps,
+      async () => {
+        // Local-only, no outbox ops: deleting a payment server-side
+        // already deletes its allocations (routes/payments.ts and the
+        // sync delete path both do it — `payment_allocations.payment_id`
+        // has no ON DELETE CASCADE, so they must). Queueing allocation
+        // deletes on top would be redundant work that can only race
+        // with it. Dropping them locally keeps the gig screens honest
+        // in the meantime.
+        const orphaned = await this.db.allocations
+          .where("paymentId")
+          .equals(id)
+          .primaryKeys();
+        await this.db.allocations.bulkDelete(orphaned);
+        await this.enqueueRemoval("payment", id, now);
+      },
+    );
+  }
+
+  // ── allocations ──────────────────────────────────────────────────
+  async listAllocationsByPayment(paymentId: string): Promise<Allocation[]> {
+    const allocations = await this.db.allocations
+      .where("paymentId")
+      .equals(paymentId)
+      .toArray();
+    return allocations.sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  async listAllocationsByGig(gigId: string): Promise<Allocation[]> {
+    const allocations = await this.db.allocations.where("gigId").equals(gigId).toArray();
+    return allocations.sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  async getAllocation(id: string): Promise<Allocation | null> {
+    return (await this.db.allocations.get(id)) ?? null;
+  }
+
+  async putAllocation(id: string, input: AllocationInput): Promise<Allocation> {
+    return this.writeAllocation(id, input, this.clock());
+  }
+
+  async removeAllocation(id: string): Promise<void> {
+    await this.removeEntity("allocation", id);
   }
 
   // ── outbox + server-applied writes ──────────────────────────────
@@ -369,7 +500,104 @@ export class LocalStore {
         return this.db.services;
       case "payment":
         return this.db.payments;
+      case "allocation":
+        return this.db.allocations;
     }
+  }
+
+  private async writeAllocation(
+    id: string,
+    input: AllocationInput,
+    now: number,
+  ): Promise<Allocation> {
+    const existing = await this.db.allocations.get(id);
+    const record: Allocation = {
+      id,
+      paymentId: input.paymentId,
+      gigId: input.gigId,
+      amountCents: input.amountCents,
+      createdAt: existing?.createdAt ?? now,
+      modifiedAt: now,
+    };
+    const payload: OutboxPayload<AllocationInput> = {
+      paymentId: record.paymentId,
+      gigId: record.gigId,
+      amountCents: record.amountCents,
+    };
+    await this.write("allocation", id, record, payload, now);
+    return record;
+  }
+
+  /**
+   * The client-side twin of `AllocationsRepo.replaceSoleAllocation`,
+   * with its guard: a payment already carrying a SPLIT is left alone,
+   * because a `gigId` — from a legacy caller or from the one-gig
+   * payment screen — cannot have authored the split it would be
+   * overwriting, and reading it as authoritative is how money silently
+   * moves between gigs.
+   *
+   * Where it deliberately differs: the existing row is UPDATED under
+   * its own id instead of being deleted and re-inserted under a fresh
+   * one. The server can churn the id because it owns both sides of the
+   * write; here the id is the outbox key and the sync identity, so
+   * keeping it is what makes a repeated save fold into one op and
+   * converge under last-write-wins — including on an allocation the
+   * SERVER minted for a payment an older build created.
+   */
+  private async writeSoleAllocation(
+    paymentId: string,
+    gigId: string,
+    amountCents: number,
+    now: number,
+  ): Promise<void> {
+    const existing = await this.db.allocations
+      .where("paymentId")
+      .equals(paymentId)
+      .toArray();
+    if (existing.length > 1) return;
+    await this.writeAllocation(
+      existing[0]?.id ?? this.newId(),
+      { paymentId, gigId, amountCents },
+      now,
+    );
+  }
+
+  /**
+   * `Payment.gigId` as the screens should read it: from the payment's
+   * allocations, falling back to the stored legacy column.
+   *
+   * The column is no longer sent (see `putPayment`), so the server
+   * nulls it on the next save of any payment — while the allocation
+   * that replaced it says the same thing and more. Resolving on read
+   * keeps "which gig was this for" answerable from one place during the
+   * migration, whichever half of it a given payment is in.
+   *
+   * A payment split across several gigs resolves to `null`: there is no
+   * single gig, and any answer that named one would be a lie a caller
+   * could act on. Callers that can show a split read the allocations.
+   */
+  private withResolvedGig(payment: Payment, allocations: Allocation[]): Payment {
+    if (allocations.length === 0) return payment;
+    return {
+      ...payment,
+      gigId: allocations.length === 1 ? allocations[0]!.gigId : null,
+    };
+  }
+
+  /** Bulk `withResolvedGig`. Scans the allocations table once rather
+   *  than querying per payment — the same "small enough to scan"
+   *  argument `pendingIds` makes, for data of the same order. */
+  private async resolveGigs(payments: Payment[]): Promise<Payment[]> {
+    if (payments.length === 0) return payments;
+    const byPayment = new Map<string, Allocation[]>();
+    for (const allocation of await this.db.allocations.toArray()) {
+      const group = byPayment.get(allocation.paymentId);
+      if (group === undefined) byPayment.set(allocation.paymentId, [allocation]);
+      else group.push(allocation);
+    }
+    return payments.map((payment) =>
+      this.withResolvedGig(payment, byPayment.get(payment.id) ?? []),
+    );
   }
 
   private async write(
@@ -399,16 +627,27 @@ export class LocalStore {
     const now = this.clock();
     const table = this.tableOf(entity);
     await this.db.transaction("rw", table, this.db.pendingOps, async () => {
-      await table.delete(id);
-      const existing = await this.db.pendingOps.get(opKeyOf(entity, id));
-      await this.db.pendingOps.put({
-        opKey: opKeyOf(entity, id),
-        entity,
-        entityId: id,
-        op: "delete",
-        modifiedAt: now,
-        queuedAt: existing?.queuedAt ?? now,
-      });
+      await this.enqueueRemoval(entity, id, now);
+    });
+  }
+
+  /** The delete half of `removeEntity`, without the transaction —
+   *  callers that already hold one (`removePayment`, which has the
+   *  allocations table in scope too) reuse it rather than nesting. */
+  private async enqueueRemoval(
+    entity: SyncEntityName,
+    id: string,
+    now: number,
+  ): Promise<void> {
+    await this.tableOf(entity).delete(id);
+    const existing = await this.db.pendingOps.get(opKeyOf(entity, id));
+    await this.db.pendingOps.put({
+      opKey: opKeyOf(entity, id),
+      entity,
+      entityId: id,
+      op: "delete",
+      modifiedAt: now,
+      queuedAt: existing?.queuedAt ?? now,
     });
   }
 }
