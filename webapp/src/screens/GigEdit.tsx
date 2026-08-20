@@ -12,8 +12,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
-import type { GigInput, PayType } from "../lib/types.ts";
-import { gigToInput } from "../lib/gig-input.ts";
+import type { Gig, GigInput, PayType } from "../lib/types.ts";
+import { commitGigPatch, type GigPatch } from "../lib/gig-write.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { formatDuration } from "../lib/format.ts";
 import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
@@ -105,8 +105,23 @@ export function GigEdit() {
     setForm((f) => ({ ...f, [key]: value }));
 
   const save = useMutation({
-    mutationFn: (input: GigInput) =>
-      api.putGig(isNew ? crypto.randomUUID() : id, input),
+    // A new gig has nothing to merge onto, so it is written whole. An
+    // existing one goes through `commitGigPatch`, which reads the merge
+    // base from the local store rather than from `gig.data` — the query
+    // cache can be holding a pre-pull copy for 30 seconds (main.tsx's
+    // staleTime), and the fields at risk here are exactly the ones this
+    // form does not render: the work log. A stale base would revert the
+    // shift somebody recorded on the hub, silently, on a save that was
+    // only meant to fix a location. See lib/gig-write.ts.
+    //
+    // The cast is safe by construction: the function form of `GigPatch`
+    // asks a question about the record being merged onto, and a gig
+    // being created has none — so `submit` only ever passes a plain
+    // object on the `isNew` path.
+    mutationFn: (patch: GigPatch) =>
+      isNew
+        ? api.putGig(crypto.randomUUID(), patch as GigInput)
+        : commitGigPatch(api, id, patch),
     // The list AND this gig's own cache entry. Invalidating only the
     // list left ["gig", id] stale for its 30s window, so reopening a
     // gig you had just edited showed the values you replaced.
@@ -195,13 +210,11 @@ export function GigEdit() {
     }
     setMoneyError(null);
 
-    save.mutate({
-      // The stored gig underneath, so this form's save carries the
-      // fields it does not show — the work log and any hourly override
-      // — through untouched. `putGig` REPLACES rather than patches
-      // (lib/gig-input.ts), so without this base a job edit would erase
-      // the shift someone recorded on the hub.
-      ...(gig.data !== undefined ? gigToInput(gig.data) : {}),
+    // Only what this form OWNS. Everything else — the work log, and an
+    // hourly override the work card wrote — comes from the stored
+    // record inside `commitGigPatch`, which is what keeps a job edit
+    // from erasing them.
+    const fields: GigInput = {
       clientId: form.clientId === "" ? null : form.clientId,
       title: form.title.trim() === "" ? null : form.title.trim(),
       dateTime: localInputToMs(form.dateTime),
@@ -210,29 +223,37 @@ export function GigEdit() {
       location: form.location.trim() === "" ? null : form.location.trim(),
       payType: form.payType,
       hourlyRateCents: form.payType === "hourly" ? parseMoney(form.hourlyRate) : null,
-      // amountOfferedCents is the fee on a fixed gig; on an hourly gig
-      // it is an OVERRIDE of rate × time (lib/gig-pay.ts), which is the
-      // work card's to set and not this form's — an override is a claim
-      // about what a gig earned, not about what was agreed.
-      //
-      // Three cases, and the middle one is new. Fixed: the box above is
-      // the fee. Still hourly: leave whatever the work card put there,
-      // because `putGig` replaces and nulling it here would delete an
-      // override every time somebody corrected a location. Newly
-      // hourly: null, which is the original force-null — a fee typed
-      // while the gig was fixed must not become an override nobody
-      // meant to set. Same reason the effect above leaves `offered`
-      // empty for an hourly gig: a value shown in a box this form nulls
-      // on save is that trap from the other end.
-      amountOfferedCents:
-        form.payType !== "hourly"
-          ? offered
-          : gig.data?.payType === "hourly"
-            ? gig.data.amountOfferedCents
-            : null,
       amountPaidCents: paid,
       notes: form.notes.trim() === "" ? null : form.notes.trim(),
-    });
+    };
+
+    // amountOfferedCents is the fee on a fixed gig; on an hourly gig it
+    // is an OVERRIDE of rate × time (lib/gig-pay.ts), which is the work
+    // card's to set and not this form's — an override is a claim about
+    // what a gig earned, not about what was agreed.
+    //
+    // Three cases. Fixed: the box above is the fee. Still hourly: the
+    // key is left OUT of the patch entirely, so whatever the work card
+    // wrote survives — omitting it is how `commitGigPatch` is told "not
+    // mine", and setting it to the cached value would be the staleness
+    // bug in miniature. Newly hourly: null, the original force-null — a
+    // fee typed while the gig was fixed must not become an override
+    // nobody meant to set. Same reason the effect above leaves
+    // `offered` empty for an hourly gig: a value shown in a box this
+    // form nulls on save is that trap from the other end.
+    //
+    // "Newly hourly" is judged against the STORED record, not against
+    // `gig.data`, for the same reason the merge base is.
+    save.mutate(
+      isNew
+        ? { ...fields, amountOfferedCents: form.payType === "hourly" ? null : offered }
+        : (current: Gig) =>
+            form.payType !== "hourly"
+              ? { ...fields, amountOfferedCents: offered }
+              : current.payType === "hourly"
+                ? fields
+                : { ...fields, amountOfferedCents: null },
+    );
   }
 
   return (

@@ -68,11 +68,27 @@ describe("gigToInput", () => {
     // or `durationMinutes`, which are what the calendar event and the
     // availability projection are made of.
     const patched = { ...gigToInput(GIG), workEndedAt: 1_800_020_000_000 };
-    expect(patched.dateTime).toBe(GIG.dateTime);
-    expect(patched.durationMinutes).toBe(GIG.durationMinutes);
-    expect(patched.workEndedAt).toBe(1_800_020_000_000);
-    // …and nothing else moved either.
-    expect(patched).toEqual({ ...gigToInput(GIG), workEndedAt: 1_800_020_000_000 });
+    // Against literals, not against the expression under test: comparing
+    // `patched` with `{...gigToInput(GIG), workEndedAt: X}` would be the
+    // value compared with itself, and would pass however wrong
+    // `gigToInput` became.
+    expect(patched).toEqual({
+      clientId: "c1",
+      title: "Costco tasting",
+      status: "confirmed",
+      location: "Costco on 5th",
+      dateTime: 1_800_000_000_000,
+      durationMinutes: 240,
+      payType: "hourly",
+      hourlyRateCents: 5000,
+      workStartedAt: 1_800_000_060_000,
+      // The one field the patch set.
+      workEndedAt: 1_800_020_000_000,
+      breakMinutes: 18,
+      amountOfferedCents: 18917,
+      amountPaidCents: 5000,
+      notes: "Booth 12",
+    });
   });
 
   it("omits source, so an email-captured gig is not relabelled manual", () => {

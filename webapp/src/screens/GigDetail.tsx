@@ -20,7 +20,7 @@ import { useData } from "../lib/app-context.tsx";
 import { appLog } from "../lib/logger.ts";
 import { formatMoney } from "../lib/format.ts";
 import { gigDisplayTitle } from "../lib/gig-title.ts";
-import { gigToInput } from "../lib/gig-input.ts";
+import { commitGigPatch } from "../lib/gig-write.ts";
 import { isPaid } from "../lib/gig-pay.ts";
 import type { GigInput } from "../lib/types.ts";
 import { JobCard } from "./gigs/JobCard.tsx";
@@ -53,28 +53,17 @@ export function GigDetail() {
   /**
    * Write one field, without disturbing the rest of the gig.
    *
-   * The merge base is read from the LOCAL STORE, not from `gig.data`.
-   * That is the difference between recording work and quietly undoing
-   * a pull: nothing in sync-engine.ts invalidates React Query, while
-   * `refreshFromServer` writes newer records straight into Dexie — so
-   * with `staleTime: 30_000` (main.tsx) the cache can be holding the
-   * pre-pull copy of this gig. Merging onto that and calling `putGig`
-   * would write the OLD `dateTime` and `durationMinutes` back over the
-   * newer ones and queue the result for the server: one tap on Stop
-   * moving the plan, which is the exact fault this phase exists to
-   * remove. The same window would revert somebody's status change.
-   *
-   * `getGig` throws for a gig that is not there, which also makes this
-   * safe to call from the work card's unmount flush: a flush racing the
-   * delete button rejects instead of resurrecting the record.
+   * `commitGigPatch` reads the merge base from the local store itself
+   * and takes none from here — deliberately, so that `gig.data` cannot
+   * be handed to it. See lib/gig-write.ts for what merging onto the
+   * query cache did to the plan.
    *
    * Returns the moment the write landed, which is what the work card
    * shows in place of a Save button.
    */
   const commitPatch = useCallback(
     async (patch: GigInput): Promise<number> => {
-      const current = await api.getGig(id);
-      await api.putGig(id, { ...gigToInput(current), ...patch });
+      await commitGigPatch(api, id, patch);
       // Both keys, for the same reason the form invalidates both: the
       // list and this gig's own cache entry are separate, and leaving
       // ["gig", id] stale served the pre-edit copy for its 30s window.

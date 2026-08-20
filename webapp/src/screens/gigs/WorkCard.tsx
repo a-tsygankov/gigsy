@@ -72,10 +72,16 @@ const breakOf = (draft: Draft): number | null =>
  * blur-committed fields already match the record.
  *
  * This is what "dirty" means on this card, and what the unmount and
- * `pagehide` flushes send. Only VALID differences count: flushing a
- * half-typed "18." or a zero override would either be refused by
- * `assertPositive` or 400 at the server and be dropped by sync-engine,
- * which is the silent loss this card is trying not to cause.
+ * `pagehide` flushes send.
+ *
+ * Only VALID differences count, and the two fields fail differently. An
+ * override of "12x" or "1.234" is not money at all (`parseMoney`
+ * returns null) and a zero one is refused by
+ * OfflineDataService.assertPositive, so neither is flushed. A break
+ * goes through the same `workLogProblem` the blur path uses, which is
+ * where 18.5 and 2000 are caught. Flushing either kind would write
+ * something the server rejects, and sync-engine drops a rejected op
+ * with only a warn — the silent loss this card exists not to cause.
  */
 function pendingPatch(draft: Draft, gig: Gig): GigInput | null {
   const patch: GigInput = {};
