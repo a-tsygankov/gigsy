@@ -216,6 +216,13 @@ export async function applySyncOps(
           results.push(errored(op.id, "gigId does not reference your gig"));
           break;
         }
+        if (
+          parsed.data.clientId != null &&
+          (await clientsRepo.get(userId, parsed.data.clientId)) === null
+        ) {
+          results.push(errored(op.id, "clientId does not reference your client"));
+          break;
+        }
         const existing = await paymentsRepo.get(userId, op.id);
         results.push(
           await lwwUpsert(op.id, op.modifiedAt, existing, () =>
@@ -224,6 +231,7 @@ export async function applySyncOps(
               op.id,
               {
                 gigId: parsed.data.gigId ?? null,
+                clientId: parsed.data.clientId ?? null,
                 amountCents: parsed.data.amountCents,
                 paidAt: parsed.data.paidAt ?? null,
                 notes: parsed.data.notes ?? null,
@@ -232,6 +240,9 @@ export async function applySyncOps(
             ),
           ),
         );
+        // The allocations translation for a legacy gigId (and the
+        // "allocation" sync entity itself) belong to Task 4 of the
+        // phase-4 plan, not this task — left untouched here.
         break;
       }
       case "expense": {

@@ -108,11 +108,29 @@ export type ServiceInputT = z.infer<typeof ServiceInput>;
 // endpoint (server-controlled keys).
 export const PaymentInput = z.object({
   gigId: entityId.nullish(),
+  // Which client this transfer came from (migration 0016). Nullable —
+  // a payment recorded before you know who sent it is still worth
+  // recording — but once set, routes/allocations.ts restricts the
+  // payment's split to that client's gigs.
+  clientId: entityId.nullish(),
   amountCents: positiveCents,
   paidAt: z.number().int().nullish(),
   notes: z.string().max(4000).nullish(),
 });
 export type PaymentInputT = z.infer<typeof PaymentInput>;
+
+// Which gig a payment's money went to, and how much. paymentId and
+// gigId are both required — an allocation is meaningless without
+// either end of the link it makes, unlike PaymentInput.gigId which is
+// nullish because a payment can exist before it's tied to any gig.
+export const AllocationInput = z.object({
+  paymentId: entityId,
+  gigId: entityId,
+  // Positive like every other amount: a zero allocation is a deleted
+  // allocation with extra steps.
+  amountCents: positiveCents,
+});
+export type AllocationInputT = z.infer<typeof AllocationInput>;
 
 export const ExpenseInput = z.object({
   gigId: entityId.nullish(),

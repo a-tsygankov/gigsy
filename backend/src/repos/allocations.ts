@@ -160,4 +160,58 @@ export class AllocationsRepo {
       .returning({ id: paymentAllocations.id });
     return deleted.length > 0;
   }
+
+  /**
+   * The compatibility path for a legacy client that still sends
+   * `PaymentInput.gigId` (routes/payments.ts). Deletes whatever
+   * allocations already exist for the payment and writes exactly one,
+   * for the whole amount, keyed off the payment id rather than any id
+   * the caller supplies — so replaying the same payment upsert (an
+   * offline outbox retry) always converges on one allocation instead of
+   * piling up a second.
+   *
+   * Returns every gig id that was affected — the gig(s) the payment
+   * used to be allocated to, plus the new one — so the caller can
+   * recompute `amountPaidCents` for all of them, including a gig the
+   * allocation just moved away from.
+   */
+  async replaceSoleAllocation(
+    userId: string,
+    paymentId: string,
+    gigId: string,
+    amountCents: number,
+    now: number,
+  ): Promise<string[]> {
+    const previous = await this.db
+      .select({ gigId: paymentAllocations.gigId })
+      .from(paymentAllocations)
+      .where(
+        and(
+          eq(paymentAllocations.userId, userId),
+          eq(paymentAllocations.paymentId, paymentId),
+        ),
+      );
+
+    await this.db
+      .delete(paymentAllocations)
+      .where(
+        and(
+          eq(paymentAllocations.userId, userId),
+          eq(paymentAllocations.paymentId, paymentId),
+        ),
+      );
+
+    await this.db.insert(paymentAllocations).values({
+      id: crypto.randomUUID(),
+      userId,
+      paymentId,
+      gigId,
+      amountCents,
+      createdAt: now,
+      modifiedAt: now,
+      serverModifiedAt: now,
+    });
+
+    return [...new Set([...previous.map((r) => r.gigId), gigId])];
+  }
 }

@@ -10,6 +10,7 @@ export type PaymentRecord = typeof payments.$inferSelect;
 
 export interface PaymentData {
   gigId: string | null;
+  clientId: string | null;
   amountCents: number;
   paidAt: number | null;
   notes: string | null;

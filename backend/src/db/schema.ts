@@ -186,9 +186,9 @@ export const payments = sqliteTable(
      * Which client this transfer came from (migration 0016). Nullable
      * on purpose: a transfer recorded before you know who sent it is
      * better than no record at all. Backfilled once from the gig this
-     * payment already pointed at; a later change will make a payment's
-     * split cover only this client's gigs, enforced in the route
-     * because it needs the database — not yet true of this commit.
+     * payment already pointed at; a payment's split now covers only
+     * this client's gigs, enforced in routes/allocations.ts because it
+     * needs the database.
      */
     clientId: text("client_id").references(() => clients.id),
     amountCents: integer("amount_cents").notNull(),
@@ -208,19 +208,17 @@ export const payments = sqliteTable(
 /**
  * Which gigs a payment paid for, and how much of it went to each.
  *
- * `payments.gigId` remains for compatibility — a later change to
- * routes/payments.ts will turn it into one of these — but this table is
- * meant to become the truth going forward. The sum for a gig is written
- * back to `gigs.amountPaidCents`, derived and server-owned, by
- * services/paid-totals.ts.
+ * `payments.gigId` remains for compatibility — routes/payments.ts
+ * translates it into one of these — but this table is the truth. The
+ * sum for a gig is written back to `gigs.amountPaidCents`, derived and
+ * server-owned, by services/paid-totals.ts.
  *
  * Deliberately allowed: the allocations for a payment may sum to LESS
  * than the payment. A deposit can land before anyone knows which gigs
  * it covers, and refusing to record it until they do is how money stops
- * being recorded at all. More than the payment is meant to be rejected,
- * but nothing enforces that yet — this table has no way to see the
- * payment's total on its own, and the route that will check it has not
- * been written.
+ * being recorded at all. More than the payment is rejected —
+ * routes/allocations.ts checks the sum against the payment's total on
+ * every write.
  */
 export const paymentAllocations = sqliteTable(
   "payment_allocations",

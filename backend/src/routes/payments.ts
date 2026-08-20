@@ -5,6 +5,9 @@ import { requireAuth, type AuthVars } from "../middleware/auth.ts";
 import { PaymentInput, entityId } from "../domain/schemas.ts";
 import { PaymentsRepo } from "../repos/payments.ts";
 import { GigsRepo } from "../repos/gigs.ts";
+import { ClientsRepo } from "../repos/clients.ts";
+import { AllocationsRepo } from "../repos/allocations.ts";
+import { recomputePaidTotals } from "../services/paid-totals.ts";
 
 /** R2 key for a payment's confirmation object — user-prefixed so a
  * key can never point into another user's space. */
@@ -19,9 +22,22 @@ export const paymentsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars
     return c.json({ items: await repo.list(c.get("userId")) });
   })
   .get("/:id", async (c) => {
+    const userId = c.get("userId");
     const repo = PaymentsRepo.for(c.env.DB);
-    const record = await repo.get(c.get("userId"), c.req.param("id"));
-    return record === null ? c.json({ error: "not found" }, 404) : c.json(record);
+    const record = await repo.get(userId, c.req.param("id"));
+    if (record === null) return c.json({ error: "not found" }, 404);
+    // Computed, not stored: the source of truth is the allocations
+    // table, and a stored figure could drift from it.
+    const allocations = await AllocationsRepo.for(c.env.DB).listByPayment(
+      userId,
+      record.id,
+    );
+    const allocatedCents = allocations.reduce((sum, a) => sum + a.amountCents, 0);
+    return c.json({
+      ...record,
+      allocatedCents,
+      unallocatedCents: record.amountCents - allocatedCents,
+    });
   })
   .put("/:id", zValidator("json", PaymentInput), async (c) => {
     const id = c.req.param("id");
@@ -30,6 +46,7 @@ export const paymentsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars
     }
     const userId = c.get("userId");
     const input = c.req.valid("json");
+    const now = Date.now();
 
     if (
       input.gigId != null &&
@@ -37,19 +54,45 @@ export const paymentsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars
     ) {
       return c.json({ error: "gigId does not reference your gig" }, 400);
     }
+    if (
+      input.clientId != null &&
+      (await ClientsRepo.for(c.env.DB).get(userId, input.clientId)) === null
+    ) {
+      return c.json({ error: "clientId does not reference your client" }, 400);
+    }
 
     const result = await PaymentsRepo.for(c.env.DB).upsert(
       userId,
       id,
       {
         gigId: input.gigId ?? null,
+        clientId: input.clientId ?? null,
         amountCents: input.amountCents,
         paidAt: input.paidAt ?? null,
         notes: input.notes ?? null,
       },
-      { now: Date.now() },
+      { now },
     );
     if (result === "forbidden") return c.json({ error: "not found" }, 404);
+
+    // A client that was offline across the allocations release still
+    // sends payments.gigId. Translating it here — rather than refusing
+    // it — is what lets that outbox drain without losing the link
+    // between the money and the work. replaceSoleAllocation is keyed
+    // off the payment id, not any id the client supplies, so replaying
+    // the same payment upsert converges on one allocation instead of
+    // adding a second.
+    if (input.gigId != null) {
+      const affectedGigIds = await AllocationsRepo.for(c.env.DB).replaceSoleAllocation(
+        userId,
+        result.record.id,
+        input.gigId,
+        input.amountCents,
+        now,
+      );
+      await recomputePaidTotals(c.env.DB, userId, affectedGigIds, now);
+    }
+
     return c.json(result.record, result.created ? 201 : 200);
   })
   .delete("/:id", async (c) => {
