@@ -354,6 +354,15 @@ export class LocalStore {
       // the allocations, falling back to this column only for payments
       // no allocations-aware client has touched yet.
       gigId: input.gigId ?? null,
+      // Preserve-on-absent, matching `PaymentsRepo.upsert` exactly
+      // (backend/src/repos/payments.ts). NOT `?? null` like the fields
+      // around it: this one goes out on the wire below, so an absent
+      // key here would be sent as an explicit null and CLEAR the
+      // client — the very thing the server's preserve-on-absent rule
+      // exists to stop an older build doing. A caller that means
+      // "no client" says so with `null`.
+      clientId:
+        input.clientId === undefined ? (existing?.clientId ?? null) : input.clientId,
       amountCents: input.amountCents,
       paidAt: input.paidAt ?? null,
       // Server-owned; preserved locally, refreshed by pull.
@@ -366,6 +375,11 @@ export class LocalStore {
     // still has to bite if PaymentInput grows a field (that is what it
     // is for), while `gigId` is excluded deliberately and in one place.
     const payload: OutboxPayload<Omit<PaymentInput, "gigId">> = {
+      // The preserved-or-given value, never `input.clientId` — see the
+      // record field above. Sending the record's copy is what makes
+      // "absent means leave it alone" true across the wire as well as
+      // in Dexie.
+      clientId: record.clientId,
       amountCents: record.amountCents,
       paidAt: record.paidAt,
       notes: record.notes,

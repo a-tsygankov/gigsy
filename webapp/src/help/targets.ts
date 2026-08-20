@@ -132,7 +132,12 @@ export const HelpTarget = {
 
   // ── the payment form (PaymentEdit.tsx) ──
   PaymentAmount: element("payment-amount"),
-  PaymentGig: element("payment-gig"),
+  PaymentClient: element("payment-client"),
+  // The FIRST split row's gig select. There is no longer a single
+  // `payment-gig` — one payment can pay for several gigs, so the rows
+  // are indexed (`payment-gig-0`, `payment-gig-1`, …) and a tour can
+  // only ever point at the one that is always there.
+  PaymentGig: element("payment-gig-0"),
   PaymentPaidAt: element("payment-paid-at"),
   PaymentNotes: element("payment-notes"),
   PaymentConfirmation: element("payment-confirmation"),

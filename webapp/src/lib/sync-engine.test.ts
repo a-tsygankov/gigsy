@@ -620,6 +620,7 @@ function moneyApi(server: FakeMoneyServer): SyncApi {
       return {
         id,
         gigId: row.gigId,
+        clientId: null,
         amountCents: row.amountCents,
         paidAt: null,
         confirmationR2Key: null,
@@ -690,6 +691,7 @@ describe("SyncEngine allocations", () => {
     await store.applyServerRecord("payment", {
       id: P1,
       gigId: G1,
+      clientId: null,
       amountCents: 15000,
       paidAt: null,
       confirmationR2Key: null,
@@ -732,6 +734,7 @@ describe("SyncEngine allocations", () => {
     await store.applyServerRecord("payment", {
       id: P1,
       gigId: null,
+      clientId: null,
       amountCents: 15000,
       paidAt: null,
       confirmationR2Key: null,
@@ -768,6 +771,7 @@ describe("SyncEngine allocations", () => {
     await store.applyServerRecord("payment", {
       id: P1,
       gigId: G1,
+      clientId: null,
       amountCents: 15000,
       paidAt: null,
       confirmationR2Key: null,

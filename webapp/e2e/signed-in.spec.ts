@@ -63,16 +63,21 @@ test("a completed unpaid gig with a service reaches the dashboard drill-down", a
   ).toBeVisible();
 
   // Record the $50 as money that actually arrived. "+ Add payment"
-  // opens /payments/new?gigId=<this gig>, so the Related gig select is
-  // already on this gig and the saved payment carries `gigId` — which
-  // the server turns into a payment_allocations row (the legacy-gigId
-  // compat path in services/sync.ts) and sums back into the gig's
-  // derived amountPaidCents. That is the whole chain the $190.00
-  // assertion below depends on; typing 50 into the old "Paid ($)" box
-  // never touched any of it.
+  // opens /payments/new?gigId=<this gig>, so the split's first row is
+  // already on this gig — and the save writes a payment_allocations
+  // row of its own (screens/PaymentEdit.tsx), which the server sums
+  // back into the gig's derived amountPaidCents. No `gigId` goes on
+  // the payment: that field is the compat shim for builds predating
+  // allocations, and this one manages them itself. That is the whole
+  // chain the $190.00 assertion below depends on; typing 50 into the
+  // old "Paid ($)" box never touched any of it.
   await page.getByRole("link", { name: "+ Add payment" }).click();
   await page.getByTestId("payment-amount").fill("50");
-  await expect(page.getByTestId("payment-gig")).not.toHaveValue("");
+  await expect(page.getByTestId("payment-gig-0")).not.toHaveValue("");
+  // The whole $50 goes to that one gig: the split's single row mirrors
+  // the payment amount while nothing about the split has been touched
+  // (lib/payment-split.ts), so there is nothing left over.
+  await expect(page.getByTestId("payment-unallocated")).toHaveText("Fully allocated");
   await page.getByTestId("payment-save").click();
   // Saving a new payment replaces the URL with the record's own id.
   await expect(page).toHaveURL(/\/payments\/(?!new$)[\w-]+/, { timeout: 15_000 });

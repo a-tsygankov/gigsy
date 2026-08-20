@@ -142,16 +142,22 @@ async function rowEventually(
  * Record money against the gig whose hub is open, the only way there
  * is to record any.
  *
- * "+ Add payment" opens `/payments/new?gigId=<this gig>`, so the
- * Related gig select arrives already on it. The save queues TWO ops:
- * the payment, and the `payment_allocations` row that says which gig
- * it paid for — written by the client now (lib/local-store.ts's
- * `putPayment`), not inferred by the server from a `gigId` on the
- * payment, which this build no longer sends. The server sums those
- * allocations back into the gig's derived `amountPaidCents`. That last
- * step is on the server, which is why this waits for the outbox to
- * drain before returning — and why nothing it does can be asserted
- * until a pull has been round the loop as well.
+ * "+ Add payment" opens `/payments/new?gigId=<this gig>`, so the FIRST
+ * split row arrives already on this gig — and, while nothing about the
+ * split has been touched, its amount mirrors the payment's
+ * (`applyAutoBalance` in lib/payment-split.ts), so the whole payment
+ * goes to the one gig without the figure being typed twice. The
+ * "Fully allocated" assertion is what proves that mirror actually
+ * happened rather than leaving a silently unallocated payment behind.
+ *
+ * The save queues TWO ops: the payment, and the `payment_allocations`
+ * row that says which gig it paid for — written by the client now
+ * (screens/PaymentEdit.tsx through `putAllocation`), not inferred by
+ * the server from a `gigId` on the payment, which this build no longer
+ * sends. The server sums those allocations back into the gig's derived
+ * `amountPaidCents`. That last step is on the server, which is why this
+ * waits for the outbox to drain before returning — and why nothing it
+ * does can be asserted until a pull has been round the loop as well.
  *
  * There is no shortcut, and that is the point: the "Paid ($)" box this
  * spec used to type into was removed with the column it could not
@@ -160,13 +166,51 @@ async function rowEventually(
 async function recordPayment(page: Page, dollars: string): Promise<void> {
   await page.getByTestId("gig-add-payment").click();
   await page.getByTestId("payment-amount").fill(dollars);
-  await expect(page.getByTestId("payment-gig")).not.toHaveValue("");
+  await expect(page.getByTestId("payment-gig-0")).not.toHaveValue("");
+  await expect(page.getByTestId("payment-split-amount-0")).toHaveValue(dollars);
+  await expect(page.getByTestId("payment-unallocated")).toHaveText("Fully allocated");
   await page.getByTestId("payment-save").click();
   // Saving a new payment replaces the URL with the record's own id.
   await expect(page).toHaveURL(/\/payments\/(?!new$)[\w-]+/, { timeout: 15_000 });
   await page.getByTestId("payment-open-gig").click();
   await expect(page.getByTestId("gig-work-card")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+}
+
+/**
+ * Create a gig with a title and a fixed fee, and hand back its id.
+ *
+ * The id, not just the URL, because the split editor's gig selects are
+ * chosen by option VALUE — the only way to name a specific gig on a
+ * shared dev user whose list is full of gigs from every prior run.
+ */
+async function createGig(page: Page, marker: string, offered: string): Promise<string> {
+  await page.goto("/gigs/new");
+  await page.getByTestId("gig-title").fill(marker);
+  await page.getByTestId("gig-offered").fill(offered);
+  await page.getByTestId("gig-save").click();
+  await expect(page.getByTestId("gig-work-card")).toBeVisible({ timeout: 15_000 });
+  const id = /\/gigs\/([\w-]+)/.exec(page.url())?.[1];
+  expect(id, `no gig id in ${page.url()}`).toBeTruthy();
+  return id!;
+}
+
+/**
+ * Which split row is currently pointing at `gigId`.
+ *
+ * Rows come back from storage in allocation order, and two allocations
+ * written in the same millisecond have no defined order between them
+ * (LocalStore sorts by createdAt). Asserting on a fixed index would
+ * therefore be a coin flip that passes most of the time — the worst
+ * kind of test. This asks the selects instead.
+ */
+async function splitRowFor(page: Page, gigId: string): Promise<number> {
+  for (let index = 0; index < 10; index++) {
+    const select = page.getByTestId(`payment-gig-${index}`);
+    if ((await select.count()) === 0) break;
+    if ((await select.inputValue()) === gigId) return index;
+  }
+  throw new Error(`no split row is on gig ${gigId}`);
 }
 
 test.beforeEach(async ({ page, request, baseURL }) => {
@@ -482,4 +526,182 @@ test("an hourly gig with nothing to price shows no figure and cannot be settled"
   // figure, which is what says the earlier zero was ignorance rather
   // than a lost gig.
   await expectDashboardExpected(page, before + 15_000);
+});
+
+/**
+ * One transfer, two gigs — the case `payments.gig_id` could not say.
+ *
+ * An agency settling a week of work sends ONE payment. Before
+ * allocations, recording it meant inventing several fictional payments,
+ * each with its own date and its own proof photo, none of which matched
+ * the bank statement. Now the payment is one record and the split is
+ * several `payment_allocations` rows, and every figure downstream is
+ * derived from those rows rather than from a column that named a single
+ * gig.
+ *
+ * Four claims, and each one fails differently:
+ *
+ *   - Each gig's DERIVED paid total is its own share. Read off the gig
+ *     list rows, which show `amountPaidCents` — the server's per-gig sum
+ *     (services/paid-totals.ts), not anything this browser computed. A
+ *     screen that still read the payment's amount would put $150 on
+ *     both, and both would wear a paid badge they had not earned.
+ *   - The gig hub says the same thing, and says which payment it came
+ *     out of: $100.00 "of $150.00".
+ *   - The split survives a reload — each row is its own record, so a
+ *     half-finished split is not something held in React state.
+ *   - Reducing a split leaves a REMAINDER, visibly. A positive
+ *     remainder is legitimate (money can land before you know what it
+ *     covers) and must be shown rather than swallowed or refused.
+ *
+ * Both gigs are priced at exactly their share, so "paid" is a real
+ * conclusion about each one rather than a coincidence of a large fee.
+ */
+test("one payment covers two gigs", async ({ page }) => {
+  // Two gigs, a payment, a re-save, and four round trips through the
+  // server's derived totals — each of which is a drain, a pull and a
+  // fresh document load. The default 30s covers none of that, and a
+  // budget that runs out mid-suite reports as a product failure.
+  test.setTimeout(180_000);
+  const stamp = Date.now();
+  const markerA = `split-a-${stamp}`;
+  const markerB = `split-b-${stamp}`;
+
+  const gigA = await createGig(page, markerA, "100");
+  const gigB = await createGig(page, markerB, "50");
+  // Both gigs must exist server-side before an allocation may name
+  // them; the outbox drains oldest-first, but waiting here means a
+  // failure below is about the split rather than about the queue.
+  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+
+  // ── $150 in one transfer, split $100 / $50 ──
+  await page.goto("/payments/new");
+  await page.getByTestId("payment-amount").fill("150");
+  await page.getByTestId("payment-gig-0").selectOption(gigA);
+  await page.getByTestId("payment-split-amount-0").fill("100");
+  await expect(page.getByTestId("payment-unallocated")).toHaveText("Unallocated $50.00");
+
+  await page.getByTestId("payment-add-split").click();
+  await page.getByTestId("payment-gig-1").selectOption(gigB);
+  await page.getByTestId("payment-split-amount-1").fill("50");
+  await expect(page.getByTestId("payment-unallocated")).toHaveText("Fully allocated");
+
+  await page.getByTestId("payment-save").click();
+  await expect(page).toHaveURL(/\/payments\/(?!new$)[\w-]+/, { timeout: 15_000 });
+  const paymentUrl = page.url();
+  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+
+  // ── each gig's own paid total, as the SERVER derived it ──
+  await rowEventually(page, markerA, async (row) => {
+    await expect(row.getByText("$100.00", { exact: true })).toBeVisible();
+    await expect(row.getByTestId("paid-badge")).toBeVisible();
+  });
+  await rowEventually(page, markerB, async (row) => {
+    await expect(row.getByText("$50.00", { exact: true })).toBeVisible();
+    await expect(row.getByTestId("paid-badge")).toBeVisible();
+  });
+
+  // ── and on gig A's hub: its share, with the payment's total beside it ──
+  await page.goto(`/gigs/${gigA}`);
+  const gigAPayments = page.getByTestId("gig-payments");
+  await expect(gigAPayments.getByTestId("gig-payment-share")).toHaveText("$100.00", {
+    timeout: 15_000,
+  });
+  await expect(gigAPayments.getByTestId("gig-payment-total")).toHaveText("of $150.00");
+
+  // ── the split comes back from storage, not from React state ──
+  await page.goto(paymentUrl);
+  await expect(page.getByTestId("payment-amount")).toHaveValue("150.00");
+  const rowA = await splitRowFor(page, gigA);
+  const rowB = await splitRowFor(page, gigB);
+  await expect(page.getByTestId(`payment-split-amount-${rowA}`)).toHaveValue("100.00");
+  await expect(page.getByTestId(`payment-split-amount-${rowB}`)).toHaveValue("50.00");
+  await expect(page.getByTestId("payment-unallocated")).toHaveText("Fully allocated");
+
+  // ── reduce one split, and the remainder appears ──
+  // $20 of gig B's $50, so $30 of the transfer is money that landed and
+  // is not yet claimed by any gig. The screen says so and still saves.
+  await page.getByTestId(`payment-split-amount-${rowB}`).fill("20");
+  await expect(page.getByTestId("payment-unallocated")).toHaveText("Unallocated $30.00");
+  await page.getByTestId("payment-save").click();
+  // Wait for the screen to LEAVE before touching anything else.
+  //
+  // A click returns the moment it is dispatched, and saving a split is
+  // several awaited Dexie writes — the payment, then each changed
+  // allocation. Going straight on to a document load tears the page
+  // down mid-write, and the allocation never reaches the outbox: the
+  // save looks like it worked, the assertion 40 seconds later does not,
+  // and nothing in between says why. This spec lost an hour to exactly
+  // that. `PaymentEdit` navigates in the mutation's onSuccess, so the
+  // URL changing is the receipt that every write completed.
+  await expect(page).toHaveURL(/\/gigs/, { timeout: 15_000 });
+  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+
+  // Gig B's derived total follows it down, and the badge it had goes
+  // with it — this is the assertion that would still pass if the
+  // remainder were silently handed to gig B instead of left over.
+  await rowEventually(page, markerB, async (row) => {
+    await expect(row.getByText("$20.00", { exact: true })).toBeVisible();
+    await expect(row.getByTestId("paid-badge")).toHaveCount(0);
+  });
+  // Gig A is untouched by its neighbour's edit.
+  await rowEventually(page, markerA, async (row) => {
+    await expect(row.getByText("$100.00", { exact: true })).toBeVisible();
+  });
+
+  // And the remainder is still there on a fresh load of the payment.
+  await page.goto(paymentUrl);
+  await expect(page.getByTestId("payment-unallocated")).toHaveText("Unallocated $30.00");
+
+  // ── the state the compat shim would destroy: ONE partial allocation ──
+  //
+  // Drop gig B's row entirely and $100 of a $150 transfer is claimed by
+  // a single gig, with $50 deliberately unattributed. That is the
+  // ordinary end of a week where one job is still unaccounted for — and
+  // it is the ONE shape neither split guard protects: `LocalStore` and
+  // `AllocationsRepo` both refuse to collapse a payment carrying MORE
+  // than one allocation, so a screen that still passed `gigId` to
+  // `putPayment` would sail through both and inflate this single
+  // allocation to the whole $150. The remainder would vanish, gig A
+  // would silently gain $50 it was never paid, and every figure would
+  // agree with itself while being wrong.
+  const dropB = await splitRowFor(page, gigB);
+  await page.getByTestId(`payment-split-remove-${dropB}`).click();
+  await expect(page.getByTestId("payment-unallocated")).toHaveText("Unallocated $50.00");
+  await page.getByTestId("payment-save").click();
+  await expect(page).toHaveURL(/\/gigs/, { timeout: 15_000 });
+  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+
+  await page.goto(paymentUrl);
+  await expect(page.getByTestId("payment-unallocated")).toHaveText("Unallocated $50.00");
+  await expect(page.getByTestId("payment-gig-0")).toHaveValue(gigA);
+  await expect(page.getByTestId("payment-split-amount-0")).toHaveValue("100.00");
+  await expect(page.getByTestId("payment-gig-1")).toHaveCount(0);
+
+  // An edit with nothing to do with the money must not move any. THIS
+  // is where the shim would strike: the payment now carries exactly one
+  // allocation, so nothing refuses to collapse it, and a `gigId` on the
+  // payload would resize it to the payment's full $150 the next time
+  // anything at all is saved. A note is the most innocuous edit there
+  // is, which is the point.
+  await page.getByTestId("payment-notes").fill("bank transfer, one job still to place");
+  await page.getByTestId("payment-save").click();
+  await expect(page).toHaveURL(/\/gigs/, { timeout: 15_000 });
+  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+
+  await page.goto(paymentUrl);
+  await expect(page.getByTestId("payment-unallocated")).toHaveText("Unallocated $50.00");
+  await expect(page.getByTestId("payment-split-amount-0")).toHaveValue("100.00");
+
+  // Gig A still has exactly its $100 — not the $150 an inflated sole
+  // allocation would have handed it — and gig B, no longer paid
+  // anything, is back to showing what it is worth.
+  await rowEventually(page, markerA, async (row) => {
+    await expect(row.getByText("$100.00", { exact: true })).toBeVisible();
+    await expect(row.getByTestId("paid-badge")).toBeVisible();
+  });
+  await rowEventually(page, markerB, async (row) => {
+    await expect(row.getByTestId("paid-badge")).toHaveCount(0);
+    await expect(row.getByText("$50.00", { exact: true })).toBeVisible();
+  });
 });

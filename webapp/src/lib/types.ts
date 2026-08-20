@@ -155,6 +155,24 @@ export interface Payment {
    * rather than off the wire.
    */
   gigId: string | null;
+  /**
+   * Who the money came FROM (migration 0016). Nullable, and that is a
+   * real state rather than a gap to be filled: a transfer worth
+   * recording can land before anyone knows who sent it.
+   *
+   * Once it is set, the server restricts the payment's split to that
+   * client's gigs — `checkAllocationWrite` refuses an allocation onto
+   * anyone else's gig with "gigId does not reference the payment's
+   * client" — which is what makes the payment screen's gig lists short
+   * enough to read.
+   *
+   * `string | null` overstates it exactly the way `Gig.expectedCents`
+   * does: rows already in Dexie from before this release hold
+   * `undefined`, and no Dexie upgrade backfills them. Readers must
+   * treat undefined and null alike (`??`, never `=== null`) until the
+   * next pull rewrites the record.
+   */
+  clientId: string | null;
   amountCents: number;
   paidAt: number | null;
   confirmationR2Key: string | null;
@@ -164,11 +182,25 @@ export interface Payment {
 }
 
 export interface PaymentInput {
-  /** Accepted from callers (the payment screen still asks for one gig
-   *  until Task 7 replaces it with a split editor) and turned into the
-   *  payment's sole allocation locally. It is deliberately NOT part of
-   *  the outbox payload — lib/local-store.ts's `putPayment`. */
+  /**
+   * LEGACY compat only — the payment screen manages allocations
+   * explicitly now and passes NO `gigId`. A caller that supplies one is
+   * saying "the whole of this payment was for that gig", and
+   * `putPayment` turns it into the payment's sole allocation locally
+   * (lib/local-store.ts). It is deliberately NOT part of the outbox
+   * payload; sending it would run the server's
+   * `replaceSoleAllocation` and flatten a deliberate partial split.
+   */
   gigId?: string | null;
+  /**
+   * Absent means "leave the stored value alone", exactly as the
+   * backend's `PaymentData.clientId` defines it (backend/src/repos/
+   * payments.ts) — `putPayment` preserves it from the existing local
+   * row rather than nulling it, so a client set by a receipt draft
+   * survives a save from a screen that did not ask about one. `null`
+   * means "clear it".
+   */
+  clientId?: string | null;
   amountCents: number;
   paidAt?: number | null;
   notes?: string | null;

@@ -49,6 +49,20 @@ export function GigDetail() {
     queryKey: ["payments", id],
     queryFn: () => api.listPaymentsByGig(id),
   });
+  /**
+   * How much of each payment came to THIS gig.
+   *
+   * The section below used to list payments whose `gigId` matched, and
+   * show each one's full amount. Both halves were wrong the moment a
+   * payment could be split: an agency settling three gigs in one
+   * transfer would have shown $450 against a gig that got $150 of it,
+   * and the gig's own paid total — derived from the allocations —
+   * disagreed with the rows offered as its explanation.
+   */
+  const allocations = useQuery({
+    queryKey: ["allocations", "gig", id],
+    queryFn: () => api.listAllocationsByGig(id),
+  });
 
   /**
    * Write one field, without disturbing the rest of the gig.
@@ -216,33 +230,65 @@ export function GigDetail() {
               {/* Same rule as the services section above: the
                   explanation stands in for the empty state, so it can
                   never double up with a row that is already on screen. */}
-              {payments.data?.length === 0 && (
+              {allocations.data?.length === 0 && (
                 <p className="text-xs text-slate-500">
                   Nothing yet. Money as it actually lands goes here — a deposit now,
                   the balance weeks later, each with its own date and a photo of the
-                  proof. This is the only place a gig's paid total comes from: it is
-                  added up from what you record here, not typed in on the job form.
+                  proof. One payment can cover several gigs; what shows here is the
+                  share that came to this one. This is the only place a gig's paid
+                  total comes from: it is added up from what you record here, not
+                  typed in on the job form.
                 </p>
               )}
               <div className="space-y-2">
-                {payments.data?.map((payment) => (
-                  <CardLink
-                    key={payment.id}
-                    to={`/payments/${payment.id}`}
-                    dense
-                    className="flex items-center justify-between"
-                  >
-                    <span className="text-slate-600">
-                      {payment.paidAt !== null
-                        ? new Date(payment.paidAt).toLocaleDateString()
-                        : "No date"}
-                      {payment.confirmationR2Key !== null && " · 📎 proof"}
-                    </span>
-                    <span className="shrink-0 font-semibold text-emerald-700">
-                      {formatMoney(payment.amountCents)}
-                    </span>
-                  </CardLink>
-                ))}
+                {allocations.data?.map((allocation) => {
+                  const payment = payments.data?.find(
+                    (p) => p.id === allocation.paymentId,
+                  );
+                  // An allocation whose payment has not arrived on this
+                  // device yet renders nothing rather than a row with no
+                  // date and no total — the two pull independently, and a
+                  // half-row is a worse answer than one that appears a
+                  // moment later.
+                  if (payment === undefined) return null;
+                  return (
+                    <CardLink
+                      key={allocation.id}
+                      to={`/payments/${payment.id}`}
+                      dense
+                      className="flex items-center justify-between"
+                    >
+                      <span className="text-slate-600">
+                        {payment.paidAt !== null
+                          ? new Date(payment.paidAt).toLocaleDateString()
+                          : "No date"}
+                        {payment.confirmationR2Key !== null && " · 📎 proof"}
+                      </span>
+                      <span className="shrink-0 font-semibold text-emerald-700">
+                        {/* The share and the total are separate
+                            elements rather than one span's text, so
+                            each can be read on its own — by a test, and
+                            by a screen reader that would otherwise
+                            announce "$100.00of $150.00". */}
+                        <span data-testid="gig-payment-share">
+                          {formatMoney(allocation.amountCents)}
+                        </span>
+                        {/* Only when they differ. On the ordinary
+                            one-gig payment the two figures are the same
+                            number twice, and "of" would read as though
+                            something were being held back. */}
+                        {payment.amountCents !== allocation.amountCents && (
+                          <span
+                            data-testid="gig-payment-total"
+                            className="ml-1 text-xs font-normal text-slate-500"
+                          >
+                            of {formatMoney(payment.amountCents)}
+                          </span>
+                        )}
+                      </span>
+                    </CardLink>
+                  );
+                })}
               </div>
             </section>
 
