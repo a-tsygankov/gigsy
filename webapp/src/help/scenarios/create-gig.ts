@@ -11,9 +11,9 @@ import type { HelpScenario } from "../types.ts";
  * the detail hub at `/gigs/:id` (GigDetail.tsx). None of those exists on
  * the empty form this scenario starts on, and every step here is a
  * highlight that cannot save a gig to reach them (see below), so they
- * are simply not walkable from here. Task 5 of that phase adds a
- * `record-work` scenario that starts on a saved gig and covers them
- * properly; until it lands, the work half of a gig has no tour.
+ * are simply not walkable from here. `scenarios/record-work.ts` covers
+ * them properly, starting on a gig of its own rather than one this
+ * scenario would have to save.
  *
  * Every step is a `highlight`, including the last one, and that is a
  * constraint rather than an oversight. This scenario runs in CI on every
