@@ -152,6 +152,11 @@ export const draftsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }
         paymentId,
         {
           gigId: input.gigId ?? null,
+          // Receipt extraction does not resolve a client, and this payment is
+          // always brand new, so there is no stored clientId to preserve.
+          // `undefined` ("not mentioned") therefore inserts null, and the
+          // reviewer sets the client when they confirm the draft.
+          clientId: undefined,
           amountCents: input.amountCents,
           paidAt: input.paidAt ?? null,
           notes: input.notes ?? null,
