@@ -238,7 +238,6 @@ test("every field of a gig survives an offline save and a pull from the server",
   await page.getByTestId("gig-location").fill(marker);
   await page.getByTestId("gig-pay-type").selectOption("hourly");
   await page.getByTestId("gig-rate").fill("42.50");
-  await page.getByTestId("gig-paid").fill("10");
   await page.getByTestId("gig-notes").fill(notes);
   await page.getByTestId("gig-save").click();
 
@@ -317,10 +316,18 @@ test("every field of a gig survives an offline save and a pull from the server",
   await expect(freshPage.getByTestId("gig-override")).toHaveValue("199.99");
   await expect(freshPage.getByTestId("gig-expected-pay")).toContainText("$199.99");
 
-  // And the two the job form owns but the hub does not state.
+  // And the three the job form owns but the hub does not state.
+  //
+  // What has been PAID is deliberately not among them, here or in the
+  // offline writes above. It is no longer a field of the gig anyone
+  // can send: `gigs.amountPaidCents` is summed server-side from the
+  // gig's payment allocations (migration 0016), the form's "Paid ($)"
+  // box went with the write path (GigEdit.tsx), and the backend's own
+  // GigInput has no such key — so there is nothing here for a round
+  // trip to lose. The chain that DOES carry money now, from a recorded
+  // payment to the badge on the gig, is money.spec.ts's business.
   await freshPage.getByTestId("gig-edit").click();
   await expect(freshPage.getByTestId("gig-rate")).toHaveValue("42.50");
-  await expect(freshPage.getByTestId("gig-paid")).toHaveValue("10.00");
   await expect(freshPage.getByTestId("gig-duration-hours")).toHaveValue("4");
   await expect(freshPage.getByTestId("gig-duration-minutes")).toHaveValue("5");
 
@@ -656,7 +663,8 @@ test("recording work never touches the planned time", async ({ page }) => {
 });
 
 /**
- * A non-positive rate has to be stopped HERE, or it is lost silently.
+ * A rate that is missing or non-positive has to be stopped HERE, or it
+ * is lost silently.
  *
  * Zero and -50 both parse — `parseMoney` returns 0 and -5000, not null
  * — so nothing downstream refuses them until the backend's
@@ -666,15 +674,25 @@ test("recording work never touches the planned time", async ({ page }) => {
  * never exists on the server. Refusing the submit is the only place
  * this can be caught where somebody is still looking at it.
  *
+ * A BLANK rate is the third route to the same nowhere, and it fails a
+ * different branch of the guard (`parseMoney("")` is null, so it never
+ * reaches the `<= 0` test). It matters for its own reason: an hourly
+ * gig with no rate is the one gig `expectedCents` cannot price at all
+ * (lib/gig-pay.ts), so a form that let one through would put a gig
+ * with no knowable worth into a ledger — and the backend refuses it
+ * too, as `GigInput`'s "an hourly gig needs a rate"
+ * (domain/schemas.ts), which is the same silent drop with an extra
+ * round trip. What an unpriced hourly gig looks like when it is
+ * reached legitimately — rated, but not yet worked — is money.spec.ts.
+ *
  * The message alone is not the assertion. What matters is that nothing
  * was WRITTEN: a form that showed the error and queued the gig anyway
  * would pass a message check and still lose the edit.
  */
-test("a non-positive hourly rate is refused, and nothing is queued", async ({
+test("a missing or non-positive hourly rate is refused, and nothing is queued", async ({
   page,
 }) => {
   const marker = `zero-rate-${Date.now()}`;
-  const refusal = page.getByText("The hourly rate must be greater than zero.");
 
   await page.goto("/gigs/new");
   await page.getByTestId("gig-location").fill(marker);
@@ -684,12 +702,18 @@ test("a non-positive hourly rate is refused, and nothing is queued", async ({
   // the form the save was refused from. A save that fired lands on the
   // new gig's hub, so the URL is what says the guard actually stopped
   // it rather than merely complaining alongside it.
-  for (const rate of ["0", "-50"]) {
+  const attempts: [rate: string, refusal: string][] = [
+    // Left blank: refused before there is a number to compare.
+    ["", "An hourly gig needs a rate."],
     // 0 fails the `<= 0` guard as itself; -50 fails it after parsing to
     // -5000 — two routes to the same refusal.
+    ["0", "The hourly rate must be greater than zero."],
+    ["-50", "The hourly rate must be greater than zero."],
+  ];
+  for (const [rate, message] of attempts) {
     await page.getByTestId("gig-rate").fill(rate);
     await page.getByRole("button", { name: "Save gig" }).click();
-    await expect(refusal).toBeVisible();
+    await expect(page.getByText(message)).toBeVisible();
     await expect(page).toHaveURL(/\/gigs\/new$/);
     await expect(page.getByTestId("gig-rate")).toHaveValue(rate);
     await expect(page.getByTestId("gig-work-card")).toHaveCount(0);

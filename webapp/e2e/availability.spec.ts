@@ -194,7 +194,13 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
 /** A gig as the server hands it back, in the fields a write has to
- *  send straight back unchanged. */
+ *  send straight back unchanged.
+ *
+ *  `amountPaidCents` is not among them although the server states it:
+ *  it is derived from the gig's payment allocations (migration 0016)
+ *  and GigInput has no such key, so sending it back would be stripped
+ *  at validation — dead weight that reads like a field being
+ *  preserved. */
 interface SeededGig {
   id: string;
   status: string;
@@ -203,7 +209,6 @@ interface SeededGig {
   payType: "fixed" | "hourly";
   hourlyRateCents: number | null;
   amountOfferedCents: number | null;
-  amountPaidCents: number | null;
   clientId: string | null;
   title: string | null;
   location: string | null;
@@ -305,7 +310,6 @@ async function releaseDay(
         workEndedAt: gig.workEndedAt,
         breakMinutes: gig.breakMinutes,
         amountOfferedCents: gig.amountOfferedCents,
-        amountPaidCents: gig.amountPaidCents,
         notes: gig.notes,
       },
     });
