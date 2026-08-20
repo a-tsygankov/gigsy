@@ -4,7 +4,7 @@
  * Read-only on purpose. This half of a gig changes when the client
  * changes it — rarely, and deliberately — while the work card below it
  * changes on the day, in a hurry, with one thumb. Putting both in one
- * form is what made the old screen 620 lines and made it possible to
+ * form is what made the old screen 618 lines and made it possible to
  * knock the planned start time sideways while recording that you
  * finished late.
  *

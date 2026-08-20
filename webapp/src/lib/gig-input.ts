@@ -3,11 +3,15 @@
  *
  * `putGig` REPLACES; it does not patch. OfflineLocalStore.putGig builds
  * the whole record out of the input alone — `location: input.location ??
- * null` and so on for every field — so anything left out of the payload
- * is stored as null rather than left as it was. The Work card is nothing
- * but partial writes (a status, a stamp, a break), and each one has to
- * send the entire gig with one field changed. This is that entire gig,
- * so no call site has to remember the list.
+ * null` and so on for nearly every field — so anything left out of the
+ * payload is stored as null rather than left as it was. (Four fields
+ * fall back to the existing row instead — `payType`, `source`,
+ * `calendarEventId`, `createdAt` — and three are set outright: `id`,
+ * `modifiedAt`, and `expectedCents`, which is nulled on every local
+ * write by design. Every remaining field nulls.) The
+ * work card is nothing but partial writes — a status, a stamp, a break
+ * — and each one has to send the entire gig with one field changed.
+ * This is that entire gig, so no call site has to remember the list.
  *
  * Two fields are deliberately absent:
  *
@@ -24,7 +28,26 @@
  */
 import type { Gig, GigInput } from "./types.ts";
 
-export function gigToInput(gig: Gig): GigInput {
+/**
+ * Every writable field, present — not `GigInput`, whose fields are all
+ * optional and would let a new one be forgotten here in silence.
+ *
+ * This repo has already paid for that exact mistake once: `OutboxPayload`
+ * is `Required<...>` (lib/local-store.ts) because `durationMinutes` and
+ * `reimbursable` were added to the record in Phase 9 and left out of the
+ * payload — every gig saved for months reached the server with no
+ * duration, and calendar sync drew them all at its four-hour fallback.
+ * Nothing failed; the data just never arrived. This function is now
+ * the single choke point for every work-card write and for the job
+ * form's save, so it gets the same guard — add a field to `GigInput`
+ * and this stops compiling.
+ *
+ * `source` is the one exclusion, and it is deliberate rather than an
+ * omission — see the note above.
+ */
+export type FullGigInput = Required<Omit<GigInput, "source">>;
+
+export function gigToInput(gig: Gig): FullGigInput {
   return {
     clientId: gig.clientId,
     title: gig.title,

@@ -116,7 +116,12 @@ export function GigEdit() {
       // The hub, not the list: saving a job definition is the middle of
       // a task, not the end of one — the next thing anyone does with a
       // gig is look at it or start work on it.
-      navigate(`/gigs/${saved.id}`);
+      //
+      // `replace`, so Back from the hub does not return to the form
+      // that has just been saved: from `/gigs/new` that form comes back
+      // BLANK (a fresh create screen, with none of the gig on it),
+      // which reads as the save having been thrown away.
+      navigate(`/gigs/${saved.id}`, { replace: true });
     },
   });
 

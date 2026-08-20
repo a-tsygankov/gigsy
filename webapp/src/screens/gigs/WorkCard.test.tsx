@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { WorkCard, workLogProblem } from "./WorkCard.tsx";
+import { WorkCard } from "./WorkCard.tsx";
 import { msToLocalInput } from "../../lib/datetime.ts";
 import type { Gig, GigInput } from "../../lib/types.ts";
 
@@ -47,8 +47,16 @@ const GIG: Gig = {
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 
-function render(gig: Partial<Gig>): { el: HTMLDivElement; onCommit: ReturnType<typeof vi.fn> } {
+function render(
+  gig: Partial<Gig>,
+  props: Partial<{ saving: boolean; failed: boolean; savedAt: number | null }> = {},
+): {
+  el: HTMLDivElement;
+  onCommit: ReturnType<typeof vi.fn>;
+  onFlush: ReturnType<typeof vi.fn>;
+} {
   const onCommit = vi.fn();
+  const onFlush = vi.fn();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -57,12 +65,14 @@ function render(gig: Partial<Gig>): { el: HTMLDivElement; onCommit: ReturnType<t
       <WorkCard
         gig={{ ...GIG, ...gig }}
         onCommit={onCommit as (patch: GigInput) => void}
-        saving={false}
-        failed={false}
+        onFlush={onFlush as (patch: GigInput) => void}
+        saving={props.saving ?? false}
+        failed={props.failed ?? false}
+        savedAt={props.savedAt ?? null}
       />,
     ),
   );
-  return { el: container, onCommit };
+  return { el: container, onCommit, onFlush };
 }
 
 afterEach(() => {
@@ -99,26 +109,6 @@ function blur(el: HTMLElement): void {
     el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
   });
 }
-
-describe("workLogProblem", () => {
-  it("refuses an end with no start", () => {
-    expect(workLogProblem(null, 1_000, null)).toBe("Work can't end without a start time.");
-  });
-
-  it("refuses an end at or before the start", () => {
-    expect(workLogProblem(2_000, 2_000, null)).toBe("Finished must be after Started.");
-  });
-
-  it("refuses a break that fills the shift", () => {
-    // 60 minutes logged, 60 minutes of break.
-    expect(workLogProblem(0, 3_600_000, 60)).toBe("The break can't fill the whole shift.");
-  });
-
-  it("allows an open shift and a sane closed one", () => {
-    expect(workLogProblem(1_000, null, null)).toBeNull();
-    expect(workLogProblem(0, 3_600_000, 15)).toBeNull();
-  });
-});
 
 describe("WorkCard", () => {
   it("saves the status the moment it changes — no button to press", () => {
@@ -246,5 +236,99 @@ describe("WorkCard", () => {
     const { el } = render({});
     expect(find("work-save-state").textContent).toContain("nothing to press");
     expect(el.querySelector("button[data-testid='gig-save']")).toBeNull();
+  });
+
+  it("tells a successful save apart from never having written", () => {
+    // One idle string for both states is what this replaces: it could
+    // not answer the only question the line exists to answer.
+    render({}, { savedAt: new Date(2027, 2, 4, 14, 7).getTime() });
+    const line = find("work-save-state").textContent ?? "";
+    expect(line).toContain("Saved at");
+    expect(line).not.toContain("nothing to press");
+  });
+
+  it("says so while a typed value is still uncommitted", () => {
+    const { onCommit } = render({});
+    expect(find("work-save-state").textContent).toContain("nothing to press");
+    const box = find<HTMLInputElement>("gig-break");
+    setValue(box, "18");
+    // Dirty is measured against the RECORD, not against a flag — which
+    // is why it survives the blur here and clears below: the parent has
+    // to come back with the saved gig before anything is settled.
+    expect(find("work-save-state").textContent).toContain("Not saved yet");
+    blur(box);
+    expect(onCommit).toHaveBeenCalled();
+    expect(find("work-save-state").textContent).toContain("Not saved yet");
+
+    const savedAt = new Date(2027, 2, 4, 14, 7).getTime();
+    act(() =>
+      root!.render(
+        <WorkCard
+          gig={{ ...GIG, breakMinutes: 18 }}
+          onCommit={onCommit as (patch: GigInput) => void}
+          onFlush={() => {}}
+          saving={false}
+          failed={false}
+          savedAt={savedAt}
+        />,
+      ),
+    );
+    const line = find("work-save-state").textContent ?? "";
+    expect(line).not.toContain("Not saved yet");
+    expect(line).toContain("Saved at");
+  });
+
+  it("flushes a typed break on unmount, when no blur ever came", () => {
+    // The route change: tapping the tab bar with a break in the box.
+    // `focusout` is not guaranteed for an input unmounted underneath
+    // the focus, and on iOS Safari tapping a link moves no focus at
+    // all — so without this the value is silently discarded while the
+    // card still claims it saves as you go.
+    const { onFlush } = render({});
+    setValue(find<HTMLInputElement>("gig-break"), "18");
+    expect(onFlush).not.toHaveBeenCalled();
+    act(() => root!.unmount());
+    root = null;
+    expect(onFlush).toHaveBeenCalledWith({
+      workStartedAt: null,
+      workEndedAt: null,
+      breakMinutes: 18,
+    });
+  });
+
+  it("flushes on pagehide, which is the one iOS Safari fires", () => {
+    const { onFlush } = render({});
+    setValue(find<HTMLInputElement>("gig-override"), "189.17");
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(onFlush).toHaveBeenCalledWith({ amountOfferedCents: 18917 });
+  });
+
+  it("flushes nothing when nothing was typed", () => {
+    // The delete button unmounts this card too. A flush with no pending
+    // change is what stops a stale draft resurrecting a deleted gig.
+    const { onFlush } = render({ workStartedAt: 1_800_000_000_000 });
+    act(() => root!.unmount());
+    root = null;
+    expect(onFlush).not.toHaveBeenCalled();
+  });
+
+  it("flushes nothing while the typed value is invalid", () => {
+    const { onFlush } = render({});
+    setValue(find<HTMLInputElement>("gig-override"), "lots");
+    act(() => root!.unmount());
+    root = null;
+    expect(onFlush).not.toHaveBeenCalled();
+  });
+
+  it("refuses a fractional break, which the schema would 400", () => {
+    // The rule lives in lib/work-log.ts; this is that it is wired in.
+    const { onCommit } = render({});
+    const box = find<HTMLInputElement>("gig-break");
+    setValue(box, "18.5");
+    blur(box);
+    expect(find("work-error").textContent).toBe("Breaks are counted in whole minutes.");
+    expect(onCommit).not.toHaveBeenCalled();
   });
 });

@@ -61,6 +61,20 @@ describe("gigToInput", () => {
     expect("expectedCents" in gigToInput(GIG)).toBe(false);
   });
 
+  it("carries the plan through a work patch untouched", () => {
+    // The assertion the whole phase turns on. This is how every Work
+    // card write is built — one field over the whole gig — and the
+    // fault it exists to prevent is a work control moving `dateTime`
+    // or `durationMinutes`, which are what the calendar event and the
+    // availability projection are made of.
+    const patched = { ...gigToInput(GIG), workEndedAt: 1_800_020_000_000 };
+    expect(patched.dateTime).toBe(GIG.dateTime);
+    expect(patched.durationMinutes).toBe(GIG.durationMinutes);
+    expect(patched.workEndedAt).toBe(1_800_020_000_000);
+    // …and nothing else moved either.
+    expect(patched).toEqual({ ...gigToInput(GIG), workEndedAt: 1_800_020_000_000 });
+  });
+
   it("omits source, so an email-captured gig is not relabelled manual", () => {
     // local-store carries the existing row's source forward when the
     // input omits it. Re-sending it is what would have to be right.

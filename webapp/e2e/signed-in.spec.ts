@@ -51,7 +51,14 @@ test("a completed unpaid gig with a service reaches the dashboard drill-down", a
   await page.getByLabel("Description").fill("Overtime hour");
   await page.getByLabel("Offered ($)").fill("40");
   await page.getByRole("button", { name: "Save service" }).click();
-  await expect(page.getByText("Overtime hour")).toBeVisible();
+  // Scoped to the section AND to the row's link, not a bare getByText:
+  // the section's own explanatory copy mentions "an overtime hour", so
+  // an unscoped match either resolves two elements (a strict-mode
+  // failure) or — worse, and this happened — matches the paragraph
+  // before the services query resolves and asserts nothing at all.
+  await expect(
+    page.getByTestId("gig-services").getByRole("link", { name: /Overtime hour/ }),
+  ).toBeVisible();
 
   // Wait for the outbox to drain (badge clears) — the dashboard is
   // server-computed, so the data must be synced before it can show.

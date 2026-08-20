@@ -13,9 +13,11 @@
  * record (lib/gig-input.ts), so a work-card patch is merged over the
  * whole gig here rather than in each control.
  */
+import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { useData } from "../lib/app-context.tsx";
+import { appLog } from "../lib/logger.ts";
 import { formatMoney } from "../lib/format.ts";
 import { gigDisplayTitle } from "../lib/gig-title.ts";
 import { gigToInput } from "../lib/gig-input.ts";
@@ -48,23 +50,42 @@ export function GigDetail() {
     queryFn: () => api.listPaymentsByGig(id),
   });
 
-  const save = useMutation({
-    // The whole gig with the patch on top. Anything omitted from a
-    // `putGig` payload is stored as null, so a partial write is not an
-    // option — see lib/gig-input.ts.
-    mutationFn: (patch: GigInput) => {
-      const current = gig.data;
-      if (current === undefined) throw new Error("not loaded");
-      return api.putGig(id, { ...gigToInput(current), ...patch });
-    },
-    // Both keys, for the same reason the form invalidates both: the
-    // list and this gig's own cache entry are separate, and leaving
-    // ["gig", id] stale served the pre-edit copy for its 30s window.
-    onSuccess: async () => {
+  /**
+   * Write one field, without disturbing the rest of the gig.
+   *
+   * The merge base is read from the LOCAL STORE, not from `gig.data`.
+   * That is the difference between recording work and quietly undoing
+   * a pull: nothing in sync-engine.ts invalidates React Query, while
+   * `refreshFromServer` writes newer records straight into Dexie — so
+   * with `staleTime: 30_000` (main.tsx) the cache can be holding the
+   * pre-pull copy of this gig. Merging onto that and calling `putGig`
+   * would write the OLD `dateTime` and `durationMinutes` back over the
+   * newer ones and queue the result for the server: one tap on Stop
+   * moving the plan, which is the exact fault this phase exists to
+   * remove. The same window would revert somebody's status change.
+   *
+   * `getGig` throws for a gig that is not there, which also makes this
+   * safe to call from the work card's unmount flush: a flush racing the
+   * delete button rejects instead of resurrecting the record.
+   *
+   * Returns the moment the write landed, which is what the work card
+   * shows in place of a Save button.
+   */
+  const commitPatch = useCallback(
+    async (patch: GigInput): Promise<number> => {
+      const current = await api.getGig(id);
+      await api.putGig(id, { ...gigToInput(current), ...patch });
+      // Both keys, for the same reason the form invalidates both: the
+      // list and this gig's own cache entry are separate, and leaving
+      // ["gig", id] stale served the pre-edit copy for its 30s window.
       await queryClient.invalidateQueries({ queryKey: ["gigs"] });
       await queryClient.invalidateQueries({ queryKey: ["gig", id] });
+      return Date.now();
     },
-  });
+    [api, id, queryClient],
+  );
+
+  const save = useMutation({ mutationFn: commitPatch });
 
   const remove = useMutation({
     mutationFn: () => api.deleteGig(id),
@@ -117,8 +138,24 @@ export function GigDetail() {
             <WorkCard
               gig={data}
               onCommit={(patch) => save.mutate(patch)}
+              // Deliberately NOT `save.mutate`: this fires while the
+              // card is unmounting, when there is nothing left to
+              // render a result into. `commitPatch` closes over the
+              // data service and the query client, both of which live
+              // at the app root, so the write outlives the screen. A
+              // failure here has no UI to reach — the log is the whole
+              // report.
+              onFlush={(patch) => {
+                void commitPatch(patch).catch((error: unknown) => {
+                  appLog.warn("work-card flush failed", {
+                    gigId: id,
+                    error: String(error),
+                  });
+                });
+              }}
               saving={save.isPending}
               failed={save.isError}
+              savedAt={save.data ?? null}
             />
 
             {/* ── Additional services (addable at any time) ──
@@ -133,13 +170,25 @@ export function GigDetail() {
               >
                 Additional services
               </SectionHeading>
-              <p className="mb-2 text-xs text-slate-500">
-                Extra work billed on top of the fee — an overtime hour, a second
-                booth. Each one carries its own offered and paid amounts, so what
-                a gig really earned stays right.
-              </p>
+              {/* The explanation replaces "None yet." rather than
+                  sitting above the list, and that is not a layout
+                  preference. On the old form this paragraph rendered
+                  only in the `isNew` branch, where no list existed; put
+                  above a real list it becomes a second thing on the
+                  screen saying "an overtime hour" — and `getByText` in
+                  e2e/signed-in.spec.ts then matches both it and the
+                  service row, which is a strict-mode failure. Worse, it
+                  matched the paragraph BEFORE the query resolved, so
+                  the assertion passed while proving nothing. Shown only
+                  when there is nothing to look at, it can never collide
+                  with a row, and it still teaches the feature to
+                  someone whose first gig has no services yet. */}
               {services.data?.length === 0 && (
-                <p className="text-xs text-slate-400">None yet.</p>
+                <p className="text-xs text-slate-500">
+                  Nothing yet. Extra work billed on top of the fee goes here — an
+                  overtime hour, a second booth — each with its own offered and paid
+                  amounts, so what a gig really earned stays right.
+                </p>
               )}
               <div className="space-y-2">
                 {services.data?.map((svc) => (
@@ -175,14 +224,16 @@ export function GigDetail() {
               >
                 Payments
               </SectionHeading>
-              <p className="mb-2 text-xs text-slate-500">
-                Money as it actually lands — a deposit now, the balance weeks
-                later, each with its own date and a photo of the proof. Paid ($)
-                on the job form is the running total; this is where the parts of
-                it live.
-              </p>
+              {/* Same rule as the services section above: the
+                  explanation stands in for the empty state, so it can
+                  never double up with a row that is already on screen. */}
               {payments.data?.length === 0 && (
-                <p className="text-xs text-slate-400">None yet.</p>
+                <p className="text-xs text-slate-500">
+                  Nothing yet. Money as it actually lands goes here — a deposit now,
+                  the balance weeks later, each with its own date and a photo of the
+                  proof. Paid ($) on the job form is the running total; this is where
+                  the parts of it live.
+                </p>
               )}
               <div className="space-y-2">
                 {payments.data?.map((payment) => (

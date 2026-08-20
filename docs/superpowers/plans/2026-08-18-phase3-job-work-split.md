@@ -418,10 +418,27 @@ git commit -m "feat(webapp): cancelled status, derived paid badge"
 >    corrects the stamp backwards before pressing Stop, which is what
 >    the field under the button is for.
 >
-> Also new, and not in the plan: `lib/gig-input.ts`. `putGig` REPLACES
-> the record, so both the work card's one-field writes and the job
-> form's save have to send the whole gig or silently null everything
-> they do not show.
+> Also new, and not in the plan — each one a thing the split exposed
+> rather than a thing it needed:
+>
+> - `lib/gig-input.ts`. `putGig` REPLACES the record, so both the work
+>   card's one-field writes and the job form's save have to send the
+>   whole gig or silently null everything they do not show. Typed
+>   `Required<Omit<GigInput, "source">>`, the same guard `OutboxPayload`
+>   carries and for the same reason.
+> - `lib/work-log.ts`. The three cross-field rules the old form checked
+>   inline, plus the `breakMinutes` field rule they were missing — a
+>   fractional or day-long break passed every cross-field rule when
+>   there was no end stamp, then 400d and was dropped by sync-engine
+>   with only a warn.
+> - `screens/gigs/useCommitOnLeave.ts`. Blur is not a reliable commit
+>   point: `focusout` is not guaranteed for an input unmounted by a
+>   route change, and iOS Safari moves no focus when a link is tapped.
+> - The hub's merge base is read from the local store inside the
+>   mutation, never from the React Query cache: nothing invalidates that
+>   cache on a sync pull, so within its 30s window a work write built on
+>   it would put the pre-pull `dateTime` back — the phase's own fault,
+>   through the back door.
 
 **Files:**
 - Create: `webapp/src/screens/GigDetail.tsx`, `webapp/src/screens/gigs/JobCard.tsx`, `webapp/src/screens/gigs/WorkCard.tsx`

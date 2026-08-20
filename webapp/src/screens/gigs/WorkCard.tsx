@@ -7,28 +7,32 @@
  * nothing here can move the plan — which is the fault the whole split
  * exists to fix.
  *
- * NO SAVE BUTTON, deliberately. Every control here writes the moment it
- * is used: the status select and the two moments on change, the break
- * and the override on blur or Enter — the point at which a typed value
- * has stopped moving. A Save button on a card whose controls have
- * already saved is a lie, and the version of that lie which matters is
- * the one where somebody taps Stop, walks off without pressing Save,
- * and loses the stamp. What replaces it is a visible save state below,
- * because "it saved itself" is only trustworthy if you can see it
- * happen.
+ * NO SAVE BUTTON, deliberately. Every control here writes: the status
+ * select and the two moments on change, the break and the override on
+ * blur or Enter — the point at which a typed value has stopped moving.
+ * A Save button on a card whose controls have already saved is a lie,
+ * and the version of that lie which matters is the one where somebody
+ * taps Stop, walks off without pressing Save, and loses the stamp.
  *
- * The blur/Enter pair is the one seam: a value typed and never blurred
- * — the app backgrounded mid-keystroke — is not written. That is the
- * price of not writing a partial "1" on the way to "18", and it is why
- * both events commit rather than just blur.
+ * What replaces it is a save state below that names four different
+ * situations, because "it saved itself" is only trustworthy if you can
+ * see it happen — and because an idle line that reads the same before
+ * the first write and after a successful one tells you nothing.
+ *
+ * Blur and Enter are not the only commit points, and the extra ones
+ * are not belt-and-braces — see useCommitOnLeave.ts for what blur
+ * misses and why `onFlush` is separate from `onCommit`.
  */
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { Button, DateTimeField, Field, Input, Select } from "../../components/index.ts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card.tsx";
+import { HourlyOverride } from "./HourlyOverride.tsx";
+import { useCommitOnLeave } from "./useCommitOnLeave.ts";
 import { formatDuration, formatMoney } from "../../lib/format.ts";
 import { localInputToMs, msToLocalInput } from "../../lib/datetime.ts";
 import { centsToInput, parseMoney } from "../../lib/money.ts";
+import { workLogProblem } from "../../lib/work-log.ts";
 import { expectedCents, workedMinutes, type PayableGig } from "../../lib/gig-pay.ts";
 import { GIG_STATUSES, type Gig, type GigInput, type GigStatus } from "../../lib/types.ts";
 
@@ -44,7 +48,7 @@ interface Draft {
   workStart: string;
   workEnd: string;
   breakMinutes: string;
-  /** Dollars text. Hourly gigs only — see the override block below. */
+  /** Dollars text. Hourly gigs only — see HourlyOverride.tsx. */
   override: string;
 }
 
@@ -60,37 +64,63 @@ function draftOf(gig: Gig): Draft {
   };
 }
 
+const breakOf = (draft: Draft): number | null =>
+  draft.breakMinutes.trim() === "" ? null : Number(draft.breakMinutes);
+
 /**
- * The same three rules as backend/src/domain/schemas.ts's superRefine,
- * checked here so a mistyped log fails against the field rather than as
- * a 400 the outbox then drops (sync-engine.ts poison-drops a rejected
- * op, which loses the edit silently).
+ * What is typed but not yet written, as a patch — or null when the two
+ * blur-committed fields already match the record.
+ *
+ * This is what "dirty" means on this card, and what the unmount and
+ * `pagehide` flushes send. Only VALID differences count: flushing a
+ * half-typed "18." or a zero override would either be refused by
+ * `assertPositive` or 400 at the server and be dropped by sync-engine,
+ * which is the silent loss this card is trying not to cause.
  */
-export function workLogProblem(
-  startMs: number | null,
-  endMs: number | null,
-  breakMinutes: number | null,
-): string | null {
-  if (endMs !== null && startMs === null) return "Work can't end without a start time.";
-  if (startMs !== null && endMs !== null) {
-    if (endMs <= startMs) return "Finished must be after Started.";
-    if (breakMinutes !== null && breakMinutes * 60_000 >= endMs - startMs) {
-      return "The break can't fill the whole shift.";
-    }
+function pendingPatch(draft: Draft, gig: Gig): GigInput | null {
+  const patch: GigInput = {};
+  const startMs = localInputToMs(draft.workStart);
+  const endMs = localInputToMs(draft.workEnd);
+  const nextBreak = breakOf(draft);
+  if (nextBreak !== gig.breakMinutes && workLogProblem(startMs, endMs, nextBreak) === null) {
+    patch.workStartedAt = startMs;
+    patch.workEndedAt = endMs;
+    patch.breakMinutes = nextBreak;
   }
-  return null;
+  if (gig.payType === "hourly") {
+    const text = draft.override.trim();
+    const cents = text === "" ? null : parseMoney(text);
+    const usable = text === "" || (cents !== null && cents > 0);
+    if (usable && cents !== gig.amountOfferedCents) patch.amountOfferedCents = cents;
+  }
+  return Object.keys(patch).length === 0 ? null : patch;
 }
 
 export interface WorkCardProps {
   gig: Gig;
-  /** One field's worth of change. The hub merges it over the whole gig
-   *  — `putGig` replaces rather than patches (lib/gig-input.ts). */
+  /** One field's worth of change, written now. The hub merges it over
+   *  the current record — `putGig` replaces rather than patches
+   *  (lib/gig-input.ts). */
   onCommit: (patch: GigInput) => void;
+  /** The same write, issued from unmount or `pagehide`, when this
+   *  component is going away and cannot render the result. Separate
+   *  because it must not depend on anything this card owns. */
+  onFlush: (patch: GigInput) => void;
   saving: boolean;
   failed: boolean;
+  /** When the last successful write landed, or null if none has this
+   *  session. */
+  savedAt: number | null;
 }
 
-export function WorkCard({ gig, onCommit, saving, failed }: WorkCardProps) {
+export function WorkCard({
+  gig,
+  onCommit,
+  onFlush,
+  saving,
+  failed,
+  savedAt,
+}: WorkCardProps) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(gig));
   const [problem, setProblem] = useState<string | null>(null);
   const reduced = useReducedMotion();
@@ -105,11 +135,22 @@ export function WorkCard({ gig, onCommit, saving, failed }: WorkCardProps) {
     setDraft(draftOf(gig));
   }, [gig]);
 
+  // Leaving the screen with a break still in the box has to write it —
+  // see useCommitOnLeave for the two exits and why blur alone is not
+  // enough. It sometimes writes the same patch TWICE: blur commits, the
+  // navigation lands before the saved record comes back, and the draft
+  // still differs from the gig this card was rendered with. Accepted
+  // rather than guarded — the write is idempotent, and tracking
+  // in-flight writes to save one redundant op is a lot of machinery to
+  // protect against being right twice.
+  useCommitOnLeave(() => pendingPatch(draft, gig), onFlush);
+
   const startMs = localInputToMs(draft.workStart);
   const endMs = localInputToMs(draft.workEnd);
-  const breakMinutes = draft.breakMinutes.trim() === "" ? null : Number(draft.breakMinutes);
+  const breakMinutes = breakOf(draft);
   const isHourly = gig.payType === "hourly";
   const overrideCents = draft.override.trim() === "" ? null : parseMoney(draft.override);
+  const dirty = pendingPatch(draft, gig) !== null;
 
   /**
    * Priced from the draft, not from the saved record.
@@ -147,14 +188,13 @@ export function WorkCard({ gig, onCommit, saving, failed }: WorkCardProps) {
   function commitWorkLog(next: Draft): void {
     const nextStart = localInputToMs(next.workStart);
     const nextEnd = localInputToMs(next.workEnd);
-    const nextBreak = next.breakMinutes.trim() === "" ? null : Number(next.breakMinutes);
-    const found = workLogProblem(nextStart, nextEnd, nextBreak);
+    const found = workLogProblem(nextStart, nextEnd, breakOf(next));
     setProblem(found);
     if (found !== null) return;
     onCommit({
       workStartedAt: nextStart,
       workEndedAt: nextEnd,
-      breakMinutes: nextBreak,
+      breakMinutes: breakOf(next),
     });
   }
 
@@ -188,10 +228,10 @@ export function WorkCard({ gig, onCommit, saving, failed }: WorkCardProps) {
     onCommit({ amountOfferedCents: cents });
   }
 
-  const commitOnEnter = (commit: () => void) => (event: KeyboardEvent) => {
+  const commitBreakOnEnter = (event: KeyboardEvent): void => {
     if (event.key === "Enter") {
       event.preventDefault();
-      commit();
+      commitWorkLog(draft);
     }
   };
 
@@ -273,7 +313,7 @@ export function WorkCard({ gig, onCommit, saving, failed }: WorkCardProps) {
             value={draft.breakMinutes}
             onChange={(e) => setDraft({ ...draft, breakMinutes: e.target.value })}
             onBlur={() => commitWorkLog(draft)}
-            onKeyDown={commitOnEnter(() => commitWorkLog(draft))}
+            onKeyDown={commitBreakOnEnter}
           />
         </Field>
 
@@ -298,56 +338,26 @@ export function WorkCard({ gig, onCommit, saving, failed }: WorkCardProps) {
           </p>
         )}
 
-        {/* ── The hourly override ──
-            An override is a claim about what THIS gig earned, which is
-            why it lives here and not on the job form: the job form says
-            how the work is priced, and `submit()` there still forces
-            this field to null on an hourly gig so a fee typed before
-            the pay type was switched cannot ride along unseen.
-            Rendered for hourly gigs only — on a fixed gig the same
-            column IS the agreed fee, and the job form owns it. */}
+        {/* An override is a claim about what THIS gig earned, which is
+            why it lives here and not on the job form: that form states
+            how the work is priced, not what it made. The form does
+            still touch the same column — it nulls it when a gig is
+            switched from fixed to hourly, so a fee typed as a fee
+            cannot become an override nobody meant to set — but it
+            preserves whatever this control wrote on a gig that was
+            already hourly (GigEdit.tsx's `submit`). */}
         {isHourly && (
-          <div className="rounded-xl bg-slate-50 p-3">
-            {/* Clear sits OUTSIDE the Field: `Field` renders a <label>,
-                and a button inside one competes with the label's own
-                click-to-focus behaviour. */}
-            <div className="flex items-end gap-2">
-              <Field label="Override ($)">
-                <Input
-                  data-testid="gig-override"
-                  inputMode="decimal"
-                  className="w-32"
-                  placeholder={computed === null ? "0.00" : centsToInput(computed)}
-                  value={draft.override}
-                  onChange={(e) => setDraft({ ...draft, override: e.target.value })}
-                  onBlur={commitOverride}
-                  onKeyDown={commitOnEnter(commitOverride)}
-                />
-              </Field>
-              {draft.override !== "" && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="min-h-11"
-                  data-testid="gig-override-clear"
-                  onClick={() => {
-                    setDraft({ ...draft, override: "" });
-                    setProblem(null);
-                    onCommit({ amountOfferedCents: null });
-                  }}
-                >
-                  Clear
-                </Button>
-              )}
-            </div>
-            <p className="mt-1 text-xs text-slate-500" data-testid="gig-computed-pay">
-              {computed === null
-                ? "Add a rate and a duration, or log the time worked, and the computed amount appears here."
-                : draft.override.trim() === ""
-                  ? `Computed ${formatMoney(computed)} from the rate and the time. Enter an amount to bill something else.`
-                  : `Computed ${formatMoney(computed)} · overridden. Clear this to go back to the computed amount.`}
-            </p>
-          </div>
+          <HourlyOverride
+            value={draft.override}
+            onChange={(v) => setDraft({ ...draft, override: v })}
+            onCommit={commitOverride}
+            onClear={() => {
+              setDraft({ ...draft, override: "" });
+              setProblem(null);
+              onCommit({ amountOfferedCents: null });
+            }}
+            computed={computed}
+          />
         )}
 
         {problem !== null && (
@@ -355,14 +365,26 @@ export function WorkCard({ gig, onCommit, saving, failed }: WorkCardProps) {
             {problem}
           </p>
         )}
-        {/* The receipt for a card with no Save button. Always mounted so
-            a test — and a person — can tell "saved" from "never tried". */}
+        {/* The receipt for a card with no Save button: saving, failed,
+            dirty, saved-at, and never-written — five, because one idle
+            string could not tell "nothing written yet" from "written
+            and saved", which is the question this line exists to
+            answer. `dirty` is the one that earns its place twice over:
+            it is what says a typed break has not been committed, in the
+            seconds before a blur, a flush, or nothing at all. */}
         <p className="text-xs text-slate-500" data-testid="work-save-state">
           {saving
             ? "Saving…"
             : failed
               ? "Couldn't save that change — nothing was stored."
-              : "Saved as you go — there is nothing to press."}
+              : dirty
+                ? "Not saved yet — press Enter, or tap outside the box."
+                : savedAt !== null
+                  ? `Saved at ${new Date(savedAt).toLocaleTimeString(undefined, {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}`
+                  : "Saved as you go — there is nothing to press."}
         </p>
       </CardContent>
     </Card>
