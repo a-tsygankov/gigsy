@@ -20,6 +20,7 @@ import {
   type ParsedSplit,
   type SplitRow,
 } from "../lib/payment-split.ts";
+import { QUEUE_REFUSAL_MESSAGE } from "../lib/image-queue.ts";
 import {
   AppHeader,
   Button,
@@ -28,6 +29,7 @@ import {
   Input,
   SectionHeading,
   Select,
+  SyncBadge,
   Textarea,
 } from "../components/index.ts";
 
@@ -52,6 +54,19 @@ import {
  * refused; the arithmetic and the rules live in lib/payment-split.ts,
  * which says why. Over-allocation is the error, and the message is the
  * server's own.
+ *
+ * The proof photo is CHOSEN here and uploaded later, and those are two
+ * different sentences. The R2 key is server-owned and the upload
+ * endpoint needs a payment id D1 recognises, so the bytes genuinely
+ * cannot go anywhere until the record exists — that sequencing has not
+ * changed. What changed is that it stopped being the user's problem:
+ * the file input sits above Save like any other field, the file waits
+ * in component state, and the save hands it to the offline photo queue
+ * (lib/local-store.ts `queueImage`) which the sync engine drains. On a
+ * good connection that is a second; on none it is whenever there is
+ * one. Until it lands the screen says so — see the confirmation
+ * section — because a payment that appears to have proof and does not
+ * is worse than one that admits its photo is still waiting.
  *
  * NO `gigId` REACHES `putPayment` FROM HERE. That field is the compat
  * shim for builds that predate allocations: server-side it runs
@@ -88,6 +103,22 @@ export function PaymentEdit() {
   });
   const gigs = useQuery({ queryKey: ["gigs"], queryFn: () => data.listGigs() });
   const clients = useQuery({ queryKey: ["clients"], queryFn: () => data.listClients() });
+  /**
+   * Whether this payment's photo is still on the device. Keyed on
+   * `paymentId`, not `id`, so it survives the replace-navigation a new
+   * payment performs on save — the queue is written under the minted id
+   * a moment before the URL catches up.
+   *
+   * `staleTime: 0` for the reason Gigs.tsx gives for its own
+   * pending-ids query: this is a local read, it is cheap, and a stale
+   * answer here tells the user a photo is waiting that went up thirty
+   * seconds ago (or worse, the reverse).
+   */
+  const queuedPhoto = useQuery({
+    queryKey: ["payment-photo", paymentId],
+    queryFn: () => data.queuedPaymentConfirmation(paymentId),
+    staleTime: 0,
+  });
 
   const [amount, setAmount] = useState("");
   const [clientId, setClientId] = useState("");
@@ -100,8 +131,25 @@ export function PaymentEdit() {
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [splitError, setSplitError] = useState<string | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  /** The chosen file, held until there is a payment to attach it to. */
+  const [file, setFile] = useState<File | null>(null);
+  /** Set when the queue refused the file (too big, queue full). Not an
+   *  error on the save, which succeeded — see `save.onSuccess`. */
+  const [photoNotice, setPhotoNotice] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  /**
+   * Three sources for one <img>, in the order they become true:
+   * the file just chosen, the file already queued, the object the
+   * server holds. Separate slots rather than one shared `previewUrl`
+   * because each is filled by its own effect with its own object URL to
+   * revoke, and three effects racing to write one slot is how a preview
+   * ends up pointing at a URL another effect has already revoked.
+   */
+  const [chosenUrl, setChosenUrl] = useState<string | null>(null);
+  const [queuedUrl, setQueuedUrl] = useState<string | null>(null);
+  const [serverUrl, setServerUrl] = useState<string | null>(null);
+  const previewUrl = chosenUrl ?? queuedUrl ?? serverUrl;
 
   /**
    * Seed the form from the stored record — once per record id, not
@@ -137,6 +185,47 @@ export function PaymentEdit() {
     setAutoBalance(stored.length === 0);
   }, [id, payment.data, allocations.data]);
 
+  /**
+   * A drain changes two things this screen shows — whether the photo is
+   * still queued, and whether the payment has a confirmation key yet —
+   * and it writes both straight into Dexie without telling React Query
+   * (lib/sync-engine.ts). The engine's pending count is the one signal
+   * that does reach React, so it is what re-asks. Same pattern, and the
+   * same reasoning, as the pending-gig-ids effect in Gigs.tsx.
+   */
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["payment-photo", paymentId] });
+    if (!isNew) {
+      void queryClient.invalidateQueries({ queryKey: ["payment", id] });
+    }
+  }, [sync?.pendingCount, queryClient, paymentId, id, isNew]);
+
+  // Preview of the file just chosen — immediate, and from the bytes in
+  // hand rather than anything that has to be stored or fetched first.
+  useEffect(() => {
+    if (file === null) {
+      setChosenUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setChosenUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  // Preview of a photo already in the queue: what the user sees on
+  // re-opening a payment saved offline, where there is nothing on the
+  // server to fetch.
+  useEffect(() => {
+    const blob = queuedPhoto.data?.blob ?? null;
+    if (blob === null) {
+      setQueuedUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    setQueuedUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [queuedPhoto.data]);
+
   // Confirmation preview (authed fetch → object URL).
   useEffect(() => {
     if (isNew || payment.data?.confirmationR2Key == null) return;
@@ -144,7 +233,7 @@ export function PaymentEdit() {
     void data.getPaymentConfirmationBlob(id).then((blob) => {
       if (blob !== null) {
         revoked = URL.createObjectURL(blob);
-        setPreviewUrl(revoked);
+        setServerUrl(revoked);
       }
     });
     return () => {
@@ -222,14 +311,45 @@ export function PaymentEdit() {
           amountCents: row.amountCents,
         });
       }
-      return record;
+      // LAST, and only now: the queue is keyed by payment id and the
+      // upload endpoint needs a payment the server will recognise, so
+      // the record has to exist — locally here, and server-side before
+      // the drain touches it (SyncEngine.syncNow orders the two).
+      //
+      // A refusal is REPORTED, not thrown. The payment and its splits
+      // are already on disk and correct; failing the mutation over a
+      // file that was too big would show "Save failed — try again" for
+      // a save that did not fail, and a second press would be a second
+      // (idempotent, but pointless) write.
+      const photo =
+        file === null
+          ? null
+          : await data.queuePaymentConfirmation(paymentId, file);
+      return { record, photo };
     },
-    onSuccess: async (record) => {
+    onSuccess: async ({ record, photo }) => {
       await queryClient.invalidateQueries({ queryKey: ["payments"] });
       await queryClient.invalidateQueries({ queryKey: ["allocations"] });
       await queryClient.invalidateQueries({ queryKey: ["payment", record.id] });
+      await queryClient.invalidateQueries({ queryKey: ["payment-photo", paymentId] });
+      if (photo !== null && !photo.queued) {
+        // Stay put and say why. Navigating away from a refused photo
+        // would leave the user believing the proof went with the
+        // payment, which is exactly the lie this screen is built to
+        // avoid — and unlike a queued photo, this one is not coming.
+        setPhotoNotice(QUEUE_REFUSAL_MESSAGE[photo.refusal]);
+        if (isNew) navigate(`/payments/${record.id}`, { replace: true });
+        return;
+      }
+      setPhotoNotice(null);
+      // Handed over: the queue owns the bytes now, and holding a second
+      // copy in component state would keep showing the chosen-file
+      // preview over the queued one it has become.
+      setFile(null);
+      if (fileInput.current !== null) fileInput.current.value = "";
       if (isNew) {
-        // Stay on the saved record so a confirmation can be attached.
+        // Stay on the saved record — the photo's progress is shown
+        // against it, and there is nowhere else to watch that from.
         navigate(`/payments/${record.id}`, { replace: true });
       } else {
         navigate(backTo);
@@ -243,13 +363,6 @@ export function PaymentEdit() {
       await queryClient.invalidateQueries({ queryKey: ["payments"] });
       await queryClient.invalidateQueries({ queryKey: ["allocations"] });
       navigate(backTo);
-    },
-  });
-
-  const upload = useMutation({
-    mutationFn: (file: File) => data.uploadPaymentConfirmation(id, file),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["payment", id] });
     },
   });
 
@@ -446,48 +559,85 @@ export function PaymentEdit() {
               />
             </Field>
 
-            {/* ── proof of payment ── */}
+            {/* ── proof of payment ──
+                Above the Save button and available on a brand-new
+                payment, which is the entire point of Task 10: the
+                moment the proof is in front of the camera is the moment
+                the payment is being recorded, and a screen that says
+                "save first, then attach" spends that moment. */}
             <section data-testid="payment-confirmation">
               <SectionHeading>Confirmation (photo or mail)</SectionHeading>
-              {isNew ? (
-                <p className="text-xs text-slate-400">
-                  Save the payment first, then attach the proof.
+              {previewUrl !== null && (
+                <img
+                  src={previewUrl}
+                  alt="Payment confirmation"
+                  className="mb-2 max-h-64 w-full rounded-xl border border-slate-200 object-contain"
+                />
+              )}
+              <input
+                ref={fileInput}
+                type="file"
+                data-testid="payment-confirmation-file"
+                accept="image/*,.eml,.pdf"
+                className="block w-full text-xs text-slate-500 file:mr-3 file:rounded-xl
+                           file:border-0 file:bg-emerald-600 file:px-3 file:py-2
+                           file:text-xs file:font-semibold file:text-on-accent
+                           hover:file:bg-emerald-700"
+                onChange={(e) => {
+                  // Held, not sent. Nothing leaves this screen until
+                  // Save, because until then there may be no payment for
+                  // the bytes to belong to.
+                  setFile(e.target.files?.[0] ?? null);
+                  setPhotoNotice(null);
+                }}
+              />
+
+              {/* Chosen but not yet saved: the one state where the
+                  photo is on nobody's list — not the server's, not the
+                  queue's. Saying so is cheaper than the user wondering
+                  whether choosing was enough. */}
+              {file !== null && !save.isPending && (
+                <p data-testid="payment-photo-chosen" className="mt-1 text-xs text-slate-500">
+                  Attached on save.
                 </p>
-              ) : (
-                <>
-                  {previewUrl !== null && (
-                    <img
-                      src={previewUrl}
-                      alt="Payment confirmation"
-                      className="mb-2 max-h-64 w-full rounded-xl border border-slate-200 object-contain"
-                    />
-                  )}
-                  <input
-                    ref={fileInput}
-                    type="file"
-                    data-testid="payment-confirmation-file"
-                    accept="image/*,.eml,.pdf"
-                    className="block w-full text-xs text-slate-500 file:mr-3 file:rounded-xl
-                               file:border-0 file:bg-emerald-600 file:px-3 file:py-2
-                               file:text-xs file:font-semibold file:text-on-accent
-                               hover:file:bg-emerald-700"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file !== undefined) upload.mutate(file);
-                    }}
-                  />
-                  {sync !== null && !sync.online && (
-                    <p className="mt-1 text-xs text-amber-700">
-                      Uploads need a connection — try again when back online.
-                    </p>
-                  )}
-                  {upload.isPending && (
-                    <p className="mt-1 text-xs text-slate-500">Uploading…</p>
-                  )}
-                  {upload.isError && (
-                    <p className="mt-1 text-xs text-red-600">Upload failed.</p>
-                  )}
-                </>
+              )}
+
+              {/* Queued and still waiting. SyncBadge is the app's
+                  existing way of saying "this device is holding
+                  something the server has not got" — offline chip when
+                  there is no link, pending count when there is one and
+                  the drain has not finished. Reused rather than
+                  reinvented, so the row beside the photo means exactly
+                  what the same badge means in the header. */}
+              {queuedPhoto.data?.blob != null && file === null && (
+                <p
+                  data-testid="payment-photo-pending"
+                  className="mt-1 flex items-center gap-2 text-xs text-amber-700"
+                >
+                  {/* One, not the engine's total. The count in the
+                      header is about the device; this badge is about
+                      this photo, and borrowing the global figure would
+                      have it read "3↑" beside a single image. */}
+                  <SyncBadge online={sync?.online ?? true} pendingCount={1} />
+                  Photo saved on this device — it uploads when you are back online.
+                </p>
+              )}
+
+              {/* Refused for good. The row survives as a tombstone
+                  precisely so this line can exist: a photo that simply
+                  disappeared would leave a payment quietly claiming
+                  nothing where proof was attached. */}
+              {queuedPhoto.data?.failedReason != null && file === null && (
+                <p data-testid="payment-photo-failed" className="mt-1 text-xs text-red-600">
+                  That photo couldn’t be attached — {queuedPhoto.data.failedReason}.
+                  Choose another.
+                </p>
+              )}
+
+              {photoNotice !== null && (
+                <p data-testid="payment-photo-refused" className="mt-1 text-xs text-red-600">
+                  {photoNotice}
+                </p>
               )}
             </section>
 

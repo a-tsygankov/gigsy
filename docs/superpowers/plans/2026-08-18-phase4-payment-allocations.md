@@ -28,8 +28,9 @@ Depends on: Phase 3 (`isPaid`, `outstandingCents`).
 | `backend/src/routes/payments.ts` | `gigId` compat | Translate to an allocation |
 | `backend/src/services/sync.ts` | 6th entity | Add `allocation` case |
 | `backend/src/services/dashboard.ts`, `reports.ts` | Money | Read derived totals |
-| `webapp/src/lib/db.ts` | Dexie `version(3)` | Add `allocations` store |
+| `webapp/src/lib/db.ts` | Dexie `version(3)`, then `version(4)` | Add `allocations`; add `pendingImages` (Task 10) |
 | `webapp/src/lib/local-store.ts`, `data-service.ts`, `sync-engine.ts`, `api.ts` | Offline path | Add the entity |
+| `webapp/src/lib/image-queue.ts` | **New (Task 10).** What may be queued, and what ends a queued photo's life | Create |
 | `webapp/src/screens/PaymentEdit.tsx` | Split UI | Replace the single gig select |
 
 ---
@@ -944,19 +945,34 @@ with no second upload.
 
 **Files:**
 - Modify: `webapp/src/screens/PaymentEdit.tsx`, `webapp/src/lib/db.ts`, `webapp/src/lib/local-store.ts`, `webapp/src/lib/sync-engine.ts`
+- Modify: `webapp/src/lib/data-service.ts` — **not in the original list, and unavoidable.** Screens never touch `LocalStore`; they go through `OfflineDataService`, which is also the only place that nudges the engine after a write. A queue the screen cannot reach is not a queue.
+- Create: `webapp/src/lib/image-queue.ts` — the size bounds and the permanent-vs-transient classification, kept as pure functions away from both Dexie and the network.
 
 Today the screen saves first and navigates to the record so a
 confirmation can be attached, because the R2 key is server-owned and the
 upload endpoint needs a real payment id. That sequencing is correct and
 stays — it just stops being visible.
 
-- [ ] **Step 1: Choose the file before saving**
+> **Checked against the code on 2026-08-21, after Task 7 rewrote this
+> screen.** The premise still held: `save.onSuccess` navigated to
+> `/payments/${record.id}` with the comment "Stay on the saved record so
+> a confirmation can be attached", and the confirmation section rendered
+> `Save the payment first, then attach the proof` whenever `isNew`. Task
+> 7 added the client select and the split rows above it and left that
+> part alone.
+
+- [x] **Step 1: Choose the file before saving**
 
 The file input moves above the save button and holds the chosen file in
 component state. On save, the payment is written as it is now; the
 upload follows once the record exists.
 
-- [ ] **Step 2: Queue the image when offline**
+> The section was already positioned above the Save button; what
+> changed is that it is no longer gated on `!isNew`. The upload now
+> follows the save for an EXISTING payment too, rather than firing the
+> moment a file is chosen — one path instead of two.
+
+- [x] **Step 2: Queue the image when offline**
 
 The payment already survives offline through the outbox. The image
 cannot — an R2 upload needs a connection. Add a Dexie store keyed by
@@ -969,16 +985,55 @@ payload and the data silently never arrived; an image queue has exactly
 that failure mode and no compile-time guard, so it needs a test that a
 queued image actually uploads.
 
-- [ ] **Step 3: Say when a photo is pending**
+> **Not "alongside" — AFTER, and only on a successful outbox drain.**
+> `PUT /api/payments/:id/confirmation` 404s on a payment D1 has never
+> heard of, and a 404 is permanent for a queued photo, so a photo
+> attached to a payment created in the same offline session would be
+> destroyed on its first attempt if the two drained in parallel or in
+> the other order. `syncNow` is drain → drainImages → pull, with a
+> second guard inside `drainImages` skipping any payment that still has
+> an outbox op. `lib/sync-engine.test.ts` proves both guards are
+> load-bearing.
+>
+> Queueing is UNCONDITIONAL, not an offline fallback: `navigator.onLine`
+> reports a link, not a reachable server, and an "if offline" branch
+> would be a second code path exercised only by the rarer half of users.
+
+**Permanent failure.** A 4xx other than 401/403/408/425/429 ends the
+photo's life: the row is kept as a tombstone carrying a human reason and
+its blob is dropped (quota is finite and those bytes will never be
+accepted), the screen says so, and it is never offered to the drain
+again. 401/403 are treated as transient on purpose — an expired session
+is a property of the moment, and the outbox says the same. Anything
+5xx or answerless stays queued with no attempt cap, matching the
+outbox's own policy that only the server may condemn an item.
+
+**Quota.** One photo per payment (the primary key), ≤8 MB each,
+≤32 MB in total. A full queue REFUSES the newcomer rather than evicting
+the oldest: every entry is proof of a payment that exists nowhere else,
+so this is not a cache. Replacing a payment's own photo is exempt from
+the total, since it cannot make things worse.
+
+- [x] **Step 3: Say when a photo is pending**
 
 Until the upload lands, the payment must show that its photo is waiting.
 A record that looks like it has proof when it does not is worse than one
 that admits it is queued. `SyncBadge` is the existing vocabulary for
 "not yet on the server" — reuse it rather than inventing a second one.
 
+> Reused at two altitudes. A queued photo counts towards
+> `LocalStore.pendingCount`, so the HEADER badge already refuses to go
+> quiet while an image is on the device; and the payment's confirmation
+> section renders its own `SyncBadge` beside the pending line. Note the
+> consequence for tests: `getByTestId("sync-pending")` is ambiguous on
+> the payment screen, and assertions about the device's state must scope
+> to `getByRole("banner")` (see `e2e/payment-photo.spec.ts`).
+
 **Done when:** a payment created offline with a photo shows the photo as
 pending, and the image is on the server after the next drain, with a
-test proving it.
+test proving it. ✅ `e2e/payment-photo.spec.ts` reads the bytes back out
+of R2 through the app's own authed endpoint; `lib/sync-engine.test.ts`
+does the same against a fake bucket. Both fail without the drain.
 
 ---
 

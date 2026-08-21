@@ -60,6 +60,11 @@ function stubApi(overrides: Partial<SyncApi> = {}): SyncApi {
     getService: unexpected as never,
     getPayment: unexpected as never,
     getAllocation: unexpected as never,
+    // Deliberately explosive by default. A photo upload is the one
+    // thing in this engine that moves megabytes, and a test that
+    // triggers one without meaning to should say so loudly rather than
+    // quietly succeed against a permissive stub.
+    uploadPaymentConfirmation: unexpected as never,
     ...overrides,
   };
 }
@@ -525,18 +530,72 @@ const SERVER_ALLOC = "88888888-8888-4888-8888-888888888888";
  * asserting on the contract and not on a paraphrase of it.
  */
 class FakeMoneyServer {
-  readonly payments = new Map<string, { amountCents: number; gigId: string | null }>();
+  readonly payments = new Map<
+    string,
+    { amountCents: number; gigId: string | null; confirmationR2Key?: string }
+  >();
   readonly allocations = new Map<
     string,
     { paymentId: string; gigId: string; amountCents: number }
   >();
   /** Every batch posted, in order — the retry pass shows up here. */
   readonly batches: SyncOp[][] = [];
+  /**
+   * The R2 bucket, keyed the way backend/src/routes/payments.ts keys
+   * it, holding what was actually PUT. This is what makes "the photo
+   * reached the server" an assertion about bytes rather than about the
+   * queue having been emptied.
+   */
+  readonly objects = new Map<string, { contentType: string; text: string }>();
+  /** Flip to make every call fail the way a dead link fails: no status,
+   *  no response, nothing applied. */
+  offline = false;
+  /** Payments whose confirmation PUT should be refused, and with what
+   *  status — per payment, so one bad file can be shown not to take
+   *  the queue down with it. */
+  readonly refuse = new Map<string, number>();
 
   readonly sync = async (ops: SyncOp[]): Promise<{ results: SyncOpResult[] }> => {
+    if (this.offline) throw new TypeError("Failed to fetch");
     this.batches.push(ops);
     return { results: ops.map((op) => this.apply(op)) };
   };
+
+  /** The PUT /:id/confirmation route, including its 404 — the bytes
+   *  have nowhere to go until D1 knows the payment. */
+  readonly uploadConfirmation = async (
+    id: string,
+    file: Blob,
+  ): Promise<{ confirmationR2Key: string }> => {
+    if (this.offline) throw new TypeError("Failed to fetch");
+    const refusal = this.refuse.get(id);
+    if (refusal !== undefined) {
+      throw new ApiError(refusal, "confirmation upload failed");
+    }
+    const row = this.payments.get(id);
+    if (row === undefined) throw new ApiError(404, "not found");
+    const key = `u/dev/payments/${id}/confirmation`;
+    this.objects.set(key, { contentType: file.type, text: await file.text() });
+    row.confirmationR2Key = key;
+    return { confirmationR2Key: key };
+  };
+
+  /** The payment list as GET /api/payments would answer it, so a full
+   *  `syncNow` can pull without the follow-up deleting what the drain
+   *  just created. */
+  paymentRows(): Payment[] {
+    return [...this.payments.entries()].map(([id, row]) => ({
+      id,
+      gigId: row.gigId,
+      clientId: null,
+      amountCents: row.amountCents,
+      paidAt: null,
+      confirmationR2Key: row.confirmationR2Key ?? null,
+      notes: null,
+      createdAt: 1,
+      modifiedAt: 1,
+    }));
+  }
 
   allocationsFor(paymentId: string): { id: string; amountCents: number; gigId: string }[] {
     return [...this.allocations.entries()]
@@ -614,6 +673,20 @@ class FakeMoneyServer {
 function moneyApi(server: FakeMoneyServer): SyncApi {
   return stubApi({
     sync: server.sync,
+    uploadPaymentConfirmation: server.uploadConfirmation,
+    listPayments: vi.fn(async () => {
+      if (server.offline) throw new TypeError("Failed to fetch");
+      return server.paymentRows();
+    }),
+    listAllocations: vi.fn(async () => {
+      if (server.offline) throw new TypeError("Failed to fetch");
+      return [...server.allocations.entries()].map(([id, a]) => ({
+        id,
+        ...a,
+        createdAt: 1,
+        modifiedAt: 1,
+      }));
+    }),
     getPayment: vi.fn(async (id: string) => {
       const row = server.payments.get(id);
       if (row === undefined) throw new ApiError(404, "not found");
@@ -822,5 +895,223 @@ describe("SyncEngine allocations", () => {
       { id: "a-1", gigId: G1, amountCents: 10000 },
       { id: "a-2", gigId: C1, amountCents: 5000 },
     ]);
+  });
+});
+
+// ── Phase 4 Task 10: the confirmation photo queue ──────────────────
+
+const A1 = "55555555-5555-4555-8555-555555555555";
+const P2 = "99999999-9999-4999-8999-999999999999";
+
+/**
+ * The queue's `OutboxPayload` problem, and the test that stands in for
+ * the guard it cannot have.
+ *
+ * `OutboxPayload<T> = Required<T>` exists because a field was once
+ * added to a record and not to the payload, and the data silently never
+ * arrived — nothing failed, nothing was logged, and the loss surfaced
+ * months later. A blob queue has exactly that failure mode: the photo
+ * is written locally, the screen shows it, and whether it ever leaves
+ * the device is invisible from anywhere the compiler can look. No
+ * `Required<T>` can help — a Blob has no fields to require.
+ *
+ * So the guard is runtime, and it is these tests. Every one of them
+ * asserts on what the SERVER ended up holding, never on the queue
+ * having been emptied: an implementation that deleted the row without
+ * uploading anything would empty the queue just as thoroughly as one
+ * that worked.
+ */
+describe("SyncEngine photo queue", () => {
+  it("carries a photo queued offline to the server — the bytes, not just the row", async () => {
+    const server = new FakeMoneyServer();
+    let online = false;
+    server.offline = true;
+    const { store, engine } = makeEngine(moneyApi(server), () => 1000, {
+      isOnline: () => online,
+    });
+
+    // A payment recorded on a job site with no signal: the record and
+    // its split go to the outbox, the photo to its own queue.
+    await store.putPayment(P1, { amountCents: 15000 });
+    await store.putAllocation(A1, { paymentId: P1, gigId: G1, amountCents: 15000 });
+    const chosen = new Blob(["the-bytes-of-a-bank-confirmation"], {
+      type: "image/jpeg",
+    });
+    expect((await store.queueImage(P1, chosen)).queued).toBe(true);
+
+    await engine.syncNow();
+
+    // Nothing reached anything, and the badge says the device is
+    // holding three things — payment, allocation, photo.
+    expect(server.payments.size).toBe(0);
+    expect(server.objects.size).toBe(0);
+    expect(await store.pendingCount()).toBe(3);
+    expect(engine.getState().pendingCount).toBe(3);
+
+    server.offline = false;
+    online = true;
+    await engine.syncNow();
+
+    // The money arrived…
+    expect(server.payments.get(P1)?.amountCents).toBe(15000);
+    // …and so did the PHOTO. Read back off the server's own bucket:
+    // these are the bytes that were chosen, under the key the route
+    // derives, with the content type they were picked with.
+    const key = `u/dev/payments/${P1}/confirmation`;
+    expect(server.objects.get(key)).toEqual({
+      contentType: "image/jpeg",
+      text: "the-bytes-of-a-bank-confirmation",
+    });
+    // The device stopped holding it, the record names the key so the
+    // screen can stop saying "waiting", and nothing is pending.
+    expect(await store.queuedImage(P1)).toBeNull();
+    expect((await store.getPayment(P1))?.confirmationR2Key).toBe(key);
+    expect(await store.pendingCount()).toBe(0);
+  });
+
+  it("uploads only after the payment itself has landed", async () => {
+    // The ordering hazard this queue lives with. The upload endpoint
+    // 404s on a payment D1 has never heard of, and a 404 is permanent
+    // here — so a photo attached to a payment created in the same
+    // offline session would be destroyed on its first attempt if the
+    // outbox had not gone first.
+    const server = new FakeMoneyServer();
+    const { store, engine } = makeEngine(moneyApi(server));
+    await store.putPayment(P1, { amountCents: 15000 });
+    await store.queueImage(P1, new Blob(["proof"], { type: "image/png" }));
+
+    await engine.syncNow();
+
+    expect(server.objects.get(`u/dev/payments/${P1}/confirmation`)?.text).toBe("proof");
+    expect((await store.queuedImage(P1))).toBeNull();
+  });
+
+  it("does not even TRY the upload when the outbox could not reach the server", async () => {
+    // The same ordering seen from the failing side, and the reason the
+    // guard is `drained ? … : false` rather than an unconditional call.
+    // A payment created offline is not on the server, so an upload
+    // attempted anyway would 404 — a status this queue calls permanent
+    // — and the photo would be destroyed by a link failure that was
+    // about to end. The assertion is therefore that the call was never
+    // MADE, not merely that the row survived: a 404 handled some other
+    // way would still leave a tombstone here.
+    const server = new FakeMoneyServer();
+    server.offline = true;
+    const api = moneyApi(server);
+    const upload = vi.fn(server.uploadConfirmation);
+    api.uploadPaymentConfirmation = upload;
+    const { store, engine } = makeEngine(api, () => 1000, {
+      isOnline: () => false,
+    });
+    await store.putPayment(P1, { amountCents: 15000 });
+    await store.queueImage(P1, new Blob(["proof"], { type: "image/png" }));
+
+    await engine.syncNow();
+
+    expect(upload).not.toHaveBeenCalled();
+    expect((await store.queuedImage(P1))?.failedReason).toBeNull();
+    expect((await store.queuedImage(P1))?.attempts).toBe(0);
+    expect(await store.queuedImagesToUpload()).toHaveLength(1);
+  });
+
+  it("keeps a photo through a failure that is about the link, not the file", async () => {
+    const server = new FakeMoneyServer();
+    server.payments.set(P1, { amountCents: 15000, gigId: null });
+    let online = true;
+    const api = moneyApi(server);
+    api.uploadPaymentConfirmation = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const { store, engine } = makeEngine(api, () => 1000, {
+      isOnline: () => online,
+      // One rung of the ladder, so the immediate scheduler in makeEngine
+      // does not recurse for the whole default budget.
+      maxRetries: 0,
+    });
+    await store.applyServerRecord("payment", {
+      id: P1,
+      gigId: null,
+      clientId: null,
+      amountCents: 15000,
+      paidAt: null,
+      confirmationR2Key: null,
+      notes: null,
+      createdAt: 1,
+      modifiedAt: 1,
+    } satisfies Payment);
+    await store.queueImage(P1, new Blob(["proof"], { type: "image/png" }));
+
+    await engine.syncNow();
+
+    const still = await store.queuedImage(P1);
+    expect(still?.failedReason).toBeNull();
+    expect(still?.attempts).toBe(1);
+    expect(await store.pendingCount()).toBe(1);
+    // A transient failure is a failed sync, which is what asks for
+    // another attempt — and with the budget spent, says so.
+    expect(engine.getState().stalled).toBe(true);
+
+    // Second chance, and it works: nothing about the first attempt made
+    // the photo unusable.
+    online = true;
+    api.uploadPaymentConfirmation = server.uploadConfirmation;
+    await engine.retryNow();
+
+    expect(server.objects.get(`u/dev/payments/${P1}/confirmation`)?.text).toBe("proof");
+    expect(await store.pendingCount()).toBe(0);
+  });
+
+  it("gives up on a photo the server will never take, and leaves a reason behind", async () => {
+    // The other half of the bargain. An image that retries forever is
+    // as bad as one that vanishes: this one stops being retried, and
+    // still says what happened.
+    const server = new FakeMoneyServer();
+    server.payments.set(P1, { amountCents: 15000, gigId: null });
+    server.refuse.set(P1, 413);
+    const { store, engine } = makeEngine(moneyApi(server));
+    await store.queueImage(P1, new Blob(["far-too-many-bytes"], { type: "image/jpeg" }));
+
+    await engine.syncNow();
+
+    const dead = await store.queuedImage(P1);
+    expect(dead?.failedReason).toBe("the file was too large for the server");
+    expect(dead?.blob).toBeNull();
+    // Not counted as pending, and never offered again — the badge is
+    // not left claiming work that will never happen.
+    expect(await store.pendingCount()).toBe(0);
+    expect(await store.queuedImagesToUpload()).toEqual([]);
+
+    // …and giving up is a COMPLETED outcome, not a failed sync. Calling
+    // it a failure would put the engine into a backoff it can never
+    // leave, since the next attempt would refuse identically.
+    expect(engine.getState().stalled).toBe(false);
+    expect(engine.getState().failedAttempts).toBe(0);
+  });
+
+  it("a refused photo does not wedge the queue behind it", async () => {
+    // The outbox rule ("a poison op must never wedge the queue"),
+    // applied to bytes. The 415 is one bad file, not a broken server.
+    const server = new FakeMoneyServer();
+    server.payments.set(P1, { amountCents: 15000, gigId: null });
+    server.payments.set(P2, { amountCents: 5000, gigId: null });
+    let now = 100;
+    const { store, engine } = makeEngine(moneyApi(server), () => now);
+    await store.queueImage(P1, new Blob(["a-video-by-mistake"], { type: "video/mp4" }));
+    now = 200;
+    await store.queueImage(P2, new Blob(["a-real-receipt"], { type: "image/jpeg" }));
+    // Only the OLDER one is refused, so it is first in line and the
+    // good one is genuinely behind it.
+    server.refuse.set(P1, 415);
+
+    await engine.syncNow();
+
+    expect((await store.queuedImage(P1))?.failedReason).toBe(
+      "the server does not accept that kind of file",
+    );
+    // One pass, and the receipt behind the bad file is on the server.
+    expect(server.objects.get(`u/dev/payments/${P2}/confirmation`)?.text).toBe(
+      "a-real-receipt",
+    );
+    expect(await store.pendingCount()).toBe(0);
   });
 });
