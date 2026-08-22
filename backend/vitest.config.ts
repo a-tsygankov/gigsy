@@ -8,6 +8,15 @@ export default defineWorkersConfig({
     exclude: ["test/live/**", "node_modules/**"],
     poolOptions: {
       workers: {
+        // One runtime for the whole suite. The default (isolated
+        // runtimes) spawns a separate workerd process per test file —
+        // with ~70 files that exhausts loopback connections on Windows
+        // and the module fallback service starts refusing them
+        // (ConnectEx #1225), so most files fail to boot and report zero
+        // tests while the run still looks green-ish. `isolatedStorage`
+        // is unaffected: it is still applied per test file via the
+        // runner's stacked storage.
+        singleWorker: true,
         wrangler: { configPath: "./wrangler.toml" },
         miniflare: {
           compatibilityDate: "2025-01-01",
