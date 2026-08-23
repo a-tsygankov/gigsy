@@ -68,8 +68,10 @@ describe("applyPaymentFilters", () => {
   const a = payment({ id: "a", amountCents: 15000, clientId: "c1" });
   const b = payment({ id: "b", amountCents: 5000, clientId: "c2", notes: "invoice 88" });
   const c = payment({ id: "c", amountCents: 2500, clientId: null, notes: null });
-  // Explicit zero, not an absent row — a distinct input from c's, even
-  // though allocationState can't tell them apart at its own signature.
+  // A row present with value 0 — distinct from c's absent row only at
+  // the fixture level; allocatedByPayment.get(id) ?? 0 collapses both
+  // to the same input before allocationState ever sees them. Kept
+  // anyway because it documents that collapse is deliberate.
   const d = payment({ id: "d", amountCents: 4000, clientId: null });
   const all = [a, b, c, d];
   const allocated = new Map([
@@ -167,9 +169,11 @@ describe("applyPaymentFilters", () => {
   });
 
   it("does not mutate the array it was given", () => {
-    const input = [...all];
+    const older = payment({ id: "older", paidAt: Date.UTC(2026, 0, 1) });
+    const newer = payment({ id: "newer", paidAt: Date.UTC(2026, 11, 1) });
+    const input = [older, newer]; // deliberately NOT the order the sort produces
     applyPaymentFilters(input, allocated, CLIENTS, filters());
-    expect(input.map((p) => p.id)).toEqual(["a", "b", "c", "d"]);
+    expect(input.map((p) => p.id)).toEqual(["older", "newer"]);
   });
 });
 
