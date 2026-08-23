@@ -5,7 +5,8 @@
  * `pendingOps` and applies server records back via
  * `applyServerRecord` (which deliberately bypasses the outbox).
  */
-import type { GigsyUserDB, PendingOp, SyncEntityName } from "./db.ts";
+import type { GigsyUserDB, PendingImage, PendingOp, SyncEntityName } from "./db.ts";
+import { refuseQueuedImage, type QueueRefusal } from "./image-queue.ts";
 import type {
   Allocation,
   AllocationInput,
@@ -42,6 +43,14 @@ export type ServerRecord = Gig | Client | Expense | Service | Payment | Allocati
  * `Required` is what makes the next one a compile error instead.
  */
 type OutboxPayload<T> = Required<T>;
+
+/** Whether a chosen photo made it into the queue, and why not when it
+ *  did not. Not an exception: the payment it belongs to has already
+ *  been saved successfully by the time this is decided, and a throw
+ *  here would read to the caller as the save having failed. */
+export type QueueImageResult =
+  | { queued: true; record: PendingImage }
+  | { queued: false; refusal: QueueRefusal };
 
 function opKeyOf(entity: SyncEntityName, id: string): string {
   return `${entity}:${id}`;
@@ -411,7 +420,15 @@ export class LocalStore {
       this.db.payments,
       this.db.allocations,
       this.db.pendingOps,
+      this.db.pendingImages,
       async () => {
+        // A photo waiting for a payment that is being deleted has
+        // nowhere to land: the upload endpoint 404s on a payment the
+        // server does not have, which the drain would (correctly) call
+        // a permanent failure and leave as a tombstone complaining
+        // about a record nobody can look at any more. Dropping it here
+        // costs the same bytes and says nothing false.
+        await this.db.pendingImages.delete(id);
         // Local-only, no outbox ops: deleting a payment server-side
         // already deletes its allocations (routes/payments.ts and the
         // sync delete path both do it — `payment_allocations.payment_id`
@@ -455,13 +472,138 @@ export class LocalStore {
     await this.removeEntity("allocation", id);
   }
 
+  // ── queued confirmation photos ───────────────────────────────────
+  /**
+   * Hold a payment's confirmation photo until there is a connection to
+   * send it on.
+   *
+   * Unconditional — this is NOT an "if offline" path. The alternative
+   * was to upload directly when `navigator.onLine` says yes and queue
+   * otherwise, which means two code paths, one of them exercised only
+   * by the rarer half of the users, and a lie in the middle of it:
+   * `onLine` reports a link, not a reachable server. Queueing always
+   * gives every photo the same journey, and the sync engine's drain
+   * runs immediately when there is a connection, so the online case
+   * costs the debounce and nothing else.
+   *
+   * Replaces whatever was queued for this payment, including a
+   * previously failed one — choosing a new photo is the user's answer
+   * to "that one could not be sent".
+   */
+  async queueImage(paymentId: string, blob: Blob): Promise<QueueImageResult> {
+    const now = this.clock();
+    return this.db.transaction("rw", this.db.pendingImages, async () => {
+      // The bytes this payment already holds do not count against the
+      // ceiling: they are about to be replaced, and charging for both
+      // copies would refuse a swap that frees space.
+      const queuedBytes = (await this.db.pendingImages.toArray())
+        .filter((image) => image.paymentId !== paymentId)
+        .reduce((total, image) => total + image.byteSize, 0);
+      const refusal = refuseQueuedImage(blob.size, queuedBytes);
+      if (refusal !== null) return { queued: false, refusal };
+      const record: PendingImage = {
+        paymentId,
+        blob,
+        contentType: blob.type === "" ? "application/octet-stream" : blob.type,
+        byteSize: blob.size,
+        queuedAt: now,
+        attempts: 0,
+        failedReason: null,
+      };
+      await this.db.pendingImages.put(record);
+      return { queued: true, record };
+    });
+  }
+
+  /** This payment's queued photo — including a failed tombstone, which
+   *  is the whole reason the screen asks. */
+  async queuedImage(paymentId: string): Promise<PendingImage | null> {
+    return (await this.db.pendingImages.get(paymentId)) ?? null;
+  }
+
+  /** What the drain should try, oldest first. Failed tombstones are
+   *  excluded here rather than skipped by the caller, so there is one
+   *  place that decides what "still waiting" means. */
+  async queuedImagesToUpload(): Promise<PendingImage[]> {
+    const images = await this.db.pendingImages.orderBy("queuedAt").toArray();
+    return images.filter((image) => image.failedReason === null && image.blob !== null);
+  }
+
+  async deleteQueuedImage(paymentId: string): Promise<void> {
+    await this.db.pendingImages.delete(paymentId);
+  }
+
+  /** Give up on this photo, keep the fact that it existed. The blob
+   *  goes because it will never be accepted and quota is finite; the
+   *  row stays because a payment that quietly stops mentioning the
+   *  photo you attached is the failure this whole task exists to
+   *  avoid. */
+  async failQueuedImage(paymentId: string, reason: string): Promise<void> {
+    await this.db.pendingImages
+      .where("paymentId")
+      .equals(paymentId)
+      .modify((image) => {
+        image.blob = null;
+        image.failedReason = reason;
+        image.attempts += 1;
+      });
+  }
+
+  async noteQueuedImageAttempt(paymentId: string): Promise<void> {
+    await this.db.pendingImages
+      .where("paymentId")
+      .equals(paymentId)
+      .modify((image) => {
+        image.attempts += 1;
+      });
+  }
+
+  /** Photos still waiting — a tombstone is not waiting for anything. */
+  async queuedImageCount(): Promise<number> {
+    return (await this.queuedImagesToUpload()).length;
+  }
+
+  /**
+   * Record the R2 key a completed upload returned, locally and only
+   * locally.
+   *
+   * No outbox op, on the same grounds as `applyServerRecord`: the key
+   * is server-owned (`confirmationKey()` derives it, and the PUT route
+   * has already written it to D1), so this is adopting a fact rather
+   * than asserting one. Sending it back would be an older build's
+   * mistake — see `expectedCents` in `putGig` for the same rule.
+   *
+   * Done here rather than left to the pull that follows in the same
+   * sync, because a pull that fails would otherwise leave a payment
+   * whose photo is on the server, gone from the queue, and invisible on
+   * the device until the next successful cycle.
+   */
+  async setConfirmationKey(paymentId: string, key: string): Promise<void> {
+    await this.db.payments
+      .where("id")
+      .equals(paymentId)
+      .modify((payment) => {
+        payment.confirmationR2Key = key;
+      });
+  }
+
   // ── outbox + server-applied writes ──────────────────────────────
   async pendingOps(): Promise<PendingOp[]> {
     return this.db.pendingOps.orderBy("queuedAt").toArray();
   }
 
+  /**
+   * Everything this device is holding that the server has not seen —
+   * outbox ops AND queued photos.
+   *
+   * The photos are counted deliberately. This number is what SyncBadge
+   * renders, and the badge's claim is "N changes waiting to sync"; a
+   * payment saved with a photo that has reached neither the server nor
+   * the count would show as fully synced while its proof sat on the
+   * device. Counting it is what makes the badge's silence trustworthy.
+   */
   async pendingCount(): Promise<number> {
-    return this.db.pendingOps.count();
+    return (await this.db.pendingOps.count()) + (await this.queuedImageCount());
   }
 
   async deleteOp(opKey: string): Promise<void> {

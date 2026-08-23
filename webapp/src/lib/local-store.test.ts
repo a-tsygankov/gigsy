@@ -3,6 +3,7 @@ import Dexie from "dexie";
 import { describe, it, expect } from "vitest";
 import { openUserDb } from "./db.ts";
 import { LocalStore } from "./local-store.ts";
+import { MAX_IMAGE_BYTES, MAX_QUEUE_BYTES } from "./image-queue.ts";
 import type { Allocation, Payment } from "./types.ts";
 
 let dbSeq = 0;
@@ -736,5 +737,246 @@ describe("GigsyUserDB v3 upgrade", () => {
     // …and the new store is there and usable.
     await store.putAllocation(A1, { paymentId: P1, gigId: G1, amountCents: 15000 });
     expect(await store.listAllocationsByPayment(P1)).toHaveLength(1);
+  });
+});
+
+// ── Phase 4 Task 10: the confirmation photo queue ──────────────────
+
+const P2 = "99999999-9999-4999-8999-999999999999";
+const P3 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const P4 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const P5 = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+/** A blob of known size AND known content. Content matters as much as
+ *  size here: the bytes are what has to survive to the server, and a
+ *  test that only checked a length would pass on the wrong image. */
+function photo(bytes: number, marker = "p"): Blob {
+  return new Blob([marker.repeat(bytes)], { type: "image/jpeg" });
+}
+
+describe("LocalStore photo queue", () => {
+  it("holds the chosen bytes, and their content type", async () => {
+    const { store } = makeStore(() => 1000);
+    const result = await store.queueImage(P1, photo(12, "x"));
+
+    expect(result.queued).toBe(true);
+    const queued = await store.queuedImage(P1);
+    expect(queued?.byteSize).toBe(12);
+    expect(queued?.contentType).toBe("image/jpeg");
+    expect(queued?.queuedAt).toBe(1000);
+    expect(queued?.failedReason).toBeNull();
+    expect(await queued!.blob!.text()).toBe("xxxxxxxxxxxx");
+  });
+
+  it("names a type for a blob that has none, so R2 is not left guessing", async () => {
+    const { store } = makeStore();
+    await store.queueImage(P1, new Blob(["bytes"]));
+    expect((await store.queuedImage(P1))?.contentType).toBe("application/octet-stream");
+  });
+
+  it("keeps ONE photo per payment — a second choice replaces the first", async () => {
+    // The same rule the outbox has, for the same reason: the
+    // destination holds one object per payment (`confirmationKey()` in
+    // backend/src/routes/payments.ts), so a queue that could hold two
+    // would be promising something R2 cannot keep.
+    const { store } = makeStore();
+    await store.queueImage(P1, photo(4, "a"));
+    await store.queueImage(P1, photo(4, "b"));
+
+    expect(await store.queuedImageCount()).toBe(1);
+    expect(await (await store.queuedImage(P1))!.blob!.text()).toBe("bbbb");
+  });
+
+  it("refuses a file too large to hold, and stores nothing", async () => {
+    const { store } = makeStore();
+    const result = await store.queueImage(P1, photo(MAX_IMAGE_BYTES + 1));
+
+    expect(result).toEqual({ queued: false, refusal: "too-large" });
+    // A refusal is not a partial write: nothing changed, so the screen
+    // has nothing to un-say.
+    expect(await store.queuedImage(P1)).toBeNull();
+  });
+
+  it("refuses a photo when the queue is full — and does NOT evict to make room", async () => {
+    // The rule the whole bound turns on. Eviction is the usual answer
+    // for a bounded store and the wrong one here: the oldest entry is
+    // the proof the user has been carrying longest, and dropping it to
+    // admit a newer one destroys data silently in order to avoid
+    // saying no.
+    const { store } = makeStore();
+    const full = [P1, P2, P3, P4];
+    for (const id of full) {
+      expect((await store.queueImage(id, photo(MAX_IMAGE_BYTES))).queued).toBe(true);
+    }
+    expect(await store.queuedImageCount()).toBe(MAX_QUEUE_BYTES / MAX_IMAGE_BYTES);
+
+    const result = await store.queueImage(P5, photo(1));
+
+    expect(result).toEqual({ queued: false, refusal: "queue-full" });
+    // Every one of them is still there, and the newcomer is not.
+    expect(await store.queuedImageCount()).toBe(full.length);
+    for (const id of full) expect(await store.queuedImage(id)).not.toBeNull();
+    expect(await store.queuedImage(P5)).toBeNull();
+  });
+
+  it("lets a payment swap its own photo even when the queue is full", async () => {
+    // The bytes about to be replaced must not be charged twice, or a
+    // full queue would refuse the one write that cannot make it worse.
+    const { store } = makeStore();
+    for (const id of [P1, P2, P3, P4]) {
+      await store.queueImage(id, photo(MAX_IMAGE_BYTES));
+    }
+
+    expect((await store.queueImage(P1, photo(MAX_IMAGE_BYTES, "z"))).queued).toBe(true);
+    expect((await store.queuedImage(P1))?.byteSize).toBe(MAX_IMAGE_BYTES);
+    expect(await (await store.queuedImage(P1))!.blob!.text()).toBe(
+      "z".repeat(MAX_IMAGE_BYTES),
+    );
+  });
+
+  it("offers the drain the oldest photo first", async () => {
+    let now = 1000;
+    const { store } = makeStore(() => now);
+    await store.queueImage(P2, photo(2, "b"));
+    now = 500;
+    await store.queueImage(P1, photo(2, "a"));
+
+    expect((await store.queuedImagesToUpload()).map((i) => i.paymentId)).toEqual([
+      P1,
+      P2,
+    ]);
+  });
+
+  it("keeps the row but drops the bytes when an upload is refused for good", async () => {
+    const { store } = makeStore();
+    await store.queueImage(P1, photo(64));
+
+    await store.failQueuedImage(P1, "the file was too large for the server");
+
+    const dead = await store.queuedImage(P1);
+    // The row survives so the payment screen can say what happened — a
+    // photo that simply vanished is the failure this task is about.
+    expect(dead?.failedReason).toBe("the file was too large for the server");
+    // …but not the megabytes, which will never be accepted.
+    expect(dead?.blob).toBeNull();
+    expect(dead?.attempts).toBe(1);
+    // And it is never offered to the drain again — no forever-retry.
+    expect(await store.queuedImagesToUpload()).toEqual([]);
+  });
+
+  it("counts waiting photos as pending, and tombstones as nothing", async () => {
+    // pendingCount is what SyncBadge renders. A payment saved with a
+    // photo that had reached neither the server nor this number would
+    // show as fully synced while its proof sat on the device.
+    const { store } = makeStore();
+    await store.putPayment(P1, { amountCents: 15000 });
+    expect(await store.pendingCount()).toBe(1); // the payment's op
+
+    await store.queueImage(P1, photo(32));
+    expect(await store.pendingCount()).toBe(2);
+
+    await store.failQueuedImage(P1, "gone");
+    // Nothing is waiting on the photo now — it is never going.
+    expect(await store.pendingCount()).toBe(1);
+  });
+
+  it("drops a queued photo when its payment is deleted", async () => {
+    // The upload endpoint 404s on a payment the server does not have,
+    // which this queue calls permanent — so keeping it would leave a
+    // tombstone complaining about a record nobody can open.
+    const { store } = makeStore();
+    await store.putPayment(P1, { amountCents: 15000 });
+    await store.queueImage(P1, photo(32));
+
+    await store.removePayment(P1);
+
+    expect(await store.queuedImage(P1)).toBeNull();
+    expect(await store.queuedImageCount()).toBe(0);
+  });
+
+  it("records the uploaded key locally without queueing an op for it", async () => {
+    // The key is server-owned — `confirmationKey()` derives it and the
+    // PUT route has already written it to D1 — so this adopts a fact
+    // rather than asserting one. Sending it back would be the
+    // expectedCents mistake in another costume.
+    const { store } = makeStore();
+    await store.putPayment(P1, { amountCents: 15000 });
+    const opsBefore = (await store.pendingOps()).length;
+
+    await store.setConfirmationKey(P1, "u/dev/payments/p/confirmation");
+
+    expect((await store.getPayment(P1))?.confirmationR2Key).toBe(
+      "u/dev/payments/p/confirmation",
+    );
+    expect((await store.pendingOps()).length).toBe(opsBefore);
+  });
+});
+
+describe("GigsyUserDB v4 upgrade", () => {
+  it("keeps v3 data and adds the photo queue", async () => {
+    const userId = `upgrade4-${++dbSeq}`;
+    // A browser that last ran the allocations release: v3 schema, v3
+    // data, and an outbox it never got to drain.
+    const v3 = new Dexie(`gigsy-user-${userId}`);
+    v3.version(1).stores({
+      gigs: "id, dateTime, modifiedAt",
+      clients: "id, name, modifiedAt",
+      expenses: "id, createdAt, modifiedAt",
+      pendingOps: "opKey, queuedAt",
+    });
+    v3.version(2).stores({
+      services: "id, gigId, modifiedAt",
+      payments: "id, gigId, createdAt, modifiedAt",
+    });
+    v3.version(3).stores({
+      allocations: "id, paymentId, gigId, modifiedAt",
+    });
+    await v3.open();
+    await v3.table("payments").put({
+      id: P1,
+      gigId: null,
+      clientId: null,
+      amountCents: 15000,
+      paidAt: null,
+      confirmationR2Key: null,
+      notes: "recorded before the photo queue existed",
+      createdAt: 1,
+      modifiedAt: 2,
+    });
+    await v3.table("allocations").put({
+      id: A1,
+      paymentId: P1,
+      gigId: G1,
+      amountCents: 15000,
+      createdAt: 1,
+      modifiedAt: 2,
+    });
+    await v3.table("pendingOps").put({
+      opKey: `payment:${P1}`,
+      entity: "payment",
+      entityId: P1,
+      op: "upsert",
+      payload: { amountCents: 15000, clientId: null, paidAt: null, notes: null },
+      modifiedAt: 500,
+      queuedAt: 500,
+    });
+    v3.close();
+
+    const { store } = makeStore(() => 1000, userId);
+
+    // v4 is a pure addition, on exactly the terms v3 was: nothing is
+    // rewritten and nothing is lost — including the undrained outbox.
+    expect((await store.getPayment(P1))?.notes).toBe(
+      "recorded before the photo queue existed",
+    );
+    expect(await store.listAllocationsByPayment(P1)).toHaveLength(1);
+    expect((await store.pendingOps()).length).toBe(1);
+
+    // …and the new store is there and usable.
+    expect((await store.queueImage(P1, photo(8, "q"))).queued).toBe(true);
+    expect(await (await store.queuedImage(P1))!.blob!.text()).toBe("qqqqqqqq");
+    // The op the old build left behind and the photo this one queued
+    // are both counted as waiting.
+    expect(await store.pendingCount()).toBe(2);
   });
 });

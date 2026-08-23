@@ -6,7 +6,8 @@
  * server-computed — grouped SQL beats re-implementing it in Dexie.
  */
 import type { SettingsPatch } from "./settings-schema.ts";
-import type { LocalStore } from "./local-store.ts";
+import type { LocalStore, QueueImageResult } from "./local-store.ts";
+import type { PendingImage } from "./db.ts";
 import type { SyncEngine } from "./sync-engine.ts";
 import type { ApiClient } from "./api.ts";
 import type {
@@ -218,9 +219,47 @@ export class OfflineDataService {
     this.nudge();
   }
 
-  /** Online-only (deferred photo queue generalizes this later). */
+  /**
+   * Direct upload, no queue — ONE caller, and it is not a screen
+   * choosing a file.
+   *
+   * `DraftReview` uses it to repair a receipt draft whose server-side
+   * photo copy failed (Task 9): the bytes are already in R2 under the
+   * draft's key, it has just finished an online call to create the
+   * payment, and the repair is a re-send of something the server owns
+   * rather than something this device is holding. Spooling megabytes
+   * into IndexedDB to move them between two server-side keys would be
+   * the wrong shape entirely.
+   *
+   * Every file a USER picks goes through `queuePaymentConfirmation`
+   * below instead.
+   */
   uploadPaymentConfirmation(id: string, file: Blob) {
     return this.reportsApi.uploadPaymentConfirmation(id, file);
+  }
+  /**
+   * Hand a payment's proof photo to the queue. The SyncEngine uploads
+   * it on the next drain — immediately when there is a connection,
+   * whenever one returns otherwise.
+   *
+   * There is no direct-upload sibling any more. The screen used to
+   * call `ApiClient.uploadPaymentConfirmation` itself and simply tell
+   * the user "uploads need a connection" when there wasn't one, which
+   * meant the proof for a payment recorded on a job site could not be
+   * attached at the moment it was in front of the camera.
+   */
+  async queuePaymentConfirmation(id: string, file: Blob): Promise<QueueImageResult> {
+    const result = await this.store.queueImage(id, file);
+    // Only on success: a refusal changed nothing, and nudging the
+    // engine over it would show a sync that has no work to do.
+    if (result.queued) this.nudge();
+    return result;
+  }
+  /** This payment's photo as it sits on the device — waiting, or
+   *  tombstoned after a refusal the screen has to explain. Null when
+   *  there is nothing queued, which is the ordinary case. */
+  queuedPaymentConfirmation(id: string): Promise<PendingImage | null> {
+    return this.store.queuedImage(id);
   }
   getPaymentConfirmationBlob(id: string): Promise<Blob | null> {
     return this.reportsApi.getPaymentConfirmationBlob(id);

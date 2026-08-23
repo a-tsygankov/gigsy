@@ -7,6 +7,12 @@
  * poison op and log (a bad op must never wedge the queue behind it).
  * A network failure leaves every op in place for the next attempt.
  *
+ * Photos: a payment's confirmation image is megabytes PUT to its own
+ * endpoint, so it cannot be an outbox op — it waits in `pendingImages`
+ * instead and drains here, after the outbox and before the pull. Same
+ * contract, different poison test: `drainImages` below, and
+ * lib/image-queue.ts for what ends a photo's life in the queue.
+ *
  * Pull: server lists merge into the local DB. A server row wins only
  * when the record has NO pending local op; local rows absent from the
  * server (and not pending) were deleted on another device.
@@ -27,9 +33,10 @@
  * nothing, and silence is the worst of the available answers.
  */
 import { appLog } from "./logger.ts";
+import { isPermanentUploadFailure, uploadFailureReason } from "./image-queue.ts";
 import type { LocalStore } from "./local-store.ts";
 import type { SyncEntityName } from "./db.ts";
-import type { SyncOp, SyncOpResult } from "./api.ts";
+import { ApiError, type SyncOp, type SyncOpResult } from "./api.ts";
 import type {
   Allocation,
   Client,
@@ -55,6 +62,12 @@ export interface SyncApi {
   getService(id: string): Promise<Service>;
   getPayment(id: string): Promise<Payment>;
   getAllocation(id: string): Promise<Allocation>;
+  /** Not part of `/api/sync` — a photo is bytes PUT to the payment's
+   *  own confirmation endpoint. See `drainImages`. */
+  uploadPaymentConfirmation(
+    id: string,
+    file: Blob,
+  ): Promise<{ confirmationR2Key: string }>;
 }
 
 export interface SyncState {
@@ -205,9 +218,20 @@ export class SyncEngine {
     let ok = false;
     try {
       const drained = await this.drain();
+      // Photos AFTER the outbox, and only when it reached the server.
+      //
+      // The upload endpoint 404s on a payment D1 has never heard of,
+      // and this queue's own rules call a 404 permanent — rightly, for
+      // a payment somebody deleted elsewhere. A photo attached to a
+      // payment created in the same offline session would hit exactly
+      // that on its first attempt and be thrown away for a reason that
+      // was about to stop being true. Draining the outbox first makes
+      // the payment exist; requiring that drain to have SUCCEEDED is
+      // what stops a failed one from producing the same false 404.
+      const imagesDrained = drained ? await this.drainImages() : false;
       // Deliberately not short-circuited: a drain can fail on one poison
       // request while the pull would have hydrated the app just fine.
-      ok = (await this.pull()) && drained;
+      ok = (await this.pull()) && drained && imagesDrained;
     } finally {
       // Released BEFORE settling, so the retry it may schedule is not
       // swallowed as a duplicate of the attempt that just ended.
@@ -267,7 +291,11 @@ export class SyncEngine {
   async drain(): Promise<boolean> {
     const ops = await this.store.pendingOps();
     if (ops.length === 0) {
-      this.setState({ pendingCount: 0 });
+      // Asked rather than assumed zero: an empty outbox is no longer
+      // the same thing as nothing pending — a queued photo counts too
+      // (`pendingCount` in lib/local-store.ts), and hard-coding 0 here
+      // would blank the badge while a photo was still on the device.
+      this.setState({ pendingCount: await this.store.pendingCount() });
       return true;
     }
     this.setState({ syncing: true });
@@ -373,6 +401,94 @@ export class SyncEngine {
       if (result !== undefined) merged[opIndex] = result;
     });
     return merged;
+  }
+
+  // ── queued confirmation photos ───────────────────────────────────
+  /**
+   * Send the photos the outbox could not carry.
+   *
+   * A confirmation is bytes PUT to `/api/payments/:id/confirmation`,
+   * not a record posted to `/api/sync`, so it cannot ride the outbox
+   * (see the `PendingImage` comment in lib/db.ts). It gets the same
+   * treatment nonetheless: oldest first, one pass per sync, and a
+   * failure that leaves the work queued rather than losing it.
+   *
+   * Where it differs from `drain` is what counts as poison. An outbox
+   * op is refused per-op by the server's own result, and the engine
+   * drops it and adopts the server's copy. A photo has no such reply —
+   * only an HTTP status — so the classification lives in
+   * lib/image-queue.ts, and a photo that is refused for good becomes a
+   * tombstone the payment screen can read rather than a silent
+   * deletion.
+   *
+   * Returns false only for the transient case, which is what asks the
+   * engine for another attempt. A permanent refusal is a completed
+   * outcome: there is nothing left to retry, and reporting it as a
+   * failed sync would put the app into a backoff it can never leave.
+   */
+  async drainImages(): Promise<boolean> {
+    const queued = await this.store.queuedImagesToUpload();
+    if (queued.length === 0) return true;
+    this.setState({ syncing: true });
+    let reached = true;
+    try {
+      for (const image of queued) {
+        // The second half of the same guard the caller applies, and
+        // not redundant with it: `drained` says the batch REACHED the
+        // server, this says THIS payment did. A write that landed
+        // while the sync was in flight, or a batch that came back
+        // partly applied, leaves an op the server has not seen —
+        // uploading against that id would 404, and a 404 here is
+        // permanent, so the photo would be destroyed by a race rather
+        // than by anything wrong with it. Skipping keeps it for the
+        // next pass, by which time the payment exists.
+        if (await this.store.hasPendingOp("payment", image.paymentId)) continue;
+        // Belt for the tombstone: `queuedImagesToUpload` already
+        // filters these out, and the compiler needs it said again.
+        if (image.blob === null) continue;
+        try {
+          const { confirmationR2Key } = await this.api.uploadPaymentConfirmation(
+            image.paymentId,
+            image.blob,
+          );
+          await this.store.setConfirmationKey(image.paymentId, confirmationR2Key);
+          await this.store.deleteQueuedImage(image.paymentId);
+        } catch (e) {
+          const status = e instanceof ApiError ? e.status : null;
+          if (isPermanentUploadFailure(status)) {
+            appLog.warn("confirmation upload refused for good", {
+              paymentId: image.paymentId,
+              status,
+            });
+            await this.store.failQueuedImage(
+              image.paymentId,
+              uploadFailureReason(status!),
+            );
+            // The next photo may be perfectly fine — one bad file must
+            // not wedge the queue behind it, exactly as one poison op
+            // must not wedge the outbox.
+            continue;
+          }
+          await this.store.noteQueuedImageAttempt(image.paymentId);
+          appLog.info("confirmation upload failed — still queued", {
+            paymentId: image.paymentId,
+            status,
+            error: String(e),
+          });
+          // Transient means the link or the server, not this file, so
+          // the ones behind it would fail the same way. Stop, and let
+          // the backoff decide when to try the whole queue again.
+          reached = false;
+          break;
+        }
+      }
+    } finally {
+      this.setState({
+        syncing: false,
+        pendingCount: await this.store.pendingCount(),
+      });
+    }
+    return reached;
   }
 
   private async refreshFromServer(
