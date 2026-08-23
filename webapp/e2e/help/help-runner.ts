@@ -55,6 +55,27 @@ export interface HelpRunTrace {
 const BRANCH_APPEAR_TIMEOUT_MS = 10_000;
 const BRANCH_STABLE_MS = 750;
 
+/**
+ * How long a documented target may take to appear before the scenario is
+ * judged wrong about it.
+ *
+ * Deliberately the same budget as `BRANCH_APPEAR_TIMEOUT_MS`. Branch
+ * resolution was given an explicit 10s because 5s is not enough for a
+ * target to show up on a cold stack — and a plain step's target waits on
+ * exactly the same thing. It had simply never been given the same
+ * treatment, inheriting Playwright's default `expect` timeout of 5s
+ * instead: nothing in playwright.config.ts sets one, and `actionTimeout`
+ * governs click/fill/selectOption but not `toBeVisible`.
+ *
+ * `configure-working-hours` is what found this. `AvailabilitySection`
+ * returns null until `GET /api/settings` resolves, so on a cold CI
+ * preview — worker cold start plus D1 — the first `highlight` step ran
+ * out of budget, the retry passed, and the job reported "1 flaky" and
+ * went green. `slow-target.spec.ts` holds that response past the old
+ * default so the failure is deterministic rather than weather.
+ */
+const TARGET_APPEAR_TIMEOUT_MS = BRANCH_APPEAR_TIMEOUT_MS;
+
 /** A step after any branch has already been resolved — the only shape
  *  `performAction` needs to handle. Named locally, the same way
  *  TourRenderer.ts has its own `FlatStep`; there is no shared type to
@@ -373,7 +394,9 @@ async function resolveBranch(
 async function performAction(page: Page, step: ActionStep): Promise<void> {
   switch (step.action) {
     case "highlight":
-      await expect(locatorFor(page, step.target)).toBeVisible();
+      await expect(locatorFor(page, step.target)).toBeVisible({
+        timeout: TARGET_APPEAR_TIMEOUT_MS,
+      });
       return;
     case "click":
       await locatorFor(page, step.target).click();
