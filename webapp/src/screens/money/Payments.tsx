@@ -5,6 +5,9 @@
  * a gig, and Phase 4 made "money received, not yet assigned to work" a
  * legitimate state — a payment with no allocations had no route to it
  * at all.
+ *
+ * Rendered inside `Money` (the `/payments` route's layout element),
+ * which owns the `AppHeader` and `<main>` — this returns bare content.
  */
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";

@@ -1,3 +1,7 @@
+/**
+ * Rendered inside `Money` (the `/expenses` route's layout element),
+ * which owns the `AppHeader` and `<main>` — this returns bare content.
+ */
 import { useQuery } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
 import { formatMoney } from "../lib/format.ts";

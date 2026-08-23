@@ -70,22 +70,10 @@ export function App() {
             <Route path="/drafts/:id" element={<DraftReview />} />
             <Route path="/clients" element={<Clients />} />
             <Route path="/clients/:id" element={<ClientEdit />} />
-            <Route
-              path="/payments"
-              element={
-                <Money>
-                  <Payments />
-                </Money>
-              }
-            />
-            <Route
-              path="/expenses"
-              element={
-                <Money>
-                  <Expenses />
-                </Money>
-              }
-            />
+            <Route element={<Money />}>
+              <Route path="/payments" element={<Payments />} />
+              <Route path="/expenses" element={<Expenses />} />
+            </Route>
             <Route path="/expenses/:id" element={<ExpenseEdit />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/settings" element={<Settings />} />
