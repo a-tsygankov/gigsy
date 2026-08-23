@@ -104,6 +104,22 @@ describe("Payments", () => {
     expect(rows[0]?.textContent).toContain("25.00");
   });
 
+  it("shows the client's name against the payment it belongs to", async () => {
+    const el = await render();
+    const rows = el.querySelectorAll('[data-testid="payment-row"]');
+    // rows[1] is p-full, whose clientId ("c1") resolves to CLIENTS[0].
+    expect(rows[1]?.textContent).toContain("Acme Staffing");
+  });
+
+  it("labels each row with its own allocation state, not a shared one", async () => {
+    const el = await render();
+    const rows = el.querySelectorAll('[data-testid="payment-row"]');
+    // rows[0] is p-open: no allocation at all. rows[1] is p-full: its
+    // one allocation (ALLOCATIONS[0]) covers the whole amount.
+    expect(rows[0]?.textContent).toContain("Not yet allocated");
+    expect(rows[1]?.textContent).toContain("Allocated");
+  });
+
   it("links each row to its payment", async () => {
     const el = await render();
     const link = el.querySelector('a[href="/payments/p-full"]');
@@ -152,5 +168,50 @@ describe("Payments", () => {
     api.listPayments.mockResolvedValueOnce([{ ...PAYMENTS[1]!, paidAt: null }]);
     const el = await render();
     expect(el.textContent).toContain("No date yet");
+  });
+
+  it("shows a dedicated empty state when there are no payments at all", async () => {
+    api.listPayments.mockResolvedValueOnce([]);
+    const el = await render();
+    expect(el.textContent).toContain("No payments yet");
+    expect(el.textContent).toContain(
+      "Record money as it arrives — you can say which work it paid for now or later.",
+    );
+    expect(el.querySelector('a[href="/payments/new"]')).not.toBeNull();
+  });
+
+  // The URL-driven tests above exercise parsePaymentFilters/applyPaymentFilters
+  // (already unit-tested in payment-filters.test.ts) but never touch the
+  // PaymentFilters control itself — deleting it from the screen, or wiring
+  // its search box to write the wrong field, would leave every other test
+  // green. This drives the actual input and the actual Clear button.
+  it("filters by typing in the search box, and Clear restores every row", async () => {
+    const el = await render();
+    expect(el.querySelectorAll('[data-testid="payment-row"]')).toHaveLength(2);
+
+    const input = el.querySelector('[data-testid="payment-search"]') as HTMLInputElement;
+    // React tracks the input's value through its own internal state, so
+    // setting `.value` directly and dispatching a bare event is a no-op —
+    // this goes through the native setter React's change detection
+    // actually observes (the same trick @testing-library/react's
+    // fireEvent uses under the hood).
+    const nativeSetValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    await act(async () => {
+      nativeSetValue.call(input, "acme");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(el.querySelectorAll('[data-testid="payment-row"]')).toHaveLength(1);
+    const clear = el.querySelector('[data-testid="payment-clear"]');
+    expect(clear).not.toBeNull();
+
+    await act(async () => {
+      (clear as HTMLElement).click();
+    });
+
+    expect(el.querySelectorAll('[data-testid="payment-row"]')).toHaveLength(2);
   });
 });

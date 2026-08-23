@@ -14,7 +14,6 @@ import { formatMoney } from "../../lib/format.ts";
 import {
   allocationState,
   applyPaymentFilters,
-  isPaymentFiltered,
   parsePaymentFilters,
   toPaymentSearchParams,
   type PaymentAllocationState,
@@ -89,17 +88,27 @@ export function Payments() {
   const all = payments.data ?? [];
   const rows = applyPaymentFilters(all, allocatedByPayment, clientNameById, filters);
 
-  const loading = payments.isPending || allocations.isPending;
-  const failed = payments.isError || allocations.isError;
+  // Clients gate this screen too, and for a stronger reason than Gigs.tsx
+  // has: search reads client NAMES (payment-filters.ts's matchesSearch),
+  // so rendering before they arrive doesn't just mislabel a row — it can
+  // make a shared `?q=acme` link claim "No payment matches" for a moment
+  // before the client name loads in and the row appears. And with
+  // `clientNameById` empty while clients are still pending, every
+  // payment that DOES have a client would render "No client yet", which
+  // is simply false.
+  const loading = payments.isPending || allocations.isPending || clients.isPending;
+  const failed = payments.isError || allocations.isError || clients.isError;
 
   return (
     <>
-      <PaymentFilters
-        filters={filters}
-        onChange={(next) => setParams(toPaymentSearchParams(next), { replace: true })}
-        shown={rows.length}
-        total={all.length}
-      />
+      {!loading && !failed && all.length > 0 && (
+        <PaymentFilters
+          filters={filters}
+          onChange={(next) => setParams(toPaymentSearchParams(next), { replace: true })}
+          shown={rows.length}
+          total={all.length}
+        />
+      )}
 
       {loading && <ListSkeleton />}
       {failed && <p className="text-sm text-red-600">Couldn't load payments.</p>}
@@ -116,9 +125,10 @@ export function Payments() {
       {!loading && !failed && all.length > 0 && rows.length === 0 && (
         <EmptyState
           title="No payment matches this filter"
-          {...(isPaymentFiltered(filters)
-            ? { hint: "Clear the filter to see all of them." }
-            : {})}
+          // Unconditional: this branch only renders when `all.length > 0`
+          // and `rows.length === 0`, which already implies a filter is
+          // narrowing the list — `isPaymentFiltered` is never false here.
+          hint="Clear the filter to see all of them."
         />
       )}
 
@@ -148,8 +158,24 @@ export function Payments() {
                       <span className={STATE_CLASS[state]}>{STATE_LABEL[state]}</span>
                     </p>
                     {pending.data?.has(payment.id) === true && (
-                      <span data-testid="payment-pending" className="mt-1 inline-block">
-                        <SyncBadge online={sync?.online ?? true} pendingCount={1} />
+                      <span
+                        data-testid="payment-pending"
+                        className="mt-1 inline-block"
+                        // ARIA drops the name from a bare span (role
+                        // generic) without this — same reason
+                        // Gigs.tsx:189-201 sets it on its own dot.
+                        role="img"
+                        aria-label="Not synced yet"
+                      >
+                        {/* Always `online`: this row is saying "queued
+                            locally", not "the device is offline" — that
+                            claim belongs to the header, once, not to
+                            every row. Passing the real connectivity
+                            state here would repaint every queued row as
+                            a grey "offline" chip, losing the amber
+                            attention colour and saying nothing about
+                            the row itself. */}
+                        <SyncBadge online={true} pendingCount={1} />
                       </span>
                     )}
                   </div>

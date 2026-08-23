@@ -23,7 +23,7 @@ export function PaymentFilters({
 }) {
   const filtered = isPaymentFiltered(filters);
   return (
-    <div className="space-y-2" data-testid="payment-filters">
+    <section className="space-y-2" data-testid="payment-filters">
       <Input
         type="search"
         aria-label="Search payments"
@@ -36,6 +36,11 @@ export function PaymentFilters({
         <Select
           aria-label="Allocation state"
           data-testid="payment-state"
+          // Fixed width: without it the select stretches to fill the
+          // row and reflows when Clear appears next to it — the same
+          // trap Input.tsx's own comment documents for the gig sort
+          // select.
+          className="w-36 shrink-0"
           value={filters.state}
           onChange={(e) =>
             onChange({ ...filters, state: e.target.value as Filters["state"] })
@@ -49,6 +54,7 @@ export function PaymentFilters({
         {filtered && (
           <Button
             variant="ghost"
+            size="sm"
             data-testid="payment-clear"
             onClick={() => onChange(DEFAULT_PAYMENT_FILTERS)}
           >
@@ -57,10 +63,16 @@ export function PaymentFilters({
         )}
       </div>
       {filtered && (
-        <p className="text-xs text-slate-500" data-testid="payment-count">
+        <p
+          className="text-xs text-slate-500"
+          data-testid="payment-count"
+          // It changes on every keystroke; without this it changes
+          // silently for anyone not looking at the screen.
+          aria-live="polite"
+        >
           Showing {shown} of {total}
         </p>
       )}
-    </div>
+    </section>
   );
 }
