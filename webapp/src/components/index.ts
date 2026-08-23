@@ -8,7 +8,7 @@
  *   settings    SettingRow, SettingGroup
  *   data        Tile, SectionHeading
  *   feedback    StatusPill, SyncBadge, EmptyState, ListSkeleton, Splash
- *   navigation  AppHeader, TabBar, Fab
+ *   navigation  AppHeader, TabBar, Fab, Segmented
  */
 export { Button, ButtonLink, buttonClasses } from "./Button.tsx";
 export { Card, CardLink, cardClasses } from "./Card.tsx";
@@ -30,3 +30,4 @@ export { UpdateBar } from "./UpdateBar.tsx";
 export { AppHeader } from "./AppHeader.tsx";
 export { TabBar } from "./TabBar.tsx";
 export { Fab } from "./Fab.tsx";
+export { Segmented, type SegmentedOption } from "./Segmented.tsx";
