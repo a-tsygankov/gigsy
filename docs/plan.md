@@ -102,6 +102,61 @@ expenses
   INDEX (user_id), (gig_id)
 ```
 
+### 4.1 Payments and allocations (migration `0016_payment_allocations.sql`)
+
+**Money is allocated to work, not attached to it.**
+
+A **payment** is money received: an amount, a date, optionally a client
+and a proof photo. It is a fact about a bank statement, and it exists
+whether or not anyone has decided what it paid for.
+
+An **allocation** says which work a payment covers. One payment may have
+several, so an agency settling a week in one transfer is one payment
+split across the gigs it settled — not several fictional payments, each
+with its own date and its own photo, none of which match the statement.
+A payment with no allocations is *unallocated*, which is now a state the
+app can show rather than a hole.
+
+```sql
+payments
+  ...,
+  client_id TEXT NULL → clients.id,        -- 0016; a split may only cover this client's gigs
+  gig_id TEXT NULL → gigs.id,              -- COMPATIBILITY SHIM, see below
+
+payment_allocations                        -- 0016
+  id TEXT PK, user_id TEXT NOT NULL → users.id,
+  payment_id TEXT NOT NULL → payments.id,
+  gig_id TEXT NOT NULL → gigs.id,
+  amount_cents INTEGER NOT NULL,
+  created_at, modified_at, server_modified_at
+  INDEX (user_id), (payment_id), (gig_id), (user_id, server_modified_at)
+```
+
+Four rules follow, and everything else in this area is downstream of
+them:
+
+- **`gigs.amount_paid_cents` is derived and server-owned.** It is the
+  SUM of the allocations pointing at that gig, recomputed server-side;
+  no client writes it. A per-gig figure that carried a payment-sized
+  number would make every total disagree with the payment that produced
+  it — `webapp/src/lib/report-export.test.ts` holds that line for the
+  CSV, which must never disagree with the app it was exported from.
+- **A payment's split may only cover its own client's gigs**, and the
+  server refuses one that does not. `payments.client_id` is nullable on
+  purpose: a transfer recorded before you know who sent it is better
+  than no record, and the constraint only bites once a client is named.
+- **A payment's allocations may not exceed it.** Splitting $150 into
+  $100 + $60 is refused, as is lowering a payment below what is already
+  allocated out of it. Both doors into the data — the CRUD routes and
+  the offline outbox — go through `services/payment-invariants.ts`, so
+  neither can become a way around what the other enforces.
+- **`payments.gig_id` is a compatibility shim, due for removal.** It is
+  still written and still read, because a client that was offline
+  across the 0016 release still sends it; `routes/payments.ts`
+  translates it into a single allocation on arrival. It goes when no
+  client sends it any more — not before, and dropping it is a later
+  release.
+
 ## 5. API surface (all `/api/*`, JWT-guarded except auth + health)
 
 ```

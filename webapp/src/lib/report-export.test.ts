@@ -143,6 +143,36 @@ describe("incomeRows", () => {
     ]);
   });
 
+  it("bills a gig split-paid by one payment at its own share, not the whole payment", () => {
+    // Phase 4 made gigs.amountPaidCents derived: it is the sum of the
+    // allocations pointing at that gig, not the amount of any payment.
+    // One $150 payment split $100/$50 across two gigs must therefore
+    // export as $100 and $50 — the figure each gig screen shows. The
+    // failure this guards against is a per-gig column quietly carrying
+    // a payment-sized number, which would make the CSV disagree with
+    // the app it was exported from and overstate income by the split.
+    const rows = incomeRows(
+      [
+        gig({ id: "g1", amountOfferedCents: 20000, amountPaidCents: 10000 }),
+        gig({
+          id: "g2",
+          location: "Pier 3",
+          amountOfferedCents: 12000,
+          amountPaidCents: 5000,
+        }),
+      ],
+      [],
+      [acme],
+      {},
+    );
+
+    expect(rows[0]?.slice(5, 8)).toEqual(["200.00", "100.00", "100.00"]);
+    expect(rows[1]?.slice(5, 8)).toEqual(["120.00", "50.00", "70.00"]);
+
+    // Neither row carries the payment's own $150 anywhere.
+    expect(rows.flat()).not.toContain("150.00");
+  });
+
   it("bills an hourly gig at its computed pay, not at nothing", () => {
     // The regression: an hourly gig is stored with amountOfferedCents
     // null on purpose, so the CSV billed every one of them at $0.00.
