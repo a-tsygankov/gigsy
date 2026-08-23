@@ -372,7 +372,12 @@ test("every field of a gig survives an offline save and a pull from the server",
 test("a billable expense survives a server round-trip", async ({ page }) => {
   const marker = `expense-booth-${Date.now()}`;
 
-  await page.getByRole("link", { name: "Expenses" }).click();
+  // The Expenses tab became the Money tab, with a segmented control
+  // inside it. Going through both is deliberate: it is the only place
+  // the segment is exercised end-to-end, and deep-linking to /expenses
+  // would skip the navigation this test just broke on.
+  await page.getByRole("link", { name: "Money" }).click();
+  await page.getByTestId("money-segment").getByRole("link", { name: "Expenses" }).click();
   await page.getByRole("link", { name: "Add expense" }).click();
   await page.getByLabel("Amount ($)").fill("18.75");
   await page.getByLabel("Category").fill(marker);

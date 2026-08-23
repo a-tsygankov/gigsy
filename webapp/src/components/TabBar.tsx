@@ -6,7 +6,7 @@ const TABS = [
   { to: "/", label: "Home", end: true },
   { to: "/gigs", label: "Gigs", end: false },
   { to: "/clients", label: "Clients", end: false },
-  { to: "/expenses", label: "Expenses", end: false },
+  { to: "/payments", label: "Money", end: false },
   { to: "/reports", label: "Reports", end: false },
 ];
 
@@ -14,6 +14,7 @@ export function TabBar() {
   return (
     <nav
       data-testid="tab-bar"
+      aria-label="Main"
       className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur
                  pb-[env(safe-area-inset-bottom)]"
     >
