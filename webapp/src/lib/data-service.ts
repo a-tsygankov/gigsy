@@ -198,6 +198,9 @@ export class OfflineDataService {
   listAllocationsByPayment(paymentId: string): Promise<Allocation[]> {
     return this.store.listAllocationsByPayment(paymentId);
   }
+  listAllocations(): Promise<Allocation[]> {
+    return this.store.listAllocations();
+  }
   listAllocationsByGig(gigId: string): Promise<Allocation[]> {
     return this.store.listAllocationsByGig(gigId);
   }

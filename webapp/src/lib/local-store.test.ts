@@ -912,6 +912,24 @@ describe("LocalStore photo queue", () => {
   });
 });
 
+describe("LocalStore.listAllocations", () => {
+  it("returns every allocation across every payment in one read", async () => {
+    const { store } = makeStore();
+    await store.putPayment(P1, { amountCents: 15000 });
+    await store.putAllocation(A1, { paymentId: P1, gigId: G1, amountCents: 10000 });
+    await store.putAllocation(A2, { paymentId: P1, gigId: G2, amountCents: 5000 });
+
+    const all = await store.listAllocations();
+
+    expect(all.map((a) => a.id).sort()).toEqual([A1, A2].sort());
+  });
+
+  it("returns an empty list rather than throwing when nothing is allocated", async () => {
+    const { store } = makeStore();
+    expect(await store.listAllocations()).toEqual([]);
+  });
+});
+
 describe("GigsyUserDB v4 upgrade", () => {
   it("keeps v3 data and adds the photo queue", async () => {
     const userId = `upgrade4-${++dbSeq}`;
