@@ -36,11 +36,9 @@ function filters(over: Partial<PaymentFilters> = {}): PaymentFilters {
 
 describe("allocationState", () => {
   it("calls a payment with nothing against it unallocated", () => {
-    expect(allocationState(15000, 0)).toBe("unallocated");
-  });
-
-  it("treats a zero-sum set of allocations as unallocated, not partly", () => {
-    // A row can exist with 0 cents mid-edit; it is not a claim on the money.
+    // A zero-sum set of allocation rows is the same input as no rows at
+    // all here — the signature is a plain number, so that distinction
+    // is expressed one level up, in applyPaymentFilters's fixture `d`.
     expect(allocationState(15000, 0)).toBe("unallocated");
   });
 
@@ -70,21 +68,25 @@ describe("applyPaymentFilters", () => {
   const a = payment({ id: "a", amountCents: 15000, clientId: "c1" });
   const b = payment({ id: "b", amountCents: 5000, clientId: "c2", notes: "invoice 88" });
   const c = payment({ id: "c", amountCents: 2500, clientId: null, notes: null });
-  const all = [a, b, c];
+  // Explicit zero, not an absent row — a distinct input from c's, even
+  // though allocationState can't tell them apart at its own signature.
+  const d = payment({ id: "d", amountCents: 4000, clientId: null });
+  const all = [a, b, c, d];
   const allocated = new Map([
     ["a", 15000], // fully
     ["b", 2000], // partly
+    ["d", 0], // unallocated — a real row that sums to zero
     // c absent → unallocated
   ]);
 
   it("returns everything when unfiltered", () => {
     const rows = applyPaymentFilters(all, allocated, CLIENTS, filters());
-    expect(rows.map((p) => p.id)).toEqual(["a", "b", "c"]);
+    expect(rows.map((p) => p.id)).toEqual(["a", "b", "c", "d"]);
   });
 
-  it("filters to unallocated, including a payment with no allocation row at all", () => {
+  it("filters to unallocated, treating a zero-sum row the same as no row at all", () => {
     const rows = applyPaymentFilters(all, allocated, CLIENTS, filters({ state: "unallocated" }));
-    expect(rows.map((p) => p.id)).toEqual(["c"]);
+    expect(rows.map((p) => p.id)).toEqual(["c", "d"]);
   });
 
   it("filters to partly allocated", () => {
@@ -117,6 +119,16 @@ describe("applyPaymentFilters", () => {
     expect(rows).toEqual([]);
   });
 
+  it("does not let a search for 150 match a $1.50 payment", () => {
+    // The discriminating case: matching raw cents (as `String(amountCents)`
+    // would) makes 150 find a 150-cent payment, which is the opposite of
+    // what someone reading a dollar amount means. Formatting to "1.50"
+    // first is what keeps it out.
+    const tiny = payment({ id: "tiny", amountCents: 150 });
+    const rows = applyPaymentFilters([tiny], new Map(), CLIENTS, filters({ search: "150" }));
+    expect(rows).toEqual([]);
+  });
+
   it("ignores case and surrounding whitespace", () => {
     const rows = applyPaymentFilters(all, allocated, CLIENTS, filters({ search: "  ACME " }));
     expect(rows.map((p) => p.id)).toEqual(["a"]);
@@ -124,6 +136,15 @@ describe("applyPaymentFilters", () => {
 
   it("survives a payment with no notes and no client", () => {
     const rows = applyPaymentFilters([c], allocated, CLIENTS, filters({ search: "acme" }));
+    expect(rows).toEqual([]);
+  });
+
+  it("treats a clientId the client map doesn't know yet as no name, not a throw", () => {
+    // Offline-first: a payment can sync before its client does. The
+    // clientId is real, just not in the map — a different code path
+    // from clientId being null outright.
+    const orphaned = payment({ id: "orphaned", clientId: "not-yet-synced", notes: null });
+    const rows = applyPaymentFilters([orphaned], new Map(), CLIENTS, filters({ search: "acme" }));
     expect(rows).toEqual([]);
   });
 
@@ -144,11 +165,24 @@ describe("applyPaymentFilters", () => {
     const rows = applyPaymentFilters([older, undated, newer], new Map(), CLIENTS, filters());
     expect(rows.map((p) => p.id)).toEqual(["newer", "undated", "older"]);
   });
+
+  it("does not mutate the array it was given", () => {
+    const input = [...all];
+    applyPaymentFilters(input, allocated, CLIENTS, filters());
+    expect(input.map((p) => p.id)).toEqual(["a", "b", "c", "d"]);
+  });
 });
 
 describe("URL round-trip", () => {
   it("writes nothing for an unfiltered view", () => {
     expect(toPaymentSearchParams(DEFAULT_PAYMENT_FILTERS).toString()).toBe("");
+  });
+
+  it("writes nothing for a whitespace-only search, so the view stays clearable", () => {
+    // Otherwise `q=  ` regenerates on every param sync (isPaymentFiltered
+    // reads it as unfiltered, so nothing ever offers to clear it) and
+    // survives reload as a URL nobody asked for.
+    expect(toPaymentSearchParams(filters({ search: "  " })).toString()).toBe("");
   });
 
   it("round-trips a filtered view", () => {
@@ -161,6 +195,12 @@ describe("URL round-trip", () => {
     expect(parsed.state).toBe("all");
   });
 
+  it("returns the defaults for an empty URL", () => {
+    expect(parsePaymentFilters(new URLSearchParams(""))).toEqual(DEFAULT_PAYMENT_FILTERS);
+  });
+});
+
+describe("isPaymentFiltered", () => {
   it("knows when a view is filtered", () => {
     expect(isPaymentFiltered(DEFAULT_PAYMENT_FILTERS)).toBe(false);
     expect(isPaymentFiltered(filters({ search: "  " }))).toBe(false);

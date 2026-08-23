@@ -107,7 +107,9 @@ export function isPaymentFiltered(filters: PaymentFilters): boolean {
 }
 
 function isPaymentStateFilter(value: string | null): value is PaymentStateFilter {
-  return value === "all" || PAYMENT_STATES.includes(value as PaymentAllocationState);
+  return (
+    value !== null && (value === "all" || (PAYMENT_STATES as readonly string[]).includes(value))
+  );
 }
 
 export function parsePaymentFilters(params: URLSearchParams): PaymentFilters {
@@ -118,11 +120,21 @@ export function parsePaymentFilters(params: URLSearchParams): PaymentFilters {
   };
 }
 
-/** Defaults are written as absence, so an unfiltered list has a clean
- *  URL and the back button has nothing pointless to remember. */
+/**
+ * Defaults are written as absence, so an unfiltered list has a clean
+ * URL and the back button has nothing pointless to remember.
+ *
+ * The guard is on the NORMALIZED search, not the raw one: whitespace
+ * alone is not a filter (`isPaymentFiltered` agrees), so it must not
+ * write a `q` param either, or the view becomes impossible to clear —
+ * every reparse hands back the same untrimmed value, which
+ * `isPaymentFiltered` still reads as unfiltered. The value written when
+ * it DOES qualify is still the raw string, so mid-typing whitespace
+ * (leading/trailing spaces around real text) round-trips exactly.
+ */
 export function toPaymentSearchParams(filters: PaymentFilters): URLSearchParams {
   const params = new URLSearchParams();
-  if (filters.search !== "") params.set("q", filters.search);
+  if (normalize(filters.search) !== "") params.set("q", filters.search);
   if (filters.state !== DEFAULT_PAYMENT_FILTERS.state) params.set("state", filters.state);
   return params;
 }
