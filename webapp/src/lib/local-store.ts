@@ -458,10 +458,13 @@ export class LocalStore {
   /**
    * Every allocation, for callers that need many payments' states at
    * once. `listAllocationsByPayment` takes one id, and a list screen
-   * calling it per row is a query per row.
+   * calling it per row is a query per row. Ordered the same way
+   * `listAllocationsByPayment` orders its rows, so the two cannot
+   * drift apart for a caller that filters this list by paymentId.
    */
   async listAllocations(): Promise<Allocation[]> {
-    return this.db.allocations.toArray();
+    const allocations = await this.db.allocations.toArray();
+    return allocations.sort((a, b) => a.createdAt - b.createdAt);
   }
 
   async listAllocationsByGig(gigId: string): Promise<Allocation[]> {
