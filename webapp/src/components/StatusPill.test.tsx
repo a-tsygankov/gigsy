@@ -56,8 +56,14 @@ describe("StatusPill", () => {
   });
 
   it("gives delivered its own hue, not one another status already uses", () => {
-    const classes = new Set(Object.values(STATUS_PILL_CLASSES));
-    expect(classes.size).toBe(GIG_STATUSES.length);
+    // Extracted from the bg-* utility, not the whole class string: two
+    // entries can share a hue and still produce distinct strings (e.g.
+    // cancelled's trailing `line-through`), which a Set of full class
+    // strings would not catch.
+    const hues = Object.values(STATUS_PILL_CLASSES).map(
+      (cls) => cls.match(/bg-(\w+)-\d+/)?.[1],
+    );
+    expect(new Set(hues).size).toBe(GIG_STATUSES.length);
     expect(STATUS_PILL_CLASSES.delivered).toContain("teal");
   });
 });

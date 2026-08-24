@@ -1,4 +1,4 @@
-/* Palette — the exact Tailwind slate/emerald/sky/amber/red values used
+/* Palette — the exact Tailwind slate/emerald/sky/amber/red/violet/teal values used
    in gigsy/webapp, stored as raw "R G B" channel triplets.
 
    Triplets, not hex, because tailwind.config.ts consumes them as
