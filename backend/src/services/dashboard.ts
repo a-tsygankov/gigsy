@@ -1,16 +1,19 @@
 /**
  * Dashboard aggregates (user feature spec, 2026-08-08):
- * - completedCount — gigs `completed`, all time. `paid` is no longer a
- *   status (migration 0015): a gig that was `paid` reads `completed`
- *   now, and paid-ness is a fact about the money, not the count here.
+ * - completedCount — gigs `completed` or `delivered`, all time: both
+ *   are finished work, and delivery is a milestone within completion,
+ *   not a different count. `paid` is no longer a status (migration
+ *   0015): a gig that was `paid` reads `completed` now, and paid-ness
+ *   is a fact about the money, not the count here.
  * - expectedCents — promised money still ahead: the expected pay of
  *   `lead|confirmed` gigs (optionally windowed by future date) plus
  *   their services' offered amounts. The window applies ONLY here —
  *   that's the dashboard's "timeframe for future" selector.
  * - unpaidCents + unpaidJobs — work done but not (fully) paid: per
- *   `completed` gig, max(0, expected−paid) + Σ services max(0,
- *   offered−paid); rows carry the client name and both breakdowns for
- *   the drill-down. Money owed has no expiry — never windowed.
+ *   `completed`-or-`delivered` gig, max(0, expected−paid) + Σ services
+ *   max(0, offered−paid); rows carry the client name and both
+ *   breakdowns for the drill-down. Money owed has no expiry — never
+ *   windowed.
  *
  * Both gig figures read `gigs.expected_cents`, never
  * `amount_offered_cents`: on an hourly gig the latter is only an
@@ -78,8 +81,8 @@ export async function dashboardSummary(
 ): Promise<DashboardSummary> {
   const completed = await d1
     .prepare(
-      // 'delivered' counts here too: delivery is a milestone, not a
-      // change in what the gig is owed.
+      // 'delivered' counts here too: delivery is a milestone within
+      // completion — the work is still done.
       `SELECT COUNT(*) AS n FROM gigs
        WHERE user_id = ?1 AND status IN ('completed', 'delivered')`,
     )

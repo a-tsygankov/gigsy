@@ -30,6 +30,7 @@ const AMOUNT_CENTS = 250_000;
 const CONFIRMED_GIG_ID = "avail-gig-confirmed-marker";
 const LEAD_GIG_ID = "avail-gig-lead-marker";
 const CANCELLED_GIG_ID = "avail-gig-cancelled-marker";
+const DELIVERED_GIG_ID = "avail-gig-delivered-marker";
 
 /**
  * Round the clock, every day, for one week.
@@ -58,6 +59,8 @@ const LEAD_START = NOW + 50 * HOUR;
 const LEAD_END = LEAD_START + 2 * HOUR;
 const CANCELLED_START = NOW + 74 * HOUR;
 const CANCELLED_END = CANCELLED_START + 2 * HOUR;
+const DELIVERED_START = NOW + 98 * HOUR;
+const DELIVERED_END = DELIVERED_START + 2 * HOUR;
 
 async function insertGig(
   id: string,
@@ -105,6 +108,7 @@ beforeAll(async () => {
   await insertGig(CONFIRMED_GIG_ID, "confirmed", CONFIRMED_START, 120);
   await insertGig(LEAD_GIG_ID, "lead", LEAD_START, 120);
   await insertGig(CANCELLED_GIG_ID, "cancelled", CANCELLED_START, 120);
+  await insertGig(DELIVERED_GIG_ID, "delivered", DELIVERED_START, 120);
 });
 
 async function issueLink(ttlMs: number | null = null): Promise<string> {
@@ -238,6 +242,15 @@ describe("GET /api/a/:token — what it counts as busy", () => {
 
     expect(overlaps(body.slots, { start: CANCELLED_START, end: CANCELLED_END })).toBe(
       true,
+    );
+  });
+
+  it("subtracts a delivered gig", async () => {
+    // Handing the work over does not free the time it occupied.
+    const body = (await (await fetchLink(await issueLink())).json()) as PublicAvailability;
+
+    expect(overlaps(body.slots, { start: DELIVERED_START, end: DELIVERED_END })).toBe(
+      false,
     );
   });
 
