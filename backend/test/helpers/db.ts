@@ -16,6 +16,7 @@ import gigPayAndWorkLogSql from "../../migrations/0013_gig_pay_and_work_log.sql?
 import gigExpectedCentsSql from "../../migrations/0014_gig_expected_cents.sql?raw";
 import gigStatusCancelledSql from "../../migrations/0015_gig_status_cancelled.sql?raw";
 import paymentAllocationsSql from "../../migrations/0016_payment_allocations.sql?raw";
+import gigStatusDeliveredSql from "../../migrations/0017_gig_status_delivered.sql?raw";
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
@@ -74,9 +75,21 @@ export const MIGRATIONS_BEFORE_PAYMENT_ALLOCATIONS = [
 
 export const PAYMENT_ALLOCATIONS_MIGRATION = paymentAllocationsSql;
 
-const MIGRATIONS = [
+// Split again at 0017, for a different reason from 0014/0015/0016:
+// this migration backfills nothing, so there is no UPDATE to watch.
+// What it needs a pre-state for is the DROP TABLE gigs at its heart,
+// which is only meaningful against a database that has children in all
+// four tables holding a foreign key into gigs.id.
+export const MIGRATIONS_BEFORE_DELIVERED_STATUS = [
   ...MIGRATIONS_BEFORE_PAYMENT_ALLOCATIONS,
   PAYMENT_ALLOCATIONS_MIGRATION,
+];
+
+export const DELIVERED_STATUS_MIGRATION = gigStatusDeliveredSql;
+
+const MIGRATIONS = [
+  ...MIGRATIONS_BEFORE_DELIVERED_STATUS,
+  DELIVERED_STATUS_MIGRATION,
 ];
 
 /**
