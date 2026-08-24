@@ -213,6 +213,24 @@ async function splitRowFor(page: Page, gigId: string): Promise<number> {
   throw new Error(`no split row is on gig ${gigId}`);
 }
 
+/**
+ * The save has landed and the editor has gone.
+ *
+ * `PaymentEdit` navigates in its mutation's `onSuccess`, so leaving the
+ * screen is the receipt that every awaited Dexie write completed — the
+ * payment, then each changed allocation. Touching anything before that
+ * tears the page down mid-write and the allocation never reaches the
+ * outbox; this spec lost an hour to exactly that.
+ *
+ * Asserting we LEFT `/payments/:id` rather than that we arrived
+ * somewhere specific: where `backTo` sends you depends on whether the
+ * payment has a single gig, and that is not what any of these callers
+ * are waiting for.
+ */
+async function editorClosed(page: Page): Promise<void> {
+  await expect(page).not.toHaveURL(/\/payments\/[\w-]+$/, { timeout: 15_000 });
+}
+
 test.beforeEach(async ({ page, request, baseURL }) => {
   await requireTestAuth(request, baseURL!);
   // Every test here narrows the list by typing in the search box, and a
@@ -632,10 +650,17 @@ test("one payment covers two gigs", async ({ page }) => {
   // down mid-write, and the allocation never reaches the outbox: the
   // save looks like it worked, the assertion 40 seconds later does not,
   // and nothing in between says why. This spec lost an hour to exactly
-  // that. `PaymentEdit` navigates in the mutation's onSuccess, so the
-  // URL changing is the receipt that every write completed.
-  await expect(page).toHaveURL(/\/gigs/, { timeout: 15_000 });
-  await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
+  // that.
+  await editorClosed(page);
+  // Scoped to the header: this save leaves two allocations standing, so
+  // `backTo` lands on the Payments LIST rather than a gig hub, and that
+  // screen puts a sync badge on every unsynced row, not only the
+  // header's global one. Every other `sync-pending` check in this file
+  // is unambiguous because it lands somewhere without a second badge —
+  // this is the one save that doesn't.
+  await expect(page.locator("header").getByTestId("sync-pending")).toBeHidden({
+    timeout: 20_000,
+  });
 
   // Gig B's derived total follows it down, and the badge it had goes
   // with it — this is the assertion that would still pass if the
@@ -669,7 +694,7 @@ test("one payment covers two gigs", async ({ page }) => {
   await page.getByTestId(`payment-split-remove-${dropB}`).click();
   await expect(page.getByTestId("payment-unallocated")).toHaveText("Unallocated $50.00");
   await page.getByTestId("payment-save").click();
-  await expect(page).toHaveURL(/\/gigs/, { timeout: 15_000 });
+  await editorClosed(page);
   await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
 
   await page.goto(paymentUrl);
@@ -686,7 +711,7 @@ test("one payment covers two gigs", async ({ page }) => {
   // is, which is the point.
   await page.getByTestId("payment-notes").fill("bank transfer, one job still to place");
   await page.getByTestId("payment-save").click();
-  await expect(page).toHaveURL(/\/gigs/, { timeout: 15_000 });
+  await editorClosed(page);
   await expect(page.getByTestId("sync-pending")).toBeHidden({ timeout: 20_000 });
 
   await page.goto(paymentUrl);
