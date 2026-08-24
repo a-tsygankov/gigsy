@@ -31,6 +31,19 @@ export default defineConfig({
       name: "help",
       use: { ...devices["Pixel 7"] },
       testMatch: /help\/.*\.spec\.ts/,
+      // Longer than the 30s default because every scenario in this
+      // project pays two cold starts before its first step: the initial
+      // pull (`waitForGigsToHydrate` in help-fixtures.ts) and vite's
+      // first transform of the App module graph, since this suite runs
+      // against `pnpm dev` rather than a build.
+      //
+      // The 30s default was the real ceiling here, not the 30s the
+      // fixture's own assertion asked for — a test cannot outlive its
+      // timeout, so that assertion could never actually expire and the
+      // failure surfaced as a pending-locator report instead. The
+      // fixture now asks for 60s inside this 90s, so a genuine
+      // hydration failure reports itself rather than the test clock.
+      timeout: 90_000,
     },
   ],
 });

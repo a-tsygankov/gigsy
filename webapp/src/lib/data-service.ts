@@ -193,10 +193,17 @@ export class OfflineDataService {
     await this.store.removePayment(id);
     this.nudge();
   }
+  /** Payment ids whose changes have not reached the server yet. */
+  pendingPaymentIds(): Promise<Set<string>> {
+    return this.store.pendingIds("payment");
+  }
 
   // ── allocations ──────────────────────────────────────────────────
   listAllocationsByPayment(paymentId: string): Promise<Allocation[]> {
     return this.store.listAllocationsByPayment(paymentId);
+  }
+  listAllocations(): Promise<Allocation[]> {
+    return this.store.listAllocations();
   }
   listAllocationsByGig(gigId: string): Promise<Allocation[]> {
     return this.store.listAllocationsByGig(gigId);

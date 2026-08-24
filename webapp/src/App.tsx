@@ -10,6 +10,8 @@ import { GigEdit } from "./screens/GigEdit.tsx";
 import { GigDetail } from "./screens/GigDetail.tsx";
 import { Clients } from "./screens/Clients.tsx";
 import { ClientEdit } from "./screens/ClientEdit.tsx";
+import { Money } from "./screens/Money.tsx";
+import { Payments } from "./screens/money/Payments.tsx";
 import { Expenses } from "./screens/Expenses.tsx";
 import { Reports } from "./screens/Reports.tsx";
 import { Settings } from "./screens/Settings.tsx";
@@ -68,7 +70,10 @@ export function App() {
             <Route path="/drafts/:id" element={<DraftReview />} />
             <Route path="/clients" element={<Clients />} />
             <Route path="/clients/:id" element={<ClientEdit />} />
-            <Route path="/expenses" element={<Expenses />} />
+            <Route element={<Money />}>
+              <Route path="/payments" element={<Payments />} />
+              <Route path="/expenses" element={<Expenses />} />
+            </Route>
             <Route path="/expenses/:id" element={<ExpenseEdit />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/settings" element={<Settings />} />

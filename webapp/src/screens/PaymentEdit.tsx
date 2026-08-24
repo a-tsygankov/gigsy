@@ -274,7 +274,10 @@ export function PaymentEdit() {
     shownRows.filter((row) => row.gigId !== "").length === 1
       ? (shownRows.find((row) => row.gigId !== "")?.gigId ?? "")
       : "";
-  const backTo = soleGigId !== "" ? `/gigs/${soleGigId}` : "/gigs";
+  // A payment with no single gig has no gig to go back to. Before the
+  // Money tab existed the gig list was the only sensible fallback;
+  // now the payment came from `/payments` and belongs back there.
+  const backTo = soleGigId !== "" ? `/gigs/${soleGigId}` : "/payments";
 
   function editRows(next: SplitRow[]): void {
     setAutoBalance(false);

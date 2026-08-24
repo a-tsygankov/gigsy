@@ -304,10 +304,30 @@ async function waitForGigsToHydrate(
   // unconditional on `all.length > 0` (Gigs.tsx), so it is precisely
   // "the store has gigs in it now" and says nothing about what the saved
   // view leaves visible — that is the scenario's business, not this
-  // function's. 30s because the first pull writes every gig, client,
-  // expense, service and payment the account has.
+  // function's.
+  //
+  // The budget covers two cold starts at once, which is why it is this
+  // large. The first is the pull, which writes every gig, client,
+  // expense, service and payment the account has. The second is the
+  // dev server: this suite runs against `pnpm dev`, so vite serves the
+  // App module graph unbundled and transforms each module on first
+  // request — a cost that grows with the app and is paid by whichever
+  // scenario happens to run first.
+  //
+  // 30s was not enough. Adding the Money tab (five modules to the graph)
+  // pushed a run from 42s to 1.7m and produced two flaky scenarios, then
+  // a DIFFERENT one on re-run — the giveaway that this is the shared
+  // fixture timing out under whoever is unlucky, not any scenario being
+  // wrong. Nothing here is broken; the app is simply still loading.
+  //
+  // Kept below the help project's 90s test timeout on purpose
+  // (playwright.config.ts). A test cannot outlive its own timeout, so an
+  // assertion budget at or above it can never expire — which is exactly
+  // why the previous 30s-inside-30s reported a pending locator instead
+  // of saying hydration timed out. If this needs raising again, the
+  // question to ask is whether this suite should run against a build.
   await page.goto("/gigs");
-  await expect(page.getByTestId("gig-filters")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("gig-filters")).toBeVisible({ timeout: 60_000 });
 }
 
 /**

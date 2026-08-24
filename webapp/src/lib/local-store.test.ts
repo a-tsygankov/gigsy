@@ -23,6 +23,10 @@ const C1 = "33333333-3333-4333-8333-333333333333";
 const P1 = "44444444-4444-4444-8444-444444444444";
 const A1 = "55555555-5555-4555-8555-555555555555";
 const A2 = "77777777-7777-4777-8777-777777777777";
+// P2 is already taken (below, by the photo-queue section) with a different
+// UUID, so this second payment id keeps the "6" prefix but a name that
+// does not collide with it.
+const P6 = "66666666-6666-4666-8666-666666666666";
 
 describe("LocalStore CRUD + outbox", () => {
   it("putGig stores a readable record with clock timestamps", async () => {
@@ -909,6 +913,25 @@ describe("LocalStore photo queue", () => {
       "u/dev/payments/p/confirmation",
     );
     expect((await store.pendingOps()).length).toBe(opsBefore);
+  });
+});
+
+describe("LocalStore.listAllocations", () => {
+  it("returns every allocation across every payment in one read", async () => {
+    const { store } = makeStore();
+    await store.putPayment(P1, { amountCents: 10000 });
+    await store.putPayment(P6, { amountCents: 5000 });
+    await store.putAllocation(A1, { paymentId: P1, gigId: G1, amountCents: 10000 });
+    await store.putAllocation(A2, { paymentId: P6, gigId: G2, amountCents: 5000 });
+
+    const all = await store.listAllocations();
+
+    expect(all.map((a) => a.id).sort()).toEqual([A1, A2].sort());
+  });
+
+  it("returns an empty list rather than throwing when nothing is allocated", async () => {
+    const { store } = makeStore();
+    expect(await store.listAllocations()).toEqual([]);
   });
 });
 
