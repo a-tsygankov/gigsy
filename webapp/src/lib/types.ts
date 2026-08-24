@@ -248,6 +248,9 @@ export interface UnpaidJob {
 
 export interface DashboardSummary {
   completedCount: number;
+  /** Finished work not yet handed over — `completed` exactly, never
+   *  `delivered`. A delivered gig has already gone out the door. */
+  awaitingDeliveryCount: number;
   expectedCents: number;
   unpaidCents: number;
   unpaidJobs: UnpaidJob[];

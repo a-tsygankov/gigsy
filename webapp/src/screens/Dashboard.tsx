@@ -268,6 +268,19 @@ export function Dashboard() {
                   tone="neutral"
                   testId="tile-completed"
                 />
+                {/* Finished but not yet handed over — `completed`
+                    exactly, so a delivered gig drops off this tile the
+                    moment it's marked delivered. Tile itself doesn't
+                    link anywhere, so wrap it the way a drill-down tile
+                    needs to. */}
+                <Link to="/gigs?status=completed" className="block">
+                  <Tile
+                    label="To deliver"
+                    value={String(summary.data.awaitingDeliveryCount)}
+                    tone="neutral"
+                    testId="tile-awaiting-delivery"
+                  />
+                </Link>
               </div>
             </div>
 

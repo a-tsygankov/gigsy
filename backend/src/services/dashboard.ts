@@ -5,6 +5,10 @@
  *   not a different count. `paid` is no longer a status (migration
  *   0015): a gig that was `paid` reads `completed` now, and paid-ness
  *   is a fact about the money, not the count here.
+ * - awaitingDeliveryCount — the opposite widening from every other
+ *   count here: `completed` EXACTLY, never `delivered`. A delivered
+ *   gig has already been handed over, so it has left the queue of work
+ *   still waiting to go out the door.
  * - expectedCents — promised money still ahead: the expected pay of
  *   `lead|confirmed` gigs (optionally windowed by future date) plus
  *   their services' offered amounts. The window applies ONLY here —
@@ -60,6 +64,12 @@ export interface UnpaidJob {
 
 export interface DashboardSummary {
   completedCount: number;
+  /** Finished work that has not yet been handed over — `completed`
+   *  EXACTLY, not `completed|delivered`. This is the one count in this
+   *  file that must NOT widen: a delivered gig has already been handed
+   *  over, so it does not belong in a queue whose whole purpose is
+   *  what still needs delivering. */
+  awaitingDeliveryCount: number;
   expectedCents: number;
   unpaidCents: number;
   unpaidJobs: UnpaidJob[];
@@ -85,6 +95,17 @@ export async function dashboardSummary(
       // completion — the work is still done.
       `SELECT COUNT(*) AS n FROM gigs
        WHERE user_id = ?1 AND status IN ('completed', 'delivered')`,
+    )
+    .bind(userId)
+    .first<{ n: number }>();
+
+  // `completed` exactly, NOT the `IN ('completed','delivered')` the
+  // money queries use: this is the one place where the distinction is
+  // the point. Work that has been handed over is not awaiting delivery.
+  const awaitingDelivery = await d1
+    .prepare(
+      `SELECT COUNT(*) AS n FROM gigs
+       WHERE user_id = ?1 AND status = 'completed'`,
     )
     .bind(userId)
     .first<{ n: number }>();
@@ -167,6 +188,7 @@ export async function dashboardSummary(
 
   return {
     completedCount: completed?.n ?? 0,
+    awaitingDeliveryCount: awaitingDelivery?.n ?? 0,
     expectedCents: expected?.total ?? 0,
     unpaidCents: unpaidJobs.reduce((sum, job) => sum + job.outstandingCents, 0),
     unpaidJobs,

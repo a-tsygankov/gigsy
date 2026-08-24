@@ -38,6 +38,7 @@ const NOW = Date.now();
 
 interface Dashboard {
   completedCount: number;
+  awaitingDeliveryCount: number;
   expectedCents: number;
   unpaidCents: number;
   unpaidJobs: {
@@ -307,5 +308,42 @@ describe("GET /api/reports/dashboard — a payment split across two gigs", () =>
       paidCents: 5000,
       outstandingCents: 7000,
     });
+  });
+});
+
+// Migration 0017: 'delivered' is a status a gig can reach after
+// 'completed'. Every other count in this file widens to include it
+// (delivery is a milestone within completion, still owed, still
+// busy). This one is the opposite on purpose: a delivered gig has
+// already been handed over, so it has left the queue of work that
+// still needs delivering.
+describe("GET /api/reports/dashboard — awaiting delivery", () => {
+  const U6 = "user-6";
+  const STILL_OWED = "61111111-1111-4111-8111-111111111111";
+  const ALREADY_DELIVERED = "62222222-2222-4222-8222-222222222222";
+
+  it("counts work that is finished but not yet handed over", async () => {
+    await seedUser(env.DB, U6);
+    // Seed BOTH statuses so the assertion actually distinguishes them
+    // — a test that only seeds 'completed' gigs can't tell whether the
+    // query is filtering on 'completed' or on "anything done".
+    await api(U6, "PUT", `/api/gigs/${STILL_OWED}`, {
+      status: "completed",
+      amountOfferedCents: 15000,
+    });
+    await api(U6, "PUT", `/api/gigs/${ALREADY_DELIVERED}`, {
+      status: "delivered",
+      amountOfferedCents: 9000,
+    });
+
+    const d = await dashboard(U6);
+    // `completed` exactly — a delivered gig has been handed over and
+    // does not belong in a queue whose whole purpose is what still
+    // needs delivering.
+    expect(d.awaitingDeliveryCount).toBe(1);
+    // Both gigs are still "done" for the purposes of the other counts
+    // on this response — proves this test isn't accidentally seeding
+    // its way into a state where the two counts can't diverge.
+    expect(d.completedCount).toBe(2);
   });
 });
