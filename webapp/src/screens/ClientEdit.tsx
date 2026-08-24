@@ -16,6 +16,13 @@ import {
   Textarea,
 } from "../components/index.ts";
 
+/** Work that has been done, whether or not it has been handed over.
+ *  Both history groups key off this rather than `status === "completed"`
+ *  so a delivered gig cannot fall out of both. */
+function isDone(gig: Gig): boolean {
+  return gig.status === "completed" || gig.status === "delivered";
+}
+
 /** One row in the client's job history. */
 function JobRow({ gig }: { gig: Gig }) {
   // Paid if it has been, otherwise the gig's expected pay — the same
@@ -201,18 +208,18 @@ export function ClientEdit() {
                       derived (lib/gig-pay.ts). isPaid() splits on what
                       has landed against what was expected, not on
                       Boolean(amountPaidCents) — a $1 deposit on a $200
-                      job is not "Paid", it's still owed. */}
+                      job is not "Paid", it's still owed.
+                      'delivered' belongs in these groups too: it is
+                      work that is done, and a gig that matched neither
+                      would disappear from the client's history
+                      entirely rather than merely being miscounted. */}
                   <JobGroup
                     title="Completed — not paid"
-                    gigs={clientGigs.filter(
-                      (g) => g.status === "completed" && !isPaid(g),
-                    )}
+                    gigs={clientGigs.filter((g) => isDone(g) && !isPaid(g))}
                   />
                   <JobGroup
                     title="Paid"
-                    gigs={clientGigs.filter(
-                      (g) => g.status === "completed" && isPaid(g),
-                    )}
+                    gigs={clientGigs.filter((g) => isDone(g) && isPaid(g))}
                   />
                 </section>
 
