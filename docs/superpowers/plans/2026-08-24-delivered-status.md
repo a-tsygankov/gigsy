@@ -968,6 +968,18 @@ comment the other entries have, directly above it:
   // other hue in the palette was already spoken for.
 ```
 
+**Also line 38 of that file**, which Task 2's review flagged as assigned
+to nobody. The `cancelled` entry's comment ends with a note on emerald
+that opens:
+
+```ts
+// emerald, not one of the four hues above and not red-50/red-600 (this
+```
+
+There are five hues above it now — Task 2's one-line addition made that
+false. Change `four` to `five`. It is one word, and it ships wrong
+otherwise.
+
 and update the docblock's opening line, which currently states a lifecycle that is now wrong:
 
 ```
