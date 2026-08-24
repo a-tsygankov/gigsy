@@ -10,8 +10,16 @@
 -- one fact. 'cancelled' stays, for the same reason it was added.
 --
 -- 'delivered' is NOT sequence-enforced against payment: a deposit can
--- clear before delivery and a balance after, so the server permits any
--- order.
+-- clear before delivery and a balance after, so no order is enforced.
+--
+-- THE SERVER DOES NOT ACCEPT 'delivered' YET. This migration only makes
+-- the column able to hold it. src/db/schema.ts's GIG_STATUSES still
+-- lists four, so PUT /api/gigs rejects 'delivered' at the Zod layer
+-- until the enum change lands -- Task 2 of this feature, named here the
+-- same way 0016's header named routes/payments.ts as its own follow-up.
+-- Widening storage before validation is the safe order:
+-- a column that permits a value nothing writes is inert, whereas a
+-- server that writes a value the column refuses is an outage.
 --
 -- WHY A REBUILD: `status` carries a CHECK constraint hardcoded in
 -- 0000_init.sql and rewritten by 0015. SQLite has no ALTER TABLE for a
@@ -33,6 +41,53 @@
 --
 -- NOTHING IS BACKFILLED. Unlike 0015, which rewrote 'paid' rows, this
 -- only widens what is permitted. Every gig keeps the status it had.
+--
+-- ATOMICITY, AND THE ONE WINDOW THAT DOES NOT SELF-HEAL.
+-- `d1 migrations apply --local` runs this file through db.batch(), one
+-- transaction. `--remote`, the one the deploy job actually runs, posts it
+-- to D1's HTTP query endpoint, which Cloudflare does not document as
+-- transactional across statements (0015's header establishes this at
+-- length). So a connection dropped partway leaves this file half applied
+-- and not recorded as done. That is why it is written to be RE-RUN rather
+-- than merely to be correct once: every CREATE is IF NOT EXISTS, every
+-- DELETE is a no-op against an already-empty table, and the rebuild's
+-- INSERT is filtered to rows it has not already copied. Re-running from
+-- the top repeats no destructive step and duplicates no row. The IF NOT
+-- EXISTS on the four stage tables is load-bearing, not decoration: a
+-- retry that re-created them would overwrite the only surviving copy of
+-- every child row with the emptied tables and lose all four for good.
+--
+-- The exception is the two-statement window between DROP TABLE gigs and
+-- ALTER TABLE gigs_new RENAME TO gigs. In it there is no table named
+-- `gigs`; gigs_new, already fully populated and correct, is the only copy
+-- of the data. A retry from the top reaches its own "INSERT INTO gigs_new
+-- ... FROM gigs" and fails outright with `no such table: main.gigs`,
+-- because the source it reads from is exactly what this window lacks.
+-- Nothing is lost — nothing here ever drops or overwrites gigs_new, and
+-- the stage tables still hold every child row — but nothing finishes
+-- automatically either.
+--
+-- RECOVERY, if a deploy dies and re-running gives `no such table:
+-- main.gigs`: you are in that window. The data is intact. Rename the
+-- rebuild in by hand:
+--
+--     ALTER TABLE gigs_new RENAME TO gigs;
+--
+-- Then re-run this file from the top. It will find gigs present,
+-- rebuild it once more from itself (a no-op in substance), and restore
+-- all four children from the *_stage tables it left intact. Verify with
+-- PRAGMA foreign_key_check and by confirming no *_stage table remains.
+-- Do NOT try to empty or re-create the stage tables first; they are the
+-- only copy of the child rows until that final restore runs.
+--
+-- Making the window survivable was considered and rejected. Renaming
+-- gigs to gigs_old first is strictly worse: SQLite rewrites the child
+-- tables' FK clauses to point at gigs_old, so the retry hits the same
+-- failure one statement over, with the foreign keys now misdirected too.
+-- Closing it properly needs either real cross-statement transactionality
+-- (what --remote does not offer) or a conditional "skip if gigs is
+-- already gone", which a flat sequence of SQL statements cannot express.
+-- Proven, not asserted, by gig-status-delivered-rerun.test.ts.
 CREATE TABLE IF NOT EXISTS payment_allocations_stage AS SELECT * FROM payment_allocations;
 CREATE TABLE IF NOT EXISTS gig_services_stage AS SELECT * FROM gig_services;
 CREATE TABLE IF NOT EXISTS payments_stage AS SELECT * FROM payments;
