@@ -62,10 +62,18 @@ the path.
 | `components/TabBar.tsx` | Expenses → Money, `/expenses` → `/payments` |
 | `components/Segmented.tsx` | New. No segmented control exists today; `TabBar` is bottom-fixed app nav and `Toggle` is a switch, so neither fits. |
 
-`PaymentEdit.tsx` is **not** touched. It is 694 lines and already owns
-amount, date, client, split and photo, behind invariants the server also
-enforces (`services/payment-invariants.ts`). A second editing path would
+`PaymentEdit.tsx` keeps sole ownership of the editing path. It is 694
+lines and already owns amount, date, client, split and photo, behind
+invariants the server also enforces
+(`services/payment-invariants.ts`); a second editing path would
 duplicate split logic that has real money rules behind it.
+
+> **Amended during implementation.** This section originally said
+> `PaymentEdit.tsx` would not be touched at all. One line changed:
+> `backTo`'s fallback moved from `/gigs` to `/payments`, because a
+> payment with no single gig now has a home and used to be dumped on
+> the gig list. Nothing else in the file changed, and no editing
+> behaviour did.
 
 ## Allocation state
 
@@ -163,5 +171,7 @@ screen.
 - No inline allocation from a row.
 - No delete from the list.
 - No merged payments-and-expenses ledger.
-- No change to `PaymentEdit`, the allocation model, or any server route.
+- No change to `PaymentEdit`'s editing behaviour, the allocation model,
+  or any server route. (`PaymentEdit`'s one-line `backTo` fallback did
+  change — see the amendment above.)
 - No sixth tab.
