@@ -982,6 +982,31 @@ and update the docblock's opening line, which currently states a lifecycle that 
 
 Update that description to include `delivered`, and say what it means — that the work is handed over, and that it is still counted as owed and still blocks the time. Keep the existing explanation of what the other statuses drive; only extend it.
 
+- [ ] **Step 6b: Fix the calendar sync header, which names one status too few**
+
+Found during Task 2. `backend/src/calendar/sync-service.ts`'s header
+states the reconciliation rules, and line 5 reads:
+
+```
+ * - `completed` keeps its event untouched (history);
+```
+
+A `delivered` gig already behaves correctly here with **no code change**:
+it satisfies neither `wantsEvent` (line 132, `status === "confirmed"`)
+nor `shouldDelete` (lines 156-158, lead / cancelled / confirmed-without-
+date), so it falls into the same implicit catch-all as `completed` and
+its event is left as history. That is exactly what this design wants.
+
+But the header does not say so, and this repo's comments are its
+documentation. Change that line to name both:
+
+```
+ * - `completed` and `delivered` keep their event untouched (history);
+```
+
+Do NOT change any logic in that file. The behaviour is already right;
+only the prose is behind.
+
 - [ ] **Step 7: Run it and confirm it passes**
 
 ```bash
@@ -1001,7 +1026,7 @@ Expected: PASS. If that suite asserts a fixed set of token names, extend it to c
 - [ ] **Step 9: Commit**
 
 ```bash
-git add webapp/src/styles/tokens/colors.css webapp/tailwind.config.ts webapp/src/components/StatusPill.tsx webapp/src/components/StatusPill.test.tsx webapp/src/help/scenarios/record-work.ts
+git add webapp/src/styles/tokens/colors.css webapp/tailwind.config.ts webapp/src/components/StatusPill.tsx webapp/src/components/StatusPill.test.tsx webapp/src/help/scenarios/record-work.ts backend/src/calendar/sync-service.ts
 git commit -m "feat(ui): a teal pill for delivered, and prose that stops being wrong"
 ```
 
