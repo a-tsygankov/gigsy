@@ -19,6 +19,7 @@ export const STATUS_PILL_CLASSES: Record<GigStatus, string> = {
   lead: "bg-slate-100 text-slate-600",
   confirmed: "bg-sky-100 text-sky-700",
   completed: "bg-amber-100 text-amber-700",
+  delivered: "bg-teal-100 text-teal-700",
   // Its own hue, not slate: sharing lead's colour would make "not yet
   // started" and "never going to happen" look identical at a glance,
   // in a component whose whole job is to carry that distinction in
