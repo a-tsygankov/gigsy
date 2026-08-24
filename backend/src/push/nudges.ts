@@ -14,7 +14,7 @@
  * At most one nudge per run, carrying the single most pressing item.
  * A list of five things is a chore; one thing is a prompt.
  */
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, inArray, lt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { gigs, clients } from "../db/schema.ts";
 
@@ -76,7 +76,9 @@ export async function selectNudge(
     .where(
       and(
         eq(gigs.userId, userId),
-        eq(gigs.status, "completed"),
+        // 'delivered' counts here too: delivery is a milestone, not a
+        // change in what the gig is owed.
+        inArray(gigs.status, ["completed", "delivered"]),
         lt(gigs.modifiedAt, unpaidCutoff),
       ),
     );

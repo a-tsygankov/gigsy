@@ -408,7 +408,9 @@ export async function reportSummary(
          WHERE user_id = ?
          GROUP BY gig_id
        ) s ON s.gig_id = g.id
-       WHERE ${gigWhere.join(" AND ")} AND g.status = 'completed'`,
+       -- 'delivered' counts here too: delivery is a milestone, not a
+       -- change in what the gig is owed.
+       WHERE ${gigWhere.join(" AND ")} AND g.status IN ('completed', 'delivered')`,
     )
     .bind(userId, ...gigParams)
     .first<{ total: number | null }>();

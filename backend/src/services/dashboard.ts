@@ -78,8 +78,10 @@ export async function dashboardSummary(
 ): Promise<DashboardSummary> {
   const completed = await d1
     .prepare(
+      // 'delivered' counts here too: delivery is a milestone, not a
+      // change in what the gig is owed.
       `SELECT COUNT(*) AS n FROM gigs
-       WHERE user_id = ?1 AND status = 'completed'`,
+       WHERE user_id = ?1 AND status IN ('completed', 'delivered')`,
     )
     .bind(userId)
     .first<{ n: number }>();
@@ -127,7 +129,9 @@ export async function dashboardSummary(
          FROM gigs g
          LEFT JOIN clients c ON c.id = g.client_id
          LEFT JOIN (${SERVICE_SUMS}) s ON s.gig_id = g.id
-         WHERE g.user_id = ?1 AND g.status = 'completed'
+         -- 'delivered' counts here too: delivery is a milestone, not a
+         -- change in what the gig is owed.
+         WHERE g.user_id = ?1 AND g.status IN ('completed', 'delivered')
          ORDER BY g.date_time`,
       )
       .bind(userId)

@@ -48,7 +48,9 @@ const END_OF_DAY_MINUTE = 24 * 60;
  * historic slot, which matters only if someone asks about the past. A
  * `cancelled` gig fell through — it occupies nothing, past or future.
  */
-export const BUSY_STATUSES: readonly GigStatus[] = ["confirmed", "completed"];
+// `delivered` is still busy: handing the work over does not free the
+// time it occupied. See the delivered-status design.
+export const BUSY_STATUSES: readonly GigStatus[] = ["confirmed", "completed", "delivered"];
 
 /**
  * Everything the public page is allowed to know.
