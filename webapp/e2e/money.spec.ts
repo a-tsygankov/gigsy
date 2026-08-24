@@ -228,7 +228,7 @@ async function splitRowFor(page: Page, gigId: string): Promise<number> {
  * are waiting for.
  */
 async function editorClosed(page: Page): Promise<void> {
-  await expect(page).not.toHaveURL(/\/payments\/[\w-]+$/, { timeout: 15_000 });
+  await expect(page).not.toHaveURL(/\/payments\/[\w-]+(\?|$)/, { timeout: 15_000 });
 }
 
 test.beforeEach(async ({ page, request, baseURL }) => {
