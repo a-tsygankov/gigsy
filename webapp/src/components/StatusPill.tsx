@@ -1,9 +1,9 @@
 /**
  * Gig lifecycle badge (design system, components/feedback/StatusPill):
- * lead → confirmed → completed, with cancelled off to one side rather
- * than at the end of that line — it isn't a stage the work passes
- * through. The pill's hue is the state — colour carries the meaning an
- * icon normally would. Text stays lowercase always.
+ * lead → confirmed → completed → delivered, with cancelled off to one
+ * side rather than at the end of that line — it isn't a stage the work
+ * passes through. The pill's hue is the state — colour carries the
+ * meaning an icon normally would. Text stays lowercase always.
  *
  * `paid` is deliberately not one of these statuses (migration 0015): it
  * was a status someone set by hand while a payment record said the same
@@ -19,6 +19,11 @@ export const STATUS_PILL_CLASSES: Record<GigStatus, string> = {
   lead: "bg-slate-100 text-slate-600",
   confirmed: "bg-sky-100 text-sky-700",
   completed: "bg-amber-100 text-amber-700",
+  // teal, new to the palette (colors.css) for exactly this pill, the
+  // way violet was added for `cancelled`. It sits between sky
+  // (confirmed) and emerald (the paid badge), which is where delivered
+  // sits in the lifecycle: past confirmed, heading for paid. Every
+  // other hue in the palette was already spoken for.
   delivered: "bg-teal-100 text-teal-700",
   // Its own hue, not slate: sharing lead's colour would make "not yet
   // started" and "never going to happen" look identical at a glance,
@@ -35,7 +40,7 @@ export const STATUS_PILL_CLASSES: Record<GigStatus, string> = {
   cancelled: "bg-violet-100 text-violet-700 line-through",
 };
 
-// emerald, not one of the four hues above and not red-50/red-600 (this
+// emerald, not one of the five hues above and not red-50/red-600 (this
 // app's error signal, see the comment on `cancelled`): it is free.
 // It is also the deliberate choice, not merely a free one — cancelled's
 // own comment already calls emerald this app's "accent/'good news'

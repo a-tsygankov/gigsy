@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { StatusPill } from "./StatusPill.tsx";
+import { STATUS_PILL_CLASSES, StatusPill } from "./StatusPill.tsx";
 import { GIG_STATUSES } from "../lib/types.ts";
 
 // Same setup as HelpProvider.test.tsx: react-dom's `act` warns without
@@ -53,5 +53,11 @@ describe("StatusPill", () => {
     // money, independent of the lifecycle stage (lib/gig-pay.ts).
     const el = render({ status: "lead", paid: true });
     expect(el.querySelector("[data-testid='paid-badge']")).not.toBeNull();
+  });
+
+  it("gives delivered its own hue, not one another status already uses", () => {
+    const classes = new Set(Object.values(STATUS_PILL_CLASSES));
+    expect(classes.size).toBe(GIG_STATUSES.length);
+    expect(STATUS_PILL_CLASSES.delivered).toContain("teal");
   });
 });

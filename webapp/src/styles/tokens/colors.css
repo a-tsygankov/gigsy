@@ -54,6 +54,11 @@
   --c-violet-100: 237 233 254;
   --c-violet-700: 109 40 217;
 
+  /* New to the palette for exactly the `delivered` pill (StatusPill.tsx),
+     the way violet was added for `cancelled`. */
+  --c-teal-100: 204 251 241;
+  --c-teal-700: 15 118 110;
+
   --c-white: 255 255 255;
 
   /* Two tokens that exist because one palette step cannot serve two
@@ -124,6 +129,12 @@
 
   --c-violet-100: 46 16 101;
   --c-violet-700: 196 181 253;
+
+  /* Same swap as violet: 100 goes to the darkest step in the ramp (a
+     fill that reads as tinted, not as the card surface), 700 goes to a
+     bright, saturated step for legible text on it. */
+  --c-teal-100: 4 47 46;
+  --c-teal-700: 94 234 212;
 
   /* Dark mode brightens the accent fill, and white on a bright emerald
      measures 2.54:1 — below the 4.5 a button needs. The convention that
