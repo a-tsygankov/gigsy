@@ -268,6 +268,28 @@ export function Dashboard() {
                   tone="neutral"
                   testId="tile-completed"
                 />
+                {/* Finished but not yet handed over — `completed`
+                    exactly, so a delivered gig drops off this tile the
+                    moment it's marked delivered. Tile itself doesn't
+                    link anywhere, so wrap it the way a drill-down tile
+                    needs to — same interactive treatment cardClasses
+                    gives CardLink (Card.tsx: "always gets the hover
+                    lift"), applied by hand because Tile isn't built on
+                    cardClasses. No focus-visible ring added: CardLink
+                    itself adds none either (every CardLink usage in the
+                    app relies on the browser's native focus outline),
+                    so a ring here would be new, not matched. */}
+                <Link
+                  to="/gigs?status=completed"
+                  className="block rounded-xl transition-shadow duration-150 hover:shadow"
+                >
+                  <Tile
+                    label="To deliver"
+                    value={String(summary.data.awaitingDeliveryCount)}
+                    tone="neutral"
+                    testId="tile-awaiting-delivery"
+                  />
+                </Link>
               </div>
             </div>
 

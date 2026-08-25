@@ -5,8 +5,8 @@
  */
 import { PAY_TYPES, type PayType } from "./gig-pay.ts";
 
-export type GigStatus = "lead" | "confirmed" | "completed" | "cancelled";
-export const GIG_STATUSES: GigStatus[] = ["lead", "confirmed", "completed", "cancelled"];
+export type GigStatus = "lead" | "confirmed" | "completed" | "delivered" | "cancelled";
+export const GIG_STATUSES: GigStatus[] = ["lead", "confirmed", "completed", "delivered", "cancelled"];
 
 // Re-exported so screens have one import site for the pay vocabulary.
 export type { PayType };
@@ -248,6 +248,9 @@ export interface UnpaidJob {
 
 export interface DashboardSummary {
   completedCount: number;
+  /** Finished work not yet handed over — `completed` exactly, never
+   *  `delivered`. A delivered gig has already gone out the door. */
+  awaitingDeliveryCount: number;
   expectedCents: number;
   unpaidCents: number;
   unpaidJobs: UnpaidJob[];

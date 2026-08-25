@@ -35,16 +35,16 @@
  *   pay type — and has no allocations of its own, only a hand-set
  *   `amount_paid_cents`, because payment_allocations links a payment to
  *   a gig, not to a service.
- * - owedCents = work done and unpaid: per `completed` gig (and its
- *   services), max(0, expected − paid). This used to be offered − paid
- *   over every gig in the period, which counted speculative leads as
- *   debts and let an overpayment on one gig cancel a shortfall on
- *   another. It now answers the same question as the dashboard's
- *   "Unpaid — waiting on clients", within the report's filters. It
- *   reads the per-gig `amount_paid_cents`, on purpose: work is only
- *   "owed" to the extent no payment has been attributed to it yet, so
- *   an unallocated payment sitting elsewhere must not reduce what a
- *   specific gig appears to still be owed.
+ * - owedCents = work done and unpaid: per `completed`-or-`delivered`
+ *   gig (and its services), max(0, expected − paid). This used to be
+ *   offered − paid over every gig in the period, which counted
+ *   speculative leads as debts and let an overpayment on one gig
+ *   cancel a shortfall on another. It now answers the same question
+ *   as the dashboard's "Unpaid — waiting on clients", within the
+ *   report's filters. It reads the per-gig `amount_paid_cents`, on
+ *   purpose: work is only "owed" to the extent no payment has been
+ *   attributed to it yet, so an unallocated payment sitting elsewhere
+ *   must not reduce what a specific gig appears to still be owed.
  * - netCents = paid − expenses, where "paid" is the same money-received
  *   figure as `totals.paidCents` (including the unallocated remainder)
  *   — an unattributed deposit is still cash in hand.
@@ -103,10 +103,10 @@ export interface ReportSummary {
      *  allocated to any gig yet. "How much did I receive", not "how
      *  much of my work is paid for" — see the file header. */
     paidCents: number;
-    /** Work done and not (fully) paid for: per `completed` gig,
-     *  max(0, expected − paid), plus the same for its services. Matches
-     *  the dashboard's "Unpaid — waiting on clients", narrowed by the
-     *  report's filters. */
+    /** Work done and not (fully) paid for: per `completed`-or-
+     *  `delivered` gig, max(0, expected − paid), plus the same for its
+     *  services. Matches the dashboard's "Unpaid — waiting on
+     *  clients", narrowed by the report's filters. */
     owedCents: number;
     expensesCents: number;
     /** Portion of expensesCents the client is expected to cover. Shown
@@ -372,11 +372,13 @@ export async function reportSummary(
   // asks a narrower question than they answer. Two differences, and
   // both change the number:
   //
-  //   - `completed` only. A lead is speculative and a confirmed gig has
-  //     not happened yet; neither is a debt. The dashboard calls that
-  //     money "Expected" and this now agrees with it. `cancelled` is
-  //     out too, and for a different reason: it isn't a debt, it's work
-  //     that no longer counts at all (gigWhere, above).
+  //   - `completed` and `delivered` only — both are finished work that
+  //     is still owed. A lead is speculative and a confirmed gig has
+  //     not happened yet; neither is a debt, so both are excluded as
+  //     not-yet-debts. The dashboard calls that money "Expected" and
+  //     this now agrees with it. `cancelled` is out too, and for a
+  //     different reason: it isn't a debt, it's work that no longer
+  //     counts at all (gigWhere, above).
   //   - Clamped per gig. Σoffered − Σpaid lets an overpayment on one
   //     gig cancel a shortfall on another, so the total could read
   //     lower than what any client actually owes — and, with a generous
@@ -408,7 +410,9 @@ export async function reportSummary(
          WHERE user_id = ?
          GROUP BY gig_id
        ) s ON s.gig_id = g.id
-       WHERE ${gigWhere.join(" AND ")} AND g.status = 'completed'`,
+       -- 'delivered' counts here too: delivery is a milestone, not a
+       -- change in what the gig is owed.
+       WHERE ${gigWhere.join(" AND ")} AND g.status IN ('completed', 'delivered')`,
     )
     .bind(userId, ...gigParams)
     .first<{ total: number | null }>();

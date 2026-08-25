@@ -82,7 +82,7 @@ export const recordWork: HelpScenario = {
       target: HelpTarget.GigStatus,
       title: "Status",
       description:
-        "lead → confirmed → completed, and it drives real behaviour, not just a label. A lead never blocks time on your public availability page and never reaches Google Calendar — it's an offer, not a commitment; confirmed does both. Completed is what the dashboard reads as work waiting to be paid. Cancelled pulls the gig out of your calendar, your availability and your reports without deleting the record. Whether it's actually been paid is worked out from Paid ($) on the job form, not set here.",
+        "lead → confirmed → completed → delivered, and it drives real behaviour, not just a label. A lead never blocks time on your public availability page and never reaches Google Calendar — it's an offer, not a commitment; confirmed does both. Completed is what the dashboard reads as work waiting to be paid. Delivered means the work has been handed over — it's still counted as owed and still blocks the time, exactly like completed, just one step further along. Cancelled pulls the gig out of your calendar, your availability and your reports without deleting the record. Whether it's actually been paid is worked out from Paid ($) on the job form, not set here.",
     },
     {
       action: "highlight",

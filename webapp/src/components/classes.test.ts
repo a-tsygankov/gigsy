@@ -10,6 +10,7 @@ import { cardClasses } from "./Card.tsx";
 import { inputShellClasses, shellWith, textareaClasses } from "./Input.tsx";
 import { PAID_BADGE_CLASSES, STATUS_PILL_CLASSES } from "./StatusPill.tsx";
 import { TILE_TONE_CLASSES } from "./Tile.tsx";
+import { GIG_STATUSES } from "../lib/types.ts";
 
 describe("buttonClasses", () => {
   it("primary is the emerald fill with shadow lift and offset ring", () => {
@@ -173,25 +174,24 @@ describe("shellWith — the caller's width wins", () => {
 });
 
 describe("status + tone maps", () => {
-  it("covers the full gig lifecycle", () => {
-    expect(Object.keys(STATUS_PILL_CLASSES).sort()).toEqual([
-      "cancelled",
-      "completed",
-      "confirmed",
-      "lead",
-    ]);
+  it("covers the full gig lifecycle, and invents no statuses of its own", () => {
+    // Derived from GIG_STATUSES rather than spelled out here: a literal
+    // list would be a fifth hand-maintained copy of the lifecycle,
+    // which is exactly the drift the enum's own test
+    // (backend/test/gig-status-enum.test.ts) exists to prevent.
+    expect(Object.keys(STATUS_PILL_CLASSES).sort()).toEqual([...GIG_STATUSES].sort());
     expect(STATUS_PILL_CLASSES.cancelled).toContain("violet");
     expect(STATUS_PILL_CLASSES.confirmed).toContain("sky");
     expect(STATUS_PILL_CLASSES.completed).toContain("amber");
+    expect(STATUS_PILL_CLASSES.delivered).toContain("teal");
     expect(STATUS_PILL_CLASSES.lead).toContain("slate");
   });
 
   it("gives every status, and the paid badge, its own hue — colour is the only thing distinguishing them", () => {
     // `toContain("slate")` alone can't catch two statuses sharing a
     // colour; this extracts the actual bg-* utility from each class
-    // string and checks all five — the four statuses plus the paid
-    // badge, which sits beside them on the same pill — are pairwise
-    // distinct.
+    // string and checks that every status hue, plus the paid badge —
+    // which sits beside them on the same pill — is pairwise distinct.
     const hues = [...Object.values(STATUS_PILL_CLASSES), PAID_BADGE_CLASSES].map(
       (cls) => cls.match(/bg-(\w+)-\d+/)?.[1],
     );
@@ -200,7 +200,7 @@ describe("status + tone maps", () => {
 
   it("the paid badge doesn't collide with the app's error red", () => {
     // Not covered by the pairwise-distinct check above, which only
-    // compares the badge against the four status hues — this app's
+    // compares the badge against the status hues — this app's
     // red-50/red-600 error signal (Field, LogList, every screen's
     // "Save failed" line, SyncBadge's failure state) isn't one of
     // those, so it needs its own assertion.

@@ -79,6 +79,45 @@ describe("design tokens", () => {
     }
   });
 
+  /**
+   * `--c-slate-100` and `--c-white` are byte-identical in the dark
+   * block ("30 41 59"), so the `lead` pill (StatusPill's
+   * bg-slate-100) has no fill on a card in dark mode today — it is
+   * literally the surface it sits on. This predates the
+   * delivered-status work and fixing it is a separate decision for the
+   * user, not something this test forces. The exemption is named
+   * rather than a blanket skip so the bug stays recorded in code
+   * instead of a review transcript.
+   */
+  const KNOWN_DARK_FILL_COLLISIONS = ["slate"];
+
+  it("every -100 fill differs from the card surface in dark mode", () => {
+    // The failure mode design-system.md and StatusPill.tsx both warn
+    // about by name: a fill that resolves to the same RGB as the card
+    // (`--c-white`) it sits on is invisible in that theme. "defines a
+    // dark value for every palette token" above only proves a value
+    // exists, not that it is distinguishable from the surface — this
+    // is the assertion the Testing section of the delivered-status
+    // design actually promised.
+    const css = readFileSync(tokensDir + "colors.css", "utf8");
+    const darkBlock = css.slice(css.indexOf('[data-theme="dark"]'));
+    const darkVars: Record<string, string> = {};
+    for (const [, name, value] of darkBlock.matchAll(/(--c-[\w-]+)\s*:\s*([^;]+);/g)) {
+      if (name !== undefined && value !== undefined) {
+        darkVars[name] = value.trim().replace(/\s*\/\*.*?\*\/\s*$/, "");
+      }
+    }
+    const white = darkVars["--c-white"];
+    expect(white, "--c-white has no dark value").toBeDefined();
+    for (const name of Object.keys(palette)) {
+      const m = /^--c-([a-z]+)-100$/.exec(name);
+      if (m === null) continue;
+      const hue = m[1]!;
+      if (KNOWN_DARK_FILL_COLLISIONS.includes(hue)) continue;
+      expect(darkVars[name], `${name} vs --c-white in dark mode`).not.toBe(white);
+    }
+  });
+
   it("semantic aliases only reference defined palette tokens", () => {
     const semantic = cssVars("semantic.css");
     expect(Object.keys(semantic).length).toBeGreaterThan(0);
@@ -100,7 +139,7 @@ describe("design tokens", () => {
    * accumulated across the app before this test existed.
    */
   it("every colour utility in the app resolves to a tokenised step", () => {
-    const hues = "slate|emerald|sky|amber|red|violet";
+    const hues = "slate|emerald|sky|amber|red|violet|teal";
     const used = new Map<string, string[]>();
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir)) {
@@ -149,6 +188,7 @@ describe("design tokens", () => {
       "--status-lead-bg",
       "--status-confirmed-bg",
       "--status-completed-bg",
+      "--status-delivered-bg",
       "--status-cancelled-bg",
     ]) {
       expect(semantic[required], `missing ${required}`).toBeDefined();

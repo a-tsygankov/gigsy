@@ -16,6 +16,15 @@ import {
   Textarea,
 } from "../components/index.ts";
 
+/** 'delivered' counts here too: delivery is a milestone, not a change
+ *  in what the gig is owed (same rule as backend/src/push/nudges.ts,
+ *  services/dashboard.ts and services/reports.ts). Both history groups
+ *  key off this rather than `status === "completed"` so a delivered
+ *  gig cannot fall out of both. */
+function isDone(gig: Gig): boolean {
+  return gig.status === "completed" || gig.status === "delivered";
+}
+
 /** One row in the client's job history. */
 function JobRow({ gig }: { gig: Gig }) {
   // Paid if it has been, otherwise the gig's expected pay — the same
@@ -42,13 +51,13 @@ function JobRow({ gig }: { gig: Gig }) {
           </span>
         )}
         {/* The "Paid"/"Completed — not paid" grouping below only
-            splits completed gigs — a lead or confirmed gig paid in
-            advance (a deposit that already covers what's expected)
-            would otherwise show no sign of it in the "Upcoming &
-            leads" group. The badge covers that case; it's redundant
-            with the group heading for the two "completed" groups, but
-            a paid gig should read the same way everywhere it appears
-            (see StatusPill.tsx). */}
+            splits gigs that are done (see `isDone`) — a lead or
+            confirmed gig paid in advance (a deposit that already
+            covers what's expected) would otherwise show no sign of it
+            in the "Upcoming & leads" group. The badge covers that
+            case; it's redundant with the group heading for the two
+            "done" groups, but a paid gig should read the same way
+            everywhere it appears (see StatusPill.tsx). */}
         <StatusPill status={gig.status} paid={isPaid(gig)} />
       </span>
     </CardLink>
@@ -201,18 +210,20 @@ export function ClientEdit() {
                       derived (lib/gig-pay.ts). isPaid() splits on what
                       has landed against what was expected, not on
                       Boolean(amountPaidCents) — a $1 deposit on a $200
-                      job is not "Paid", it's still owed. */}
+                      job is not "Paid", it's still owed.
+                      'delivered' belongs in these groups too (see
+                      `isDone`): delivery is a milestone, not a change
+                      in what the gig is owed, and a gig that matched
+                      neither would disappear from the client's
+                      history entirely rather than merely being
+                      miscounted. */}
                   <JobGroup
                     title="Completed — not paid"
-                    gigs={clientGigs.filter(
-                      (g) => g.status === "completed" && !isPaid(g),
-                    )}
+                    gigs={clientGigs.filter((g) => isDone(g) && !isPaid(g))}
                   />
                   <JobGroup
                     title="Paid"
-                    gigs={clientGigs.filter(
-                      (g) => g.status === "completed" && isPaid(g),
-                    )}
+                    gigs={clientGigs.filter((g) => isDone(g) && isPaid(g))}
                   />
                 </section>
 

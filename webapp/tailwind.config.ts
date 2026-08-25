@@ -49,6 +49,7 @@ const config: Config = {
         amber: scale("amber", [50, 100, 500, 700, 800]),
         red: scale("red", [50, 200, 500, 600]),
         violet: scale("violet", [100, 700]),
+        teal: scale("teal", [100, 700]),
 
         /** Text on the accent. Stays near-white in both themes, which
          *  `text-white` cannot: white is a surface below. */

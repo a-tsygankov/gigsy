@@ -2,7 +2,7 @@
  * Calendar reconciliation (docs/plan.md §9). Rules, pinned in the
  * phase plan:
  * - only `confirmed` gigs with a date get events; leads never do;
- * - `completed` keeps its event untouched (history);
+ * - `completed` and `delivered` keep their event untouched (history);
  * - demotion to lead, a removed date, or cancelling — deletes the
  *   event inline, in the per-gig loop below: none of the three still
  *   occupy time. Same OUTCOME as a deleted gig, different MECHANISM —
