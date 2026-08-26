@@ -1,7 +1,11 @@
 /**
- * The header's entry point into help: a bottom sheet wrapping HelpMenu,
- * mounted once at the app root (HelpProvider) so it works from any
- * screen — unlike HelpSection, which only ever lived inside Settings.
+ * The entry point into help: a bottom sheet wrapping HelpMenu, mounted
+ * once at the app root (HelpProvider) so it works from any screen.
+ *
+ * The only one, now. Help used to have a second door — a "Help" group
+ * on Settings — and this sheet was the one that worked everywhere. Two
+ * doors onto the same menu was one more than the app needed, and the
+ * one that only opened on a single screen is the one that went.
  *
  * Shape follows HiddenConsole (the app's only other overlay): fixed to
  * the bottom, rounded top corners, its own scroll region, safe-area

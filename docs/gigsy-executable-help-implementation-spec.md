@@ -660,6 +660,14 @@ title and description, and calls `startScenario` on selection. It owns
 the list and nothing else, which is what lets more than one entry point
 mount it without duplicating anything.
 
+> [!NOTE]
+> **Superseded.** The Settings group described below was removed. Help
+> is reached through the header's "?" button (`help-link`), which opens
+> `HelpSheet` from any screen including `/settings` — one door instead
+> of two, and the one that always worked everywhere. `HelpSection.tsx`
+> and the `settings-help` target no longer exist. The rest of this
+> section is kept as the record of what Phase 13 built.
+
 **On Settings:** `HelpSection`, a `SettingGroup` titled "Help" with
 `data-testid="settings-help"`, above `Account`. Help is discoverable
 where people already look for configuration.

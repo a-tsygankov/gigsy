@@ -9,13 +9,20 @@
  * completely absent from the product.
  *
  * So this spec covers the half the runner structurally cannot: the
- * entry point (Settings → Help → a topic list), and the in-app tour
+ * entry point (the header's "?" → a topic list), and the in-app tour
  * runtime (`TourRenderer.ts` + Driver.js + `styles/help.css`), which the
  * runner never touches. It is deliberately ONE test against ONE
  * scenario — `open-settings`, the simplest — because its job is
  * "the wiring exists and works", not "the scenarios are correct". That
  * second job already has a suite; duplicating it here would double the
  * cost of every scenario for no extra signal.
+ *
+ * There used to be a second entry point: a "Help" group on the Settings
+ * screen. It was removed, and the header button — which already worked
+ * from every screen, `/settings` included — is now the only way in.
+ * The first test below still starts on `/settings` on purpose: that is
+ * where the removed door used to be, so it is the screen most worth
+ * proving help is still reachable from.
  */
 import { expect, test } from "@playwright/test";
 import { openSettings } from "../../src/help/scenarios/open-settings.ts";
@@ -30,18 +37,24 @@ test("help is reachable from Settings and starts a real tour", async ({
   baseURL,
 }) => {
   // The fixture signs in and navigates to a scenario's `startRoute`.
-  // This test starts where help *lives* rather than where the scenario
-  // runs, because the tour's own hop to `/` is part of what's under
-  // test here — `openSettings.startRoute` is `/` precisely so that
+  // This test starts on `/settings` rather than where the scenario
+  // runs, for two reasons: the tour's own hop to `/` is part of what's
+  // under test — `openSettings.startRoute` is `/` precisely so that
   // `settings-link`, which AppHeader hides on `/settings`, is on screen
-  // by the time the tour looks for it.
+  // by the time the tour looks for it — and `/settings` is where help's
+  // removed second door used to be.
   await prepareHelpScenario(page, request, baseURL!, {
     ...openSettings,
     startRoute: "/settings",
   });
 
-  // 1. The entry point exists on Settings, with its topic list.
-  await expect(page.getByTestId(HelpTarget.SettingsHelp.id)).toBeVisible();
+  // 1. The entry point exists here — the header button, on the very
+  //    screen whose own "Help" group used to be the way in — and it
+  //    opens the topic list.
+  const helpLink = page.getByTestId("help-link");
+  await expect(helpLink).toBeVisible();
+  await helpLink.click();
+
   await expect(page.getByTestId("help-search")).toBeVisible();
   const startOpenSettings = page.getByTestId(`help-start-${openSettings.id}`);
   await expect(startOpenSettings).toBeVisible();
@@ -96,9 +109,11 @@ test("help is reachable from the header on a screen that is not Settings", async
   request,
   baseURL,
 }) => {
-  // The header's "?" button is the whole point of this test: it has to
-  // open the same menu from a screen that has nothing to do with
-  // Settings, proving help isn't only reachable through HelpSection.
+  // The header's "?" button on a screen that has nothing to do with
+  // Settings. Since the Settings group was removed this is the same
+  // door as the test above rather than a second one, and it still
+  // earns its place: that test proves the door works where help used
+  // to live, this one proves it works where help never lived.
   await prepareHelpScenario(page, request, baseURL!, {
     ...openSettings,
     startRoute: "/gigs",

@@ -61,8 +61,10 @@ export function AppHeader({ title }: { title: string }) {
         <div className="flex items-center gap-1">
           {/* Unlike Settings, help has nowhere it would be pointing at
               itself — it opens the same sheet from every screen,
-              including /settings, whose own Help section is a second
-              door to this same menu by design. */}
+              /settings included. This is now the only way in: Settings
+              used to carry a "Help" group as a second door, and one
+              door that works everywhere beat two where one of them
+              only opened on a single screen. */}
           {/* Toggles rather than only opening: the natural way to dismiss
               a sheet you opened from a button is to press that button
               again, and a user who does not find the Close button will
