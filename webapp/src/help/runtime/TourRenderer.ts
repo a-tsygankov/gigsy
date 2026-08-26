@@ -154,20 +154,22 @@ async function settleBranch(
   return null;
 }
 
-/** The scenario, half-resolved: the flat steps that are known, the
- *  model steps still waiting for a DOM to resolve against, and whether
- *  a terminal step has already closed the walk.
+/** The scenario, half-resolved: the flat steps already known, and the
+ *  model steps still waiting for a DOM to resolve against.
  *
- *  Two consumers: `flatten`, which loops until `rest` is empty, and
- *  `runTour`, which stops after each branch so the next one is resolved
- *  against the screen the user has reached rather than the one they
- *  started on. */
+ *  `flatten` loops on this until `rest` is empty. `takeUntilBranch` and
+ *  `expandBranch` below return this same shape so a caller can resolve
+ *  one branch at a time instead — against the screen the tour has
+ *  reached rather than the one it started on — which is what `runTour`
+ *  is being moved onto. */
 interface Expansion {
   flat: FlatStep[];
+  /** Model steps not yet resolved. Empty both when the walk reached
+   *  the natural end of the list and when a terminal step closed it
+   *  early — deliberately not distinguished, because no consumer has
+   *  ever needed to: "nothing left to resolve" is the only question
+   *  anyone asks. */
   rest: HelpStep[];
-  /** A terminal step was appended, so `rest` is unreachable and is
-   *  returned empty. */
-  ended: boolean;
 }
 
 /** Appends steps until a terminal step (stop, drop the rest) or a
@@ -176,20 +178,23 @@ interface Expansion {
  *  caller decide WHEN that resolution happens. */
 function takeUntilBranch(steps: HelpStep[]): Expansion {
   const flat: FlatStep[] = [];
-  for (let i = 0; i < steps.length; i += 1) {
-    const step = steps[i]!;
-    if (!isFlatStep(step)) return { flat, rest: steps.slice(i), ended: false };
+  for (const [i, step] of steps.entries()) {
+    if (!isFlatStep(step)) return { flat, rest: steps.slice(i) };
     flat.push(step);
-    if (step.end === true) return { flat, rest: [], ended: true };
+    if (step.end === true) return { flat, rest: [] };
   }
-  return { flat, rest: [], ended: false };
+  return { flat, rest: [] };
 }
 
 /** Resolves the ONE branch at the head of `steps` against the live DOM
  *  and appends everything up to the next branch. `null` is the same
  *  hard failure it has always been: no branch condition held.
  *
- *  Exported for unit testing alongside `flatten`. */
+ *  Exported so its `{flat, rest}` contract — in particular, that `rest`
+ *  stops at the NEXT branch rather than running past it — can be
+ *  pinned directly; see the `expandBranch` tests below. That is the
+ *  exact property the next task's loop needs in order to resolve one
+ *  branch at a time. */
 export async function expandBranch(
   steps: HelpStep[],
   signal: AbortSignal,
@@ -201,25 +206,26 @@ export async function expandBranch(
 
   const taken = await settleBranch(head, signal, branchTimeoutMs, branchStableMs);
   if (taken === null) return null;
-  // validate.ts rejects a branch step whose own steps nest another
-  // branch, so this should never happen — but if it somehow did, that
-  // is the same kind of failure an unmatched branch is, not a step to
-  // silently drop from the tour.
-  if (taken.some((step) => !isFlatStep(step))) return null;
 
   const inner = takeUntilBranch(taken);
-  // `inner.rest` is necessarily empty — a branch's steps hold no branch
-  // — so the only thing it can tell us is whether the alternative
-  // ended. If it did, everything written after this branch step is
-  // unreachable, which is the entire point of the flag.
-  if (inner.ended) return { flat: inner.flat, rest: [], ended: true };
+  // A branch's steps may not themselves contain a branch — validate.ts
+  // rejects that — so `inner.rest` should always be empty here. If it
+  // ever is not, those steps would be silently dropped from the tour,
+  // which is the same kind of failure an unmatched branch is: report
+  // it, do not swallow it. A local structural check, not a trusted
+  // invariant, so it holds for hand-built step lists that never went
+  // through the validator.
+  if (inner.rest.length > 0) return null;
+
+  // Did the taken alternative END, or merely finish? Both leave
+  // `inner.rest` empty, and only the first may drop what follows the
+  // branch — so ask the steps themselves. `takeUntilBranch` stops ON a
+  // terminal step, so a terminal alternative is exactly one whose last
+  // appended step carries the flag.
+  if (inner.flat.at(-1)?.end === true) return { flat: inner.flat, rest: [] };
 
   const after = takeUntilBranch(steps.slice(1));
-  return {
-    flat: [...inner.flat, ...after.flat],
-    rest: after.rest,
-    ended: after.ended,
-  };
+  return { flat: [...inner.flat, ...after.flat], rest: after.rest };
 }
 
 /** Flattens every branch against the live DOM in one pass, measuring
@@ -241,10 +247,18 @@ export async function flatten(
   branchTimeoutMs = 10_000,
   branchStableMs = 250,
 ): Promise<FlatStep[] | null> {
+  // The old loop's `for (const step of steps)` checked this on its
+  // very first iteration too. `takeUntilBranch` below touches no DOM
+  // and cannot itself observe an abort, so without this check a
+  // pre-aborted signal on a branch-free (or terminal-step-first) list
+  // would fall straight through to `return flat` — turning "help
+  // unavailable" into "here is a tour" in exactly the direction that
+  // matters.
+  if (signal.aborted) return null;
   let state = takeUntilBranch(steps);
   const flat = [...state.flat];
 
-  while (!state.ended && state.rest.length > 0) {
+  while (state.rest.length > 0) {
     if (signal.aborted) return null;
     const grown = await expandBranch(state.rest, signal, branchTimeoutMs, branchStableMs);
     if (grown === null) return null;

@@ -297,7 +297,29 @@ describe("flatten", () => {
     expect(Date.now() - started).toBeLessThan(500);
   });
 
+  it("returns null on an already-aborted signal, even with nothing to await", async () => {
+    // The entry check `flatten` needs but a branch-headed list never
+    // exercises: with no branch, `takeUntilBranch` never awaits
+    // anything, so the ONLY place an already-aborted signal can be
+    // caught is a check before it runs at all. Miss that and an
+    // aborted "help unavailable" silently becomes a served tour.
+    const { flatten } = await import("./TourRenderer.ts");
+    const controller = new AbortController();
+    controller.abort();
+    const steps: HighlightStep[] = [
+      { action: "highlight", target: HelpTarget.SettingsLink, description: "a" },
+    ];
+
+    await expect(flatten(steps, controller.signal)).resolves.toBeNull();
+  });
+
   it("stops at a terminal step and drops everything after it", async () => {
+    // This exact shape — a step marked `end` with more steps written
+    // after it — is one validate.ts itself rejects ("a step marked end
+    // that is not the last of the scenario's own steps"). Pinning
+    // `flatten`'s own defensive behaviour on it anyway is legitimate:
+    // it is the honest answer to "what does this do if something
+    // upstream ever fails to enforce that rule".
     const { flatten } = await import("./TourRenderer.ts");
     const stop: HighlightStep = {
       action: "highlight",
@@ -317,8 +339,12 @@ describe("flatten", () => {
   });
 
   it("lets a terminal step inside a branch end the whole scenario", async () => {
-    // The case record-work depends on: `no-gigs-yet` has no row to tap,
-    // so the Work-card steps written AFTER the branch must not run.
+    // The case record-work depends on: with nothing to work from yet,
+    // `no-gigs-yet` has no row to tap and ends the tour there; with
+    // something to work from, `has-gigs` continues into the Work-card
+    // steps instead. Both alternatives are legal under validate.ts's
+    // "every alternative of a branch step ends" rule only because NOT
+    // every one of them does — `has-gigs` is what keeps this shippable.
     const { flatten } = await import("./TourRenderer.ts");
     document.body.innerHTML = "";
     const deadEnd: HighlightStep = {
@@ -326,6 +352,11 @@ describe("flatten", () => {
       target: HelpTarget.GigAdd,
       description: "nothing to find yet",
       end: true,
+    };
+    const continues: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigSearch,
+      description: "carries on into the Work card",
     };
     const afterTheBranch: HighlightStep = {
       action: "highlight",
@@ -339,6 +370,11 @@ describe("flatten", () => {
           id: "no-gigs-yet",
           when: { type: "target-missing", target: HelpTarget.GigFilters },
           steps: [deadEnd],
+        },
+        {
+          id: "has-gigs",
+          when: { type: "target-visible", target: HelpTarget.GigFilters },
+          steps: [continues],
         },
       ],
     };
@@ -375,6 +411,214 @@ describe("flatten", () => {
     await expect(
       flatten([branch, afterTheBranch], new AbortController().signal),
     ).resolves.toEqual([inBranch, afterTheBranch]);
+  });
+
+  it("short-circuits a branch that would never settle, once an earlier terminal step already ended the tour", async () => {
+    // Same "forbidden by validate.ts, legitimate to pin anyway" shape
+    // as the first terminal-step test above: `stop` is not the last
+    // step here either.
+    const { flatten } = await import("./TourRenderer.ts");
+    const stop: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.SettingsLink,
+      description: "stop",
+      end: true,
+    };
+    const neverSettles: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "never",
+          // Never rendered in this test's DOM, so this branch would
+          // hang until branchTimeoutMs if `flatten` ever tried to
+          // resolve it. It must not: `stop` already ended the walk.
+          when: { type: "target-visible", target: HelpTarget.SettingsNotifications },
+          steps: [
+            { action: "highlight", target: HelpTarget.SettingsHelp, description: "unreached" },
+          ],
+        },
+      ],
+    };
+
+    const started = Date.now();
+    await expect(
+      flatten([stop, neverSettles], new AbortController().signal, 10_000),
+    ).resolves.toEqual([stop]);
+    // Well under the 10s branchTimeoutMs — proves the terminal step
+    // stopped the walk before `neverSettles` was ever resolved, rather
+    // than this happening to be a fast run of the real wait.
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+
+  it("drops the steps written after a terminal step inside a branch, not just the ones after the branch", async () => {
+    // Another shape validate.ts forbids on its own terms (a step
+    // marked `end` that is not the last of ITS OWN branch's steps),
+    // pinned for the same reason as the other two: it is what
+    // `flatten` actually does if that rule is ever not enforced.
+    const { flatten } = await import("./TourRenderer.ts");
+    stubVisible("gig-filters");
+    const deadEnd: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigAdd,
+      description: "stop here",
+      end: true,
+    };
+    const unreachableInBranch: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigSearch,
+      description: "never reached",
+    };
+    const branch: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "showing",
+          when: { type: "target-visible", target: HelpTarget.GigFilters },
+          steps: [deadEnd, unreachableInBranch],
+        },
+      ],
+    };
+
+    await expect(
+      flatten([branch], new AbortController().signal),
+    ).resolves.toEqual([deadEnd]);
+  });
+});
+
+describe("expandBranch", () => {
+  // `flatten`'s own tests above only ever observe the collapsed list —
+  // exactly the projection that discards `rest`. The next task builds
+  // its whole one-branch-at-a-time loop on the `{flat, rest}` shape
+  // `expandBranch` returns, so that shape needs its own direct tests
+  // rather than staying an implementation detail nobody pins.
+
+  it("treats a flat head as a plain take, stopping at the next branch without resolving it", async () => {
+    const { expandBranch } = await import("./TourRenderer.ts");
+    document.body.innerHTML = "";
+    const a: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.SettingsLink,
+      description: "a",
+    };
+    const branch: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "x",
+          // Never rendered in this test's DOM. If `expandBranch` tried
+          // to resolve this branch too, instead of leaving it in
+          // `rest`, this would hang until the default 10s
+          // branchTimeoutMs rather than resolving immediately.
+          when: { type: "target-visible", target: HelpTarget.SettingsNotifications },
+          steps: [
+            { action: "highlight", target: HelpTarget.SettingsHelp, description: "unreached" },
+          ],
+        },
+      ],
+    };
+
+    await expect(
+      expandBranch([a, branch], new AbortController().signal),
+    ).resolves.toEqual({ flat: [a], rest: [branch] });
+  });
+
+  it("leaves rest headed by the next branch, without resolving that one too", async () => {
+    // The exact property the next task's loop depends on: resolving
+    // ONE branch at a time means the branch after it must come back
+    // untouched, not pre-resolved against today's DOM.
+    const { expandBranch } = await import("./TourRenderer.ts");
+    stubVisible("gig-filters");
+    const inFirst: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigSearch,
+      description: "first",
+    };
+    const first: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "showing",
+          when: { type: "target-visible", target: HelpTarget.GigFilters },
+          steps: [inFirst],
+        },
+      ],
+    };
+    const second: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "never",
+          // Same "would hang if resolved" tell as the test above.
+          when: { type: "target-visible", target: HelpTarget.SettingsNotifications },
+          steps: [
+            { action: "highlight", target: HelpTarget.SettingsHelp, description: "unreached" },
+          ],
+        },
+      ],
+    };
+
+    await expect(
+      expandBranch([first, second], new AbortController().signal),
+    ).resolves.toEqual({ flat: [inFirst], rest: [second] });
+  });
+
+  it("a branch whose taken alternative ends leaves rest empty and drops what follows the branch", async () => {
+    const { expandBranch } = await import("./TourRenderer.ts");
+    document.body.innerHTML = "";
+    const deadEnd: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigAdd,
+      description: "dead end",
+      end: true,
+    };
+    const afterTheBranch: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigStatus,
+      description: "after",
+    };
+    const branch: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "no-gigs-yet",
+          when: { type: "target-missing", target: HelpTarget.GigFilters },
+          steps: [deadEnd],
+        },
+      ],
+    };
+
+    await expect(
+      expandBranch([branch, afterTheBranch], new AbortController().signal),
+    ).resolves.toEqual({ flat: [deadEnd], rest: [] });
+  });
+
+  it("a branch whose taken alternative does not end appends what follows the branch", async () => {
+    const { expandBranch } = await import("./TourRenderer.ts");
+    stubVisible("gig-filters");
+    const inBranch: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigSearch,
+      description: "in branch",
+    };
+    const afterTheBranch: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigStatus,
+      description: "after",
+    };
+    const branch: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "showing",
+          when: { type: "target-visible", target: HelpTarget.GigFilters },
+          steps: [inBranch],
+        },
+      ],
+    };
+
+    await expect(
+      expandBranch([branch, afterTheBranch], new AbortController().signal),
+    ).resolves.toEqual({ flat: [inBranch, afterTheBranch], rest: [] });
   });
 });
 
