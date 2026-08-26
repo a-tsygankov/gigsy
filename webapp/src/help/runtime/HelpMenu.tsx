@@ -61,8 +61,8 @@ export interface HelpMenuGroup {
  *  `scenarios` defaults to the real registry but takes a parameter so
  *  ordering and matching can be tested against a small fixture instead
  *  of whatever happens to be registered today — the same reason
- *  `TourRenderer.ts`'s `flatten` takes `steps` rather than reading a
- *  module-level list. */
+ *  `TourRenderer.ts`'s `expandBranch` takes `steps` rather than reading
+ *  a module-level list. */
 export function groupScenarios(
   query: string,
   scenarios: HelpScenario[] = helpScenarios,

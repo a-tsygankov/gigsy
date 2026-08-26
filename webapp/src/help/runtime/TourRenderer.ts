@@ -160,11 +160,9 @@ async function settleBranch(
 /** The scenario, half-resolved: the flat steps already known, and the
  *  model steps still waiting for a DOM to resolve against.
  *
- *  `flatten` loops on this until `rest` is empty. `takeUntilBranch` and
- *  `expandBranch` below return this same shape so a caller can resolve
- *  one branch at a time instead — against the screen the tour has
- *  reached rather than the one it started on — which is what `runTour`
- *  is being moved onto. */
+ *  `takeUntilBranch` and `expandBranch` below both return this shape,
+ *  so `runTour` can resolve one branch at a time — against the screen
+ *  the tour has reached rather than the one it started on. */
 interface Expansion {
   flat: FlatStep[];
   /** Model steps not yet resolved. Empty both when the walk reached
@@ -195,9 +193,9 @@ function takeUntilBranch(steps: HelpStep[]): Expansion {
  *
  *  Exported so its `{flat, rest}` contract — in particular, that `rest`
  *  stops at the NEXT branch rather than running past it — can be
- *  pinned directly; see the `expandBranch` tests below. That is the
- *  exact property the next task's loop needs in order to resolve one
- *  branch at a time. */
+ *  pinned directly; see the `expandBranch` tests. That is the exact
+ *  property `runTour`'s `grow` depends on to resolve one branch at a
+ *  time. */
 export async function expandBranch(
   steps: HelpStep[],
   signal: AbortSignal,
@@ -229,47 +227,6 @@ export async function expandBranch(
 
   const after = takeUntilBranch(steps.slice(1));
   return { flat: [...inner.flat, ...after.flat], rest: after.rest };
-}
-
-/** Flattens every branch against the live DOM in one pass, measuring
- *  every condition against the screen the tour is on when it is called.
- *
- *  That is fine for a scenario that begins and ends in one place, and
- *  wrong the moment one navigates: a branch asking about a control on a
- *  screen the user has not opened yet would be answered against the
- *  screen they started on. `takeUntilBranch` and `expandBranch` above
- *  exist so a caller can resolve one branch at a time instead, as the
- *  tour reaches each one — which is what `runTour` is being moved onto.
- *
- *  `branchTimeoutMs` exists so tests can exercise the "no branch
- *  matched" path without waiting out the real 10s default;
- *  `branchStableMs` so a flicker test doesn't need the real 250ms. */
-export async function flatten(
-  steps: HelpStep[],
-  signal: AbortSignal,
-  branchTimeoutMs = 10_000,
-  branchStableMs = 250,
-): Promise<FlatStep[] | null> {
-  // The old loop's `for (const step of steps)` checked this on its
-  // very first iteration too. `takeUntilBranch` below touches no DOM
-  // and cannot itself observe an abort, so without this check a
-  // pre-aborted signal on a branch-free (or terminal-step-first) list
-  // would fall straight through to `return flat` — turning "help
-  // unavailable" into "here is a tour" in exactly the direction that
-  // matters.
-  if (signal.aborted) return null;
-  let state = takeUntilBranch(steps);
-  const flat = [...state.flat];
-
-  while (state.rest.length > 0) {
-    if (signal.aborted) return null;
-    const grown = await expandBranch(state.rest, signal, branchTimeoutMs, branchStableMs);
-    if (grown === null) return null;
-    flat.push(...grown.flat);
-    state = grown;
-  }
-
-  return flat;
 }
 
 /** The literal tagged node behind a target — the element carrying the
@@ -490,12 +447,13 @@ export async function runTour(
 
   // ── the scenario, resolved as the tour goes ──
   //
-  // NOT `flatten(scenario.steps)`. Resolving every branch here would
-  // measure each condition against the screen the tour STARTS on, which
-  // is wrong the moment a scenario navigates: `record-work`'s pay
-  // branches ask about controls on a gig the user has not opened yet.
-  // help-runner.ts has always resolved branches where it reaches them;
-  // this is what makes the in-app tour agree.
+  // Deliberately not resolved in one pass up front, which is what this
+  // file used to do. That measured every condition against the screen
+  // the tour STARTS on, and it is wrong the moment a scenario
+  // navigates: `record-work`'s pay branches ask about controls on a gig
+  // the user has not opened yet. help-runner.ts has always resolved
+  // branches where it reaches them; this is what makes the in-app tour
+  // agree.
   let known: FlatStep[] = [];
   let rest: HelpStep[] = scenario.steps;
   let driveSteps: TaggedDriveStep[] = [];
@@ -535,13 +493,31 @@ export async function runTour(
 
   /** Resolve the branch at the head of `rest`. Single-flight: the
    *  resolve-ahead from a highlight hook and a Next press racing it
-   *  must not run two `settleBranch` polls over the same branch. */
+   *  must not run two `settleBranch` polls over the same branch.
+   *
+   *  A failure is sticky, which the single-flight alone does not give:
+   *  `growing` clears once the attempt settles, so without this the
+   *  resolve-ahead's silent `void grow()` would burn the full
+   *  `settleBranch` budget, and the Next press behind it would then
+   *  burn a second one — around twenty seconds of dead air before the
+   *  banner. The answer cannot have changed: `settleBranch` polls right
+   *  up to its deadline, so it has already watched a DOM that is not
+   *  going to produce the condition it needs. Asking again only spends
+   *  the same budget twice. */
   let growing: Promise<boolean> | null = null;
+  let growFailed = false;
   const grow = (): Promise<boolean> => {
+    if (growFailed) return Promise.resolve(false);
     if (growing !== null) return growing;
     const attempt = (async () => {
       const grown = await expandBranch(rest, options.signal);
-      if (grown === null || options.signal.aborted) return false;
+      // Abort first: `settleBranch` reports a cancelled poll as `null`
+      // too, and that is not a verdict about the branch.
+      if (options.signal.aborted) return false;
+      if (grown === null) {
+        growFailed = true;
+        return false;
+      }
       absorb(grown);
       rebuild();
       return true;
@@ -553,12 +529,32 @@ export async function runTour(
     return attempt;
   };
 
-  // A scenario that OPENS on a branch has nothing to drive until that
-  // branch is resolved — `find-a-gig` is the one that does today,
-  // asking on /gigs whether the list has any gigs in it yet. Resolving
-  // eagerly here is not the bug above: no step has run, so the screen
-  // this branch asks about is exactly the one `startRoute` landed on.
-  while (known.length === 0 && rest.length > 0) {
+  // Resolve eagerly while no user interaction precedes the branch.
+  //
+  // Such a branch asks about the screen `startRoute` has already landed
+  // on, so resolving it now is not the bug this task fixes — it is the
+  // same thing the one-pass resolve did, and the reason every scenario
+  // that branched before this change still behaves identically.
+  //
+  // It also has to happen before `drive()`, not after: Driver copies a
+  // popover's button label and its `{{total}}` at render time and never
+  // re-renders them, so a tour that starts with only one step known
+  // shows "1 of 1" and a DONE button — on the first step of
+  // `configure-notifications`, `configure-working-hours` and
+  // `set-up-email-capture`, whose branches sit at index 1. Growing
+  // afterwards advances correctly but cannot relabel what is already
+  // painted.
+  //
+  // `record-work`'s pay branches sit after a navigate step, so this
+  // loop stops before them and they stay lazy — which is the whole
+  // point of the task.
+  //
+  // Terminates because every `expandBranch` consumes the branch at the
+  // head of `rest` and returns what follows it, so `rest` strictly
+  // shortens; a scenario with no interactions at all (`find-a-gig`)
+  // therefore resolves every branch here, exactly as the one-pass
+  // resolve did.
+  while (rest.length > 0 && !known.some(isUserInteraction)) {
     const grown = await expandBranch(rest, options.signal);
     if (options.signal.aborted) return () => undefined;
     if (grown === null) {
@@ -626,13 +622,18 @@ export async function runTour(
    *  exception is a last known step that NAVIGATES, whose branch asks
    *  about a screen that is not on the page yet.
    *
-   *  There is not always a step to lead by. A branch at index 1 leaves
-   *  `last` at 0, so the earliest resolve-ahead IS the boundary step,
-   *  whose popover was rendered before the branch settled and keeps the
-   *  "Done" it was built with. Pressing it still advances — `advance`
-   *  calls `moveNext` on the grown array — so this costs a wrong label
-   *  on that one step, not a stuck tour. Measured under the real
-   *  library on the shape `notifications` and `working-hours` have. */
+   *  There is not always a step to lead by: when only one step is
+   *  known, the earliest resolve-ahead IS the boundary, and its popover
+   *  was painted before the branch settled. The eager loop above keeps
+   *  that off every scenario whose first branch no interaction precedes
+   *  — which was the whole "1 of 1 / DONE" failure, measured under the
+   *  real library. What is left is an interaction immediately followed
+   *  by a branch, which is `record-work`'s shape: a click or navigate
+   *  step renders only a Close button, so there is no Next/Done label
+   *  to get wrong there. An `input` or `select` step in that position
+   *  would show a "Done" that still advances — no scenario does that
+   *  today. Either way `{{total}}` stays the one it was painted with;
+   *  see `showProgress`. */
   const readyToGrow = (index: number | undefined): boolean => {
     if (index === undefined || rest.length === 0) return false;
     const last = known.length - 1;

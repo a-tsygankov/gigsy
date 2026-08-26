@@ -79,6 +79,27 @@ function clickNext(): void {
   document.querySelector<HTMLElement>(".driver-popover-next-btn")!.click();
 }
 
+/** What the Next button SAYS — "Next" or "Done".
+ *
+ *  The label, not the button's `display`, is what reports whether
+ *  Driver.js believes a step follows this one: `x()` sets
+ *  `nextButton.style.display` purely from `showButtons`, while `B()`
+ *  sets `nextBtnText` to "Done" exactly when `I(e, t+1, 1)` finds
+ *  nothing after the current index. Both are copied in when the popover
+ *  is built and neither is refreshed afterwards. */
+function nextBtnLabel(): string | null | undefined {
+  return document.querySelector(".driver-popover-next-btn")?.textContent;
+}
+
+/** Driver.js renders `{{total}}` from the length of the array it holds
+ *  at the moment it builds a popover, and never re-renders it — so this
+ *  is the only way to see which array a step was painted against. */
+function progressText(): string | null {
+  return (
+    document.querySelector(".driver-popover-progress-text")?.textContent ?? null
+  );
+}
+
 async function waitFor(
   predicate: () => boolean,
   timeoutMs = 3_000,
@@ -605,6 +626,13 @@ describe("runTour against the real driver.js", () => {
     // Flattening up front, as this file used to, locks in the wrong
     // alternative and spotlights a control the user will never see.
     //
+    // It opens on a CLICK for a reason. A branch that nothing the user
+    // does precedes is asking about the screen the tour opened on, so
+    // `runTour` still resolves that one before `drive()` — see the
+    // step-1 branch test below for why that has to stay true. Laziness
+    // is for what comes after an interaction, and an interaction is
+    // therefore what this test has to put in front of the branch.
+    //
     // Three leading steps, not one, so the timing is decided rather
     // than raced: `readyToGrow` fires no earlier than the second-to-last
     // known step, which is index 1 here — after the element below has
@@ -620,7 +648,7 @@ describe("runTour against the real driver.js", () => {
     const onUnavailable = vi.fn();
     await start(
       [
-        { action: "highlight", target: HelpTarget.GigStatus, description: "one" },
+        { action: "click", target: HelpTarget.GigStatus, description: "one" },
         { action: "highlight", target: HelpTarget.GigBreak, description: "two" },
         { action: "highlight", target: HelpTarget.GigPayments, description: "three" },
         {
@@ -664,7 +692,10 @@ describe("runTour against the real driver.js", () => {
     );
     paint("gig-override");
 
-    clickNext();
+    // A click step advances by being done, so this is the tap, not Next.
+    document
+      .querySelector<HTMLElement>('[data-testid="gig-status"]')!
+      .dispatchEvent(new Event("click", { bubbles: true }));
     expect(await waitFor(() => popoverText() === "two")).toBe(true);
     clickNext();
     expect(await waitFor(() => popoverText() === "three")).toBe(true);
@@ -673,6 +704,139 @@ describe("runTour against the real driver.js", () => {
     expect(await waitFor(() => popoverText() === "appeared")).toBe(true);
     expect(onUnavailable).not.toHaveBeenCalled();
   });
+
+  it("shows a real Next and the whole total on step 0 when the branch sits at step 1", async () => {
+    // `configure-notifications`, `configure-working-hours` and
+    // `set-up-email-capture` all have this shape, and it is the one that
+    // regressed when branch resolution first went lazy: with only step 0
+    // known at `drive()` time, Driver painted "1 of 1" and a DONE button
+    // on it. Growing afterwards advances correctly but cannot relabel
+    // what is already on screen — `B()` copies both the label and
+    // `{{total}}` when it builds the popover and never looks again.
+    //
+    // Nothing the user does precedes this branch, so it asks about the
+    // screen `startRoute` already landed on and `runTour` resolves it
+    // before driving. Step 0 must therefore look exactly as it did
+    // before this task.
+    document.body.innerHTML = `
+      <a data-testid="gig-status">Status</a>
+      <a data-testid="gig-break">Break</a>
+      <a data-testid="gig-payments">Payments</a>`;
+    paint("gig-status");
+    paint("gig-break");
+    paint("gig-payments");
+
+    const onUnavailable = vi.fn();
+    await start(
+      [
+        { action: "highlight", target: HelpTarget.GigStatus, description: "one" },
+        {
+          action: "branch",
+          branches: [
+            {
+              id: "showing",
+              when: { type: "target-visible", target: HelpTarget.GigBreak },
+              steps: [
+                {
+                  action: "highlight",
+                  target: HelpTarget.GigBreak,
+                  description: "two",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          action: "highlight",
+          target: HelpTarget.GigPayments,
+          description: "three",
+        },
+      ],
+      onUnavailable,
+    );
+
+    expect(await waitFor(() => popoverText() === "one")).toBe(true);
+    // "Next", not "Done" — Driver found a step after this one.
+    expect(nextBtnLabel()).toBe("Next");
+    // And not "1 of 1": the branch behind it was already resolved.
+    expect(progressText()).toBe("1 of 3");
+    expect(onUnavailable).not.toHaveBeenCalled();
+  }, 15_000);
+
+  it("resolves the branch a step ahead of the boundary, not when Next is pressed", async () => {
+    // Separates the two paths that can expand a branch. `advance`'s
+    // await is a safety net and would also get the user there, so the
+    // test above cannot tell which one ran. This one can: `{{total}}`
+    // is painted from the array Driver holds at that instant, so the
+    // boundary step reads "3 of 4" only if the branch was already
+    // resolved BEFORE it was painted. The safety net would leave it
+    // "3 of 3" with a Done button and expand afterwards.
+    //
+    // A click step first, so the eager pre-`drive()` loop stops and the
+    // branch really is resolved lazily.
+    document.body.innerHTML = `
+      <a data-testid="gig-status">Status</a>
+      <a data-testid="gig-break">Break</a>
+      <a data-testid="gig-payments">Payments</a>
+      <input data-testid="gig-override" />`;
+    paint("gig-status");
+    paint("gig-break");
+    paint("gig-payments");
+    paint("gig-override");
+
+    const onUnavailable = vi.fn();
+    await start(
+      [
+        { action: "click", target: HelpTarget.GigStatus, description: "tap" },
+        { action: "highlight", target: HelpTarget.GigBreak, description: "two" },
+        { action: "highlight", target: HelpTarget.GigPayments, description: "three" },
+        {
+          action: "branch",
+          branches: [
+            {
+              id: "appeared",
+              when: { type: "target-visible", target: HelpTarget.GigOverride },
+              steps: [
+                {
+                  action: "highlight",
+                  target: HelpTarget.GigOverride,
+                  description: "four",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      onUnavailable,
+    );
+
+    expect(await waitFor(() => popoverText() === "tap")).toBe(true);
+    document
+      .querySelector<HTMLElement>('[data-testid="gig-status"]')!
+      .dispatchEvent(new Event("click", { bubbles: true }));
+
+    // `readyToGrow` does not fire at index 0 — the boundary is index 2,
+    // and one step of lead time means index 1. So this popover is
+    // painted against the three steps known so far.
+    expect(await waitFor(() => popoverText() === "two")).toBe(true);
+    expect(progressText()).toBe("2 of 3");
+
+    // Entering index 1 is what starts the resolve-ahead. Outlast
+    // `settleBranch`'s 250ms debounce by a wide margin, then advance
+    // without giving `advance` anything to await.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    clickNext();
+
+    expect(await waitFor(() => popoverText() === "three")).toBe(true);
+    // The assertion the whole lead time exists for: painted against the
+    // GROWN array, so a real Next rather than a Done that is not done.
+    expect(progressText()).toBe("3 of 4");
+    expect(nextBtnLabel()).toBe("Next");
+
+    clickNext();
+    expect(await waitFor(() => popoverText() === "four")).toBe(true);
+    expect(onUnavailable).not.toHaveBeenCalled();
+  }, 15_000);
 
   it("ends the tour on a terminal step inside a branch", async () => {
     // record-work's `no-gigs-yet` shape: the alternative ends, and the
