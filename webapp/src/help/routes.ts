@@ -8,12 +8,24 @@
  * reading a scenario. One definition here rather than three regexes
  * that drift.
  *
- * Deliberately not react-router's own matcher. This module is imported
- * by `e2e/help/help-runner.ts`, which runs under Playwright in Node
- * with no router and no DOM — the same reason types.ts holds no React.
+ * Deliberately not react-router's `matchPath`, and not for the reason
+ * you might assume: that function is pure and runs fine in Node with no
+ * DOM and no mounted Router — checked against this repo's own
+ * node_modules, not guessed. The reasons are that it is
+ * CASE-INSENSITIVE by default (`/Gigs/:id` matches `/gigs/abc` unless
+ * every call site passes `{ caseSensitive: true }`), and that it
+ * implements a far larger pattern language than a help scenario needs —
+ * wildcards, optional segments, `pathnameBase` — whose semantics are
+ * free to shift under a react-router upgrade. A tour torn down
+ * mid-step because a matcher quietly got more generous is a bug nobody
+ * would think to look for here.
+ *
  * The subset a help scenario needs is one segment per ":param", and
  * that is all this implements: no wildcards, no optional segments, no
- * search or hash.
+ * search or hash. Staying dependency-free also keeps react-router out
+ * of the Playwright runner's module graph — `e2e/help/help-runner.ts`
+ * imports this file — which is the same instinct that keeps types.ts
+ * free of React.
  */
 import type { HelpScenario, HelpStep } from "./types.ts";
 
@@ -29,6 +41,13 @@ export function matchesRoute(pattern: string, pathname: string): boolean {
   const got = pathname.split("/");
   if (want.length !== got.length) return false;
   return want.every((segment, i) =>
+    // got[i] is `string | undefined` under noUncheckedIndexedAccess, and
+    // both branches below type-check either way — the compiler is not
+    // what keeps this sound. The length check above is: it guarantees
+    // every `i` in range here is also in range in `got`, so `got[i]` is
+    // always a real segment, never `undefined`. A refactor that splits
+    // this loop away from that check would break the invariant with no
+    // type error to catch it.
     // A param matches one NON-EMPTY segment: "/gigs/" is not a gig.
     segment.startsWith(":") ? got[i] !== "" : segment === got[i],
   );
@@ -41,7 +60,14 @@ export function matchesRoute(pattern: string, pathname: string): boolean {
  *
  *  `fallback` is what a scenario with no `startRoute` starts on, which
  *  is wherever the user already was. HelpProvider passes its current
- *  pathname. */
+ *  pathname.
+ *
+ *  Not deduplicated: a navigate step landing on the same pattern as
+ *  another, or as `startRoute` itself, produces a repeated entry. The
+ *  only consumer checks membership (`.some(p => matchesRoute(p, ...))`),
+ *  where a duplicate is harmless, but the `string[]` return type does
+ *  not say so — a caller that displays or counts these must dedupe
+ *  itself. */
 export function allowedRoutes(scenario: HelpScenario, fallback: string): string[] {
   const routes = [scenario.startRoute ?? fallback];
 
