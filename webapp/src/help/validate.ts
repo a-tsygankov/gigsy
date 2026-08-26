@@ -48,15 +48,17 @@ export function validateHelpRegistry(scenarios: HelpScenario[]): HelpProblem[] {
 
     const branchIds = new Set<string>();
 
-    /** Per-step rules, applied identically at the top level and inside
-     *  a branch. `where` is the only difference, and it is only there
-     *  so a message says which branch to look in. */
+    /** Per-step rules, applied identically wherever a step can appear:
+     *  the scenario's own top-level steps, a branch's steps, and a
+     *  variant's steps. `where` is what tells the three call sites
+     *  apart — it names the branch or variant a message should point
+     *  at, and is "" for the top level. */
     const checkStep = (step: HelpStep, where: string): void => {
-      const inBranch = where !== "";
+      const qualified = where !== "";
 
       if (step.action === "external" && step.description.trim() === "") {
         report(
-          inBranch
+          qualified
             ? `${where} has an external step with an empty description`
             : "external step has an empty description",
         );
@@ -69,14 +71,14 @@ export function validateHelpRegistry(scenarios: HelpScenario[]): HelpProblem[] {
       const id = step.target.id;
       if (step.route.trim() === "") {
         report(
-          inBranch
+          qualified
             ? `${where} has a navigate step for target "${id}" with no route`
             : `navigate step for target "${id}" has no route`,
         );
       } else if (!step.route.startsWith("/")) {
         const tail = `route "${step.route}", which must start with "/"`;
         report(
-          inBranch
+          qualified
             ? `${where} has a navigate step for target "${id}" with ${tail}`
             : `navigate step for target "${id}" has ${tail}`,
         );
@@ -88,11 +90,33 @@ export function validateHelpRegistry(scenarios: HelpScenario[]): HelpProblem[] {
      *  exists to make loud. A terminal step in the LAST position of a
      *  scenario's own steps is a harmless no-op and is not reported:
      *  that would be the validator arguing about redundancy rather than
-     *  correctness. */
+     *  correctness.
+     *
+     *  A branch step gets the same treatment one level up: if every one
+     *  of its alternatives ends, the branch itself is terminal on every
+     *  path that can reach it, and anything written after it in this
+     *  same list is exactly as dead as what follows a plain step marked
+     *  `end` — just with the flag one layer further down. */
     const checkTerminalPlacement = (list: HelpStep[], branchId?: string): void => {
       list.forEach((step, index) => {
-        if (step.action === "branch" || step.end !== true) return;
-        if (index === list.length - 1) return;
+        const isLast = index === list.length - 1;
+
+        if (step.action === "branch") {
+          const everyAlternativeEnds =
+            step.branches.length > 0 &&
+            step.branches.every((b) => {
+              const last = b.steps[b.steps.length - 1];
+              return last !== undefined && last.action !== "branch" && last.end === true;
+            });
+          if (everyAlternativeEnds && !isLast) {
+            report(
+              "every alternative of a branch step ends, but steps are written after it",
+            );
+          }
+          return;
+        }
+
+        if (step.end !== true || isLast) return;
         report(
           branchId === undefined
             ? "a step marked end is not the last of the scenario's own steps"
@@ -174,6 +198,14 @@ export function validateHelpRegistry(scenarios: HelpScenario[]): HelpProblem[] {
         }
         for (const step of variant.steps) {
           checkStep(step, `variant "${variant.environment}"`);
+          // A variant renders as prose through HelpMenu's VariantPicker —
+          // there is no tour, so nothing ever reads `end` here. Report it
+          // rather than silently accepting a flag that does nothing.
+          if (step.end === true) {
+            report(
+              `variant "${variant.environment}" has a step marked end, which does nothing outside a tour`,
+            );
+          }
         }
       }
       // A wrong user-agent guess must never leave someone with nothing.

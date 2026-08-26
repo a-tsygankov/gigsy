@@ -405,7 +405,10 @@ describe("validateHelpRegistry", () => {
   it("allows a terminal step in the last position of a branch", () => {
     // The shape record-work depends on: a dead-end alternative ends,
     // and the steps written after the branch belong to the one that
-    // did not.
+    // did not. A second alternative that does NOT end is essential here
+    // — if this branch's only alternative ended, every path through it
+    // would be a dead end, and "every alternative of a branch step ends"
+    // would (correctly) flag the step below as unreachable.
     const scenario: HelpScenario = {
       ...ok,
       steps: [
@@ -413,7 +416,7 @@ describe("validateHelpRegistry", () => {
           action: "branch",
           branches: [
             {
-              id: "only",
+              id: "dead-end",
               when: { type: "target-visible", target: HelpTarget.GigList },
               steps: [
                 {
@@ -421,6 +424,17 @@ describe("validateHelpRegistry", () => {
                   target: HelpTarget.SettingsNotifications,
                   description: "Stops here.",
                   end: true,
+                },
+              ],
+            },
+            {
+              id: "continues",
+              when: { type: "target-missing", target: HelpTarget.GigList },
+              steps: [
+                {
+                  action: "highlight",
+                  target: HelpTarget.SettingsNotifications,
+                  description: "Keeps going.",
                 },
               ],
             },
@@ -436,10 +450,121 @@ describe("validateHelpRegistry", () => {
     expect(validateHelpRegistry([scenario])).toEqual([]);
   });
 
-  it("does not call a navigate step external", () => {
-    // `everyStepExternal` decides "executable but every step is
-    // external". A navigate step is something a person does, so it must
-    // never satisfy that.
+  it("allows a terminal step in the last position of the scenario", () => {
+    const scenario: HelpScenario = {
+      ...ok,
+      steps: [
+        {
+          action: "highlight",
+          target: HelpTarget.SettingsNotifications,
+          description: "First stop.",
+        },
+        {
+          action: "highlight",
+          target: HelpTarget.SettingsCapture,
+          description: "Stops here.",
+          end: true,
+        },
+      ],
+    };
+    expect(validateHelpRegistry([scenario])).toEqual([]);
+  });
+
+  it("catches steps written after a branch whose every alternative ends", () => {
+    // The same "silently drops what follows" wrongness the plain `end`
+    // rule catches, one level up: if EVERY alternative of a branch ends,
+    // the branch itself is terminal on every path, so anything written
+    // after it is dead on arrival — even though no individual step here
+    // is out of place within its own list.
+    const scenario: HelpScenario = {
+      ...ok,
+      steps: [
+        {
+          action: "branch",
+          branches: [
+            {
+              id: "a",
+              when: { type: "target-visible", target: HelpTarget.GigList },
+              steps: [
+                {
+                  action: "highlight",
+                  target: HelpTarget.SettingsNotifications,
+                  description: "Stops here.",
+                  end: true,
+                },
+              ],
+            },
+            {
+              id: "b",
+              when: { type: "target-missing", target: HelpTarget.GigList },
+              steps: [
+                {
+                  action: "highlight",
+                  target: HelpTarget.SettingsCapture,
+                  description: "Also stops here.",
+                  end: true,
+                },
+              ],
+            },
+          ],
+        },
+        {
+          action: "highlight",
+          target: HelpTarget.PushToggle,
+          description: "Unreachable on every path.",
+        },
+      ],
+    };
+    expect(messages([scenario])).toContain(
+      "every alternative of a branch step ends, but steps are written after it",
+    );
+  });
+
+  it("allows a branch whose every alternative ends, when the branch is the scenario's last step", () => {
+    const scenario: HelpScenario = {
+      ...ok,
+      steps: [
+        {
+          action: "branch",
+          branches: [
+            {
+              id: "a",
+              when: { type: "target-visible", target: HelpTarget.GigList },
+              steps: [
+                {
+                  action: "highlight",
+                  target: HelpTarget.SettingsNotifications,
+                  description: "Stops here.",
+                  end: true,
+                },
+              ],
+            },
+            {
+              id: "b",
+              when: { type: "target-missing", target: HelpTarget.GigList },
+              steps: [
+                {
+                  action: "highlight",
+                  target: HelpTarget.SettingsCapture,
+                  description: "Also stops here.",
+                  end: true,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(validateHelpRegistry([scenario])).toEqual([]);
+  });
+
+  it("allows a well-formed navigate step, and never calls it external", () => {
+    // Pins the positive case for all three navigate rules at once: a
+    // route rule inverted to fire on good input and stay silent on bad
+    // would still pass every `toContain` assertion above it. Also covers
+    // `everyStepExternal` — "executable but every step is external" — a
+    // navigate step is something a person does, so it must never satisfy
+    // that.
     const scenario: HelpScenario = {
       ...ok,
       steps: [
@@ -451,8 +576,33 @@ describe("validateHelpRegistry", () => {
         },
       ],
     };
-    expect(messages([scenario])).not.toContain(
-      "scenario is executable but every step is external",
+    expect(validateHelpRegistry([scenario])).toEqual([]);
+  });
+
+  it("catches a variant step marked end, which does nothing outside a tour", () => {
+    // A variant renders as prose through HelpMenu's VariantPicker —
+    // there is no tour, so nothing ever reads `end` here.
+    const scenario: HelpScenario = {
+      ...ok,
+      executable: false,
+      steps: [],
+      variants: [
+        {
+          environment: "fallback",
+          label: "Any browser",
+          steps: [
+            {
+              action: "external",
+              externalType: "os-ui",
+              description: "Tap Share.",
+              end: true,
+            },
+          ],
+        },
+      ],
+    };
+    expect(messages([scenario])).toContain(
+      'variant "fallback" has a step marked end, which does nothing outside a tour',
     );
   });
 });
