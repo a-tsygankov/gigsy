@@ -412,4 +412,36 @@ describe("HelpProvider", () => {
     expect(container!.querySelector('[data-testid="help-sheet"]')).toBeNull();
     expect(runTour).toHaveBeenCalledTimes(1);
   });
+
+  it("does not cancel a tour when the user takes a hop the scenario declared", async () => {
+    // record-work's whole shape: start on /gigs, the user taps their
+    // own gig, the tour follows. Without this the route-change effect
+    // kills the tour on the very hop it exists to make.
+    const cancel = vi.fn();
+    vi.mocked(runTour).mockResolvedValue(cancel);
+
+    mount("/gigs"); // record-work's startRoute, so no navigation wait.
+    await act(async () => {
+      await latest!.startScenario("record-work");
+    });
+    expect(runTour).toHaveBeenCalledTimes(1);
+
+    act(() => navigate!("/gigs/8f14e45f-ceea-467a-9a36-dedd4bea2543"));
+
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("still cancels a tour when the user goes somewhere the scenario never mentioned", async () => {
+    const cancel = vi.fn();
+    vi.mocked(runTour).mockResolvedValue(cancel);
+
+    mount("/gigs");
+    await act(async () => {
+      await latest!.startScenario("record-work");
+    });
+
+    act(() => navigate!("/settings"));
+
+    expect(cancel).toHaveBeenCalled();
+  });
 });

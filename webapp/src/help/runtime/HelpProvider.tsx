@@ -17,6 +17,7 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 import { appLog } from "../../lib/logger.ts";
 import { getHelpScenario } from "../registry.ts";
+import { allowedRoutes, matchesRoute } from "../routes.ts";
 import type { HelpScenarioId } from "../types.ts";
 import { HelpSheet } from "./HelpSheet.tsx";
 import { HelpUnavailableBanner } from "./HelpUnavailableBanner.tsx";
@@ -86,12 +87,13 @@ export function HelpProvider({ children }: { children: ReactNode }) {
   // `runTour` — so giving up never leaves one of those still running
   // toward a tour nobody can reach any more.
   const controllerRef = useRef<AbortController | null>(null);
-  // The route this attempt is (or, once running, is expected to keep)
-  // matching. Set as soon as `startScenario` knows it — before it even
-  // navigates there, if it must — so a route-change effect can tell its
-  // own startRoute navigation apart from someone leaving mid-tour, at
-  // every stage from setup through a live tour.
-  const expectedRouteRef = useRef<string | null>(null);
+  // The routes this attempt is (or, once running, is expected to stay
+  // within): where the scenario starts, plus wherever each of its
+  // navigate steps lands. Set as soon as `startScenario` knows them —
+  // before it even navigates — so a route-change effect can tell its
+  // own startRoute navigation, and a declared mid-tour hop, apart from
+  // someone leaving the tour behind.
+  const expectedRoutesRef = useRef<string[] | null>(null);
   // The router's current path, readable from inside an async callback
   // that was created before the navigation it is waiting on. A ref
   // rather than the captured `location.pathname`, which is a snapshot of
@@ -112,7 +114,7 @@ export function HelpProvider({ children }: { children: ReactNode }) {
     controllerRef.current = null;
     cancelRef.current?.();
     cancelRef.current = null;
-    expectedRouteRef.current = null;
+    expectedRoutesRef.current = null;
   }, []);
 
   const closeHelp = useCallback(() => {
@@ -158,7 +160,7 @@ export function HelpProvider({ children }: { children: ReactNode }) {
 
       const controller = new AbortController();
       controllerRef.current = controller;
-      expectedRouteRef.current = scenario.startRoute ?? location.pathname;
+      expectedRoutesRef.current = allowedRoutes(scenario, location.pathname);
 
       setIsOpen(false);
 
@@ -221,16 +223,16 @@ export function HelpProvider({ children }: { children: ReactNode }) {
     [location.pathname, navigate, cancelTour],
   );
 
-  // A tour outlives navigation only by accident — once one is running,
-  // any route change away from where it started leaves it spotlighting
-  // a detached node. `expectedRouteRef` also covers the setup window
-  // (including this same function's own startRoute navigation, which
-  // changes `location.pathname` too), so this only ever fires for a
-  // route change the current attempt did not itself cause.
+  // A tour outlives navigation only where the scenario said it would.
+  // `allowedRoutes` covers the setup window (including this component's
+  // own startRoute navigation, which changes `location.pathname` too)
+  // and every hop a navigate step declares, so this fires only for a
+  // route change that leaves the scenario behind.
   useEffect(() => {
+    const allowed = expectedRoutesRef.current;
     if (
-      expectedRouteRef.current !== null &&
-      expectedRouteRef.current !== location.pathname
+      allowed !== null &&
+      !allowed.some((pattern) => matchesRoute(pattern, location.pathname))
     ) {
       cancelTour();
     }
