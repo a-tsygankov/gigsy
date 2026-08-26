@@ -47,18 +47,64 @@ export function validateHelpRegistry(scenarios: HelpScenario[]): HelpProblem[] {
     }
 
     const branchIds = new Set<string>();
-    const checkExternal = (step: HelpStep, where: string): void => {
+
+    /** Per-step rules, applied identically at the top level and inside
+     *  a branch. `where` is the only difference, and it is only there
+     *  so a message says which branch to look in. */
+    const checkStep = (step: HelpStep, where: string): void => {
+      const inBranch = where !== "";
+
       if (step.action === "external" && step.description.trim() === "") {
         report(
-          where === ""
-            ? "external step has an empty description"
-            : `${where} has an external step with an empty description`,
+          inBranch
+            ? `${where} has an external step with an empty description`
+            : "external step has an empty description",
+        );
+      }
+
+      if (step.action !== "navigate") return;
+
+      if (!executable) report("non-executable scenario has a navigate step");
+
+      const id = step.target.id;
+      if (step.route.trim() === "") {
+        report(
+          inBranch
+            ? `${where} has a navigate step for target "${id}" with no route`
+            : `navigate step for target "${id}" has no route`,
+        );
+      } else if (!step.route.startsWith("/")) {
+        const tail = `route "${step.route}", which must start with "/"`;
+        report(
+          inBranch
+            ? `${where} has a navigate step for target "${id}" with ${tail}`
+            : `navigate step for target "${id}" has ${tail}`,
         );
       }
     };
 
+    /** A terminal step with steps written after it in the same list
+     *  silently drops them — the class of quiet wrongness this file
+     *  exists to make loud. A terminal step in the LAST position of a
+     *  scenario's own steps is a harmless no-op and is not reported:
+     *  that would be the validator arguing about redundancy rather than
+     *  correctness. */
+    const checkTerminalPlacement = (list: HelpStep[], branchId?: string): void => {
+      list.forEach((step, index) => {
+        if (step.action === "branch" || step.end !== true) return;
+        if (index === list.length - 1) return;
+        report(
+          branchId === undefined
+            ? "a step marked end is not the last of the scenario's own steps"
+            : `branch "${branchId}" has a step marked end that is not its last`,
+        );
+      });
+    };
+
+    checkTerminalPlacement(scenario.steps);
+
     for (const step of scenario.steps) {
-      checkExternal(step, "");
+      checkStep(step, "");
       if (step.action !== "branch") continue;
 
       if (step.branches.length === 0) report("branch step has no branches");
@@ -74,8 +120,9 @@ export function validateHelpRegistry(scenarios: HelpScenario[]): HelpProblem[] {
         if (branch.steps.some((s) => s.action === "branch")) {
           report(`branch "${branch.id}" nests another branch step`);
         }
+        checkTerminalPlacement(branch.steps, branch.id);
         for (const inner of branch.steps) {
-          checkExternal(inner, `branch "${branch.id}"`);
+          checkStep(inner, `branch "${branch.id}"`);
         }
       }
     }
@@ -126,7 +173,7 @@ export function validateHelpRegistry(scenarios: HelpScenario[]): HelpProblem[] {
           report(`variant "${variant.environment}" has no steps`);
         }
         for (const step of variant.steps) {
-          checkExternal(step, `variant "${variant.environment}"`);
+          checkStep(step, `variant "${variant.environment}"`);
         }
       }
       // A wrong user-agent guess must never leave someone with nothing.

@@ -236,4 +236,223 @@ describe("validateHelpRegistry", () => {
     expect(found).toContain(`duplicate variant environment "ios-safari"`);
     expect(found).toContain("no fallback variant");
   });
+
+  it("catches a navigate step with an empty route", () => {
+    const scenario: HelpScenario = {
+      ...ok,
+      steps: [
+        {
+          action: "navigate",
+          target: HelpTarget.GigList,
+          route: "",
+          description: "Tap the one you want.",
+        },
+      ],
+    };
+    expect(messages([scenario])).toContain(
+      'navigate step for target "gig-list" has no route',
+    );
+  });
+
+  it("catches a navigate route that is not a path", () => {
+    const scenario: HelpScenario = {
+      ...ok,
+      steps: [
+        {
+          action: "navigate",
+          target: HelpTarget.GigList,
+          route: "gigs/:id",
+          description: "Tap the one you want.",
+        },
+      ],
+    };
+    expect(messages([scenario])).toContain(
+      'navigate step for target "gig-list" has route "gigs/:id", which must start with "/"',
+    );
+  });
+
+  it("catches a navigate step inside a branch, too", () => {
+    const scenario: HelpScenario = {
+      ...ok,
+      steps: [
+        {
+          action: "branch",
+          branches: [
+            {
+              id: "only",
+              when: { type: "target-visible", target: HelpTarget.GigList },
+              steps: [
+                {
+                  action: "navigate",
+                  target: HelpTarget.GigList,
+                  route: "",
+                  description: "Tap the one you want.",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(messages([scenario])).toContain(
+      'branch "only" has a navigate step for target "gig-list" with no route',
+    );
+  });
+
+  it("catches a bad navigate route inside a branch", () => {
+    const scenario: HelpScenario = {
+      ...ok,
+      steps: [
+        {
+          action: "branch",
+          branches: [
+            {
+              id: "only",
+              when: { type: "target-visible", target: HelpTarget.GigList },
+              steps: [
+                {
+                  action: "navigate",
+                  target: HelpTarget.GigList,
+                  route: "gigs/:id",
+                  description: "Tap the one you want.",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(messages([scenario])).toContain(
+      'branch "only" has a navigate step for target "gig-list" with route "gigs/:id", which must start with "/"',
+    );
+  });
+
+  it("catches a navigate step in a non-executable scenario", () => {
+    // A non-executable scenario is browser and OS chrome, where there
+    // is no route to reach and nothing to tap.
+    const scenario: HelpScenario = {
+      ...ok,
+      executable: false,
+      steps: [
+        {
+          action: "navigate",
+          target: HelpTarget.GigList,
+          route: "/gigs/:id",
+          description: "Tap the one you want.",
+        },
+      ],
+    };
+    expect(messages([scenario])).toContain(
+      "non-executable scenario has a navigate step",
+    );
+  });
+
+  it("catches a terminal step that is not last in the scenario", () => {
+    const scenario: HelpScenario = {
+      ...ok,
+      steps: [
+        {
+          action: "highlight",
+          target: HelpTarget.SettingsNotifications,
+          description: "Stops here.",
+          end: true,
+        },
+        {
+          action: "highlight",
+          target: HelpTarget.SettingsCapture,
+          description: "Unreachable.",
+        },
+      ],
+    };
+    expect(messages([scenario])).toContain(
+      "a step marked end is not the last of the scenario's own steps",
+    );
+  });
+
+  it("catches a terminal step that is not last in its branch", () => {
+    const scenario: HelpScenario = {
+      ...ok,
+      steps: [
+        {
+          action: "branch",
+          branches: [
+            {
+              id: "only",
+              when: { type: "target-visible", target: HelpTarget.GigList },
+              steps: [
+                {
+                  action: "highlight",
+                  target: HelpTarget.SettingsNotifications,
+                  description: "Stops here.",
+                  end: true,
+                },
+                {
+                  action: "highlight",
+                  target: HelpTarget.SettingsCapture,
+                  description: "Unreachable.",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(messages([scenario])).toContain(
+      'branch "only" has a step marked end that is not its last',
+    );
+  });
+
+  it("allows a terminal step in the last position of a branch", () => {
+    // The shape record-work depends on: a dead-end alternative ends,
+    // and the steps written after the branch belong to the one that
+    // did not.
+    const scenario: HelpScenario = {
+      ...ok,
+      steps: [
+        {
+          action: "branch",
+          branches: [
+            {
+              id: "only",
+              when: { type: "target-visible", target: HelpTarget.GigList },
+              steps: [
+                {
+                  action: "highlight",
+                  target: HelpTarget.SettingsNotifications,
+                  description: "Stops here.",
+                  end: true,
+                },
+              ],
+            },
+          ],
+        },
+        {
+          action: "highlight",
+          target: HelpTarget.SettingsCapture,
+          description: "Reached only by an alternative that did not end.",
+        },
+      ],
+    };
+    expect(validateHelpRegistry([scenario])).toEqual([]);
+  });
+
+  it("does not call a navigate step external", () => {
+    // `everyStepExternal` decides "executable but every step is
+    // external". A navigate step is something a person does, so it must
+    // never satisfy that.
+    const scenario: HelpScenario = {
+      ...ok,
+      steps: [
+        {
+          action: "navigate",
+          target: HelpTarget.GigList,
+          route: "/gigs/:id",
+          description: "Tap the one you want.",
+        },
+      ],
+    };
+    expect(messages([scenario])).not.toContain(
+      "scenario is executable but every step is external",
+    );
+  });
 });
