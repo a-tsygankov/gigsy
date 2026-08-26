@@ -191,6 +191,12 @@ function takeUntilBranch(steps: HelpStep[]): Expansion {
  *  and appends everything up to the next branch. `null` is the same
  *  hard failure it has always been: no branch condition held.
  *
+ *  `null` also comes back when `signal` aborts mid-poll, and ONLY then
+ *  — a flat head never awaits anything, so it returns a full
+ *  `Expansion` however long the signal has been aborted. Callers must
+ *  therefore check the signal themselves rather than reading `null` as
+ *  the whole abort story; every call site in `runTour` does.
+ *
  *  Exported so its `{flat, rest}` contract — in particular, that `rest`
  *  stops at the NEXT branch rather than running past it — can be
  *  pinned directly; see the `expandBranch` tests. That is the exact
@@ -487,8 +493,13 @@ export async function runTour(
    *  `waitForElement`, which is another thing we do not want cancelled
    *  under a step that is still waiting for its target. */
   const rebuild = (): void => {
-    driveSteps = buildDriveSteps(scenario, known);
-    tour.setConfig({ ...tour.getConfig(), steps: driveSteps });
+    // Local, not the outer `driveSteps`: that binding is read only when
+    // the tour is constructed, so assigning to it here would suggest it
+    // tracks the live array when nothing reads it again.
+    tour.setConfig({
+      ...tour.getConfig(),
+      steps: buildDriveSteps(scenario, known),
+    });
   };
 
   /** Resolve the branch at the head of `rest`. Single-flight: the
@@ -503,24 +514,36 @@ export async function runTour(
    *  banner. The answer cannot have changed: `settleBranch` polls right
    *  up to its deadline, so it has already watched a DOM that is not
    *  going to produce the condition it needs. Asking again only spends
-   *  the same budget twice. */
+   *  the same budget twice.
+   *
+   *  Nothing awaits the resolve-ahead's `void grow()`, so a throw from
+   *  inside the attempt — `resolveTarget` reaching a `querySelector`
+   *  that rejects a malformed selector, say — would surface as an
+   *  unhandled rejection instead of the banner. It is caught here and
+   *  reported as the same failure a branch that never settles is: the
+   *  tour cannot continue either way. */
   let growing: Promise<boolean> | null = null;
   let growFailed = false;
   const grow = (): Promise<boolean> => {
     if (growFailed) return Promise.resolve(false);
     if (growing !== null) return growing;
     const attempt = (async () => {
-      const grown = await expandBranch(rest, options.signal);
-      // Abort first: `settleBranch` reports a cancelled poll as `null`
-      // too, and that is not a verdict about the branch.
-      if (options.signal.aborted) return false;
-      if (grown === null) {
+      try {
+        const grown = await expandBranch(rest, options.signal);
+        // Abort first: `settleBranch` reports a cancelled poll as `null`
+        // too, and that is not a verdict about the branch.
+        if (options.signal.aborted) return false;
+        if (grown === null) {
+          growFailed = true;
+          return false;
+        }
+        absorb(grown);
+        rebuild();
+        return true;
+      } catch {
         growFailed = true;
         return false;
       }
-      absorb(grown);
-      rebuild();
-      return true;
     })();
     growing = attempt;
     void attempt.finally(() => {
@@ -614,38 +637,53 @@ export async function runTour(
   /** Can the branch at the head of `rest` be resolved against the DOM
    *  the user is looking at right now?
    *
-   *  The last known step is always safe — everything before the branch
-   *  has been walked. One step of lead time is safe too, and worth
-   *  having: it is what keeps the boundary step's button labelled Next
-   *  rather than Done, since Driver decides that label from whether a
-   *  next step exists at the moment it renders the popover. The
-   *  exception is a last known step that NAVIGATES, whose branch asks
-   *  about a screen that is not on the page yet.
+   *  Only once nothing is left to do before it. A step being SHOWN is
+   *  not a step PERFORMED: a click, input, select or navigate step
+   *  sitting on screen has not yet put anything on the page, and a
+   *  branch asking about what it reveals would be answered against the
+   *  screen the user is still looking at. For a navigate step that is
+   *  the whole bug this file was restructured to remove — the pay
+   *  branches would be measured against the gig LIST.
    *
-   *  There is not always a step to lead by: when only one step is
-   *  known, the earliest resolve-ahead IS the boundary, and its popover
-   *  was painted before the branch settled. The eager loop above keeps
-   *  that off every scenario whose first branch no interaction precedes
-   *  — which was the whole "1 of 1 / DONE" failure, measured under the
-   *  real library. What is left is an interaction immediately followed
-   *  by a branch, which is `record-work`'s shape: a click or navigate
-   *  step renders only a Close button, so there is no Next/Done label
-   *  to get wrong there. An `input` or `select` step in that position
-   *  would show a "Done" that still advances — no scenario does that
-   *  today. Either way `{{total}}` stays the one it was painted with;
-   *  see `showProgress`. */
-  const readyToGrow = (index: number | undefined): boolean => {
-    if (index === undefined || rest.length === 0) return false;
-    const last = known.length - 1;
-    if (index === last) return true;
-    return index === last - 1 && known[last]?.action !== "navigate";
-  };
+   *  So the test is over the steps from `index` to the branch,
+   *  inclusive of the one being read. Everything before `index` has
+   *  been walked and is therefore done, whatever kind of step it was.
+   *
+   *  Resolving as early as that window allows is deliberate, not merely
+   *  safe. It buys the lead time the boundary popover needs: Driver
+   *  fixes a step's button label and its `{{total}}` when it renders,
+   *  from whether a next step exists at that moment, and never revisits
+   *  either. Grow only once the boundary is already on screen and it
+   *  keeps the "Done" it was painted with.
+   *
+   *  When the boundary IS the only known step there is no lead to buy,
+   *  and its popover keeps whatever it was painted with. The eager loop
+   *  above keeps that off every scenario whose first branch no
+   *  interaction precedes — which was the whole "1 of 1 / DONE"
+   *  failure, measured under the real library. What can still reach it
+   *  is an interaction with a branch immediately behind it: a click or
+   *  navigate step renders only a Close button, so there is no
+   *  Next/Done label to get wrong, while an `input` or `select` step
+   *  would show a "Done" that still advances. No registered scenario
+   *  has that shape today. Either way `{{total}}` stays the one it was
+   *  painted with; see `showProgress`. */
+  const readyToGrow = (index: number | undefined): boolean =>
+    index !== undefined &&
+    rest.length > 0 &&
+    // Safe exactly when no un-performed interaction stands between here
+    // and the branch — including the step being read right now. A
+    // click, input, select or navigate step that is still on screen has
+    // been SHOWN, not performed, so the DOM the branch asks about does
+    // not exist yet.
+    !known.slice(index).some(isUserInteraction);
 
-  /** What the Next (and Done) button does. Driver's own advance is
-   *  replaced entirely by the config-level `onNextClick` below, so this
-   *  has to call `moveNext` itself — including on the true final step,
-   *  where `moveNext` runs off the end of the array and destroys the
-   *  tour, exactly as the default would.
+  /** The one way this tour moves forward: the Next and Done buttons,
+   *  ArrowRight, and the tap that completes a click or navigate step.
+   *  Driver's own advance is replaced entirely by the config-level
+   *  `onNextClick` below, so this has to call `moveNext` itself —
+   *  including on the true final step, where `moveNext` runs off the
+   *  end of the array and destroys the tour, exactly as the default
+   *  would.
    *
    *  The await is the safety net for someone who reaches the last known
    *  step before the resolve-ahead has finished settling: without it
@@ -660,6 +698,20 @@ export async function runTour(
         teardown();
         return;
       }
+      // Someone else already moved us on while this was settling — a
+      // second Next press, a held ArrowRight, or the tap that completes
+      // a click or navigate step. Each of those re-enters here and
+      // awaits the SAME single-flight promise, so without this they all
+      // wake and each calls `moveNext`: the first advances, every one
+      // behind it runs off the end and destroys the tour with no
+      // banner. The popover does not change while a grow settles, which
+      // is exactly what makes a second press the natural thing to do.
+      //
+      // Compared on the index rather than a "one advance in flight"
+      // flag, because the question is whether the tour has moved since
+      // this call started — which stays answerable however many
+      // advances are queued, and whichever of them got there first.
+      if (tour.getActiveIndex() !== index) return;
     }
     tour.moveNext();
   };
@@ -785,7 +837,14 @@ export async function runTour(
         }
         advanced = true;
         operable.removeEventListener(eventName, onFire);
-        tour.moveNext();
+        // Through `advance`, not straight to `moveNext`: this step may
+        // be the last known one, and a click or navigate step shows no
+        // Next button, so the tap is the ONLY pointer path forward. Go
+        // round `advance` and an unresolved branch behind it would be
+        // skipped entirely — `moveNext` would run off the end and
+        // destroy the tour with no banner. `advanced` is already set
+        // above, so the watchdog stays silenced across the await.
+        void advance();
       };
       operable.addEventListener(eventName, onFire);
       stepCleanups.push(() =>

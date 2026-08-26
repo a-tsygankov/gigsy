@@ -838,6 +838,214 @@ describe("runTour against the real driver.js", () => {
     expect(onUnavailable).not.toHaveBeenCalled();
   }, 15_000);
 
+  it("survives two Next presses while the branch behind them is still settling", async () => {
+    // The popover does not change while a grow settles, so a second
+    // press is the natural thing to do — and before `advance` guarded
+    // on the index, both presses awaited the same single-flight promise
+    // and both called `moveNext` on waking. The second ran off the end
+    // of the freshly grown array and destroyed the tour: no popover, no
+    // overlay, and no banner to say why. ArrowRight routes through the
+    // same hook, so a held key queued as many advances as it repeated.
+    //
+    // A regression, not a pre-existing wart: Next used to be
+    // synchronous, so a double press moved two RENDERED steps — visible,
+    // and recoverable with Previous.
+    document.body.innerHTML = `
+      <a data-testid="gig-status">Status</a>
+      <a data-testid="gig-break">Break</a>`;
+    paint("gig-status");
+    paint("gig-break");
+
+    const onUnavailable = vi.fn();
+    await start(
+      [
+        { action: "click", target: HelpTarget.GigStatus, description: "tap" },
+        { action: "highlight", target: HelpTarget.GigBreak, description: "read" },
+        {
+          action: "branch",
+          branches: [
+            {
+              id: "appeared",
+              when: { type: "target-visible", target: HelpTarget.GigOverride },
+              steps: [
+                {
+                  action: "highlight",
+                  target: HelpTarget.GigOverride,
+                  description: "behind the branch",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      onUnavailable,
+    );
+
+    expect(await waitFor(() => popoverText() === "tap")).toBe(true);
+    document
+      .querySelector<HTMLElement>('[data-testid="gig-status"]')!
+      .dispatchEvent(new Event("click", { bubbles: true }));
+    // Entering this step starts the resolve-ahead, and the branch's
+    // target is not on the page yet, so it will be polling for a while.
+    expect(await waitFor(() => popoverText() === "read")).toBe(true);
+
+    // Arrives late enough that both presses below land while the grow
+    // is genuinely in flight, which is the whole race.
+    setTimeout(() => {
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        '<input data-testid="gig-override" />',
+      );
+      paint("gig-override");
+    }, 900);
+
+    clickNext();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    clickNext();
+
+    // Alive, on the step the branch resolved to — not destroyed by the
+    // second press running past it.
+    expect(await waitFor(() => popoverText() === "behind the branch")).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(popoverText()).toBe("behind the branch");
+    expect(driverResidue().popover).toBe(true);
+    expect(onUnavailable).not.toHaveBeenCalled();
+  }, 15_000);
+
+  it("waits for the branch behind a click step when the tap is the only way forward", async () => {
+    // A click or navigate step shows no Next button, so its listener is
+    // the only pointer path forward. Wired straight to `moveNext`, that
+    // tap skipped `advance` entirely: with the branch behind it still
+    // unresolved, `moveNext` walked off the end of a one-step array and
+    // destroyed the tour with no banner. Nothing else in this file
+    // covers it — every other advance here goes through a button.
+    document.body.innerHTML = `<a data-testid="gig-status">Status</a>`;
+    paint("gig-status");
+
+    const onUnavailable = vi.fn();
+    await start(
+      [
+        { action: "click", target: HelpTarget.GigStatus, description: "tap" },
+        {
+          action: "branch",
+          branches: [
+            {
+              id: "appeared",
+              when: { type: "target-visible", target: HelpTarget.GigOverride },
+              steps: [
+                {
+                  action: "highlight",
+                  target: HelpTarget.GigOverride,
+                  description: "behind the branch",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      onUnavailable,
+    );
+
+    expect(await waitFor(() => popoverText() === "tap")).toBe(true);
+    // `readyToGrow` will not resolve this branch from the click step
+    // itself — the interaction has been shown, not performed — so the
+    // tap is what has to await it.
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<input data-testid="gig-override" />',
+    );
+    paint("gig-override");
+
+    document
+      .querySelector<HTMLElement>('[data-testid="gig-status"]')!
+      .dispatchEvent(new Event("click", { bubbles: true }));
+
+    expect(await waitFor(() => popoverText() === "behind the branch")).toBe(true);
+    expect(onUnavailable).not.toHaveBeenCalled();
+  }, 15_000);
+
+  it("does not resolve a branch behind a navigate step until the screen has changed", async () => {
+    // `record-work` in miniature, and the exact bug this whole task
+    // exists to remove: the pay branches ask about controls on a gig
+    // the user has not opened yet, so answering them against the gig
+    // LIST picks the wrong alternative every time.
+    //
+    // The lead-time rule used to exempt this. It refused to grow one
+    // step ahead of a navigate step, but growing ON the last known step
+    // short-circuited to true whatever kind of step it was — so a
+    // navigate step sitting last, with the branch right behind it, was
+    // resolved before the tap. A step being SHOWN is not a step
+    // PERFORMED, which is what the rule tests for now.
+    document.body.innerHTML = `
+      <div data-testid="gig-list">
+        <a data-testid="gig-row" href="#">Row 1</a>
+      </div>`;
+    paint("gig-list");
+    paint("gig-row");
+
+    const onUnavailable = vi.fn();
+    await start(
+      [
+        {
+          action: "navigate",
+          target: HelpTarget.GigList,
+          route: "/gigs/:id",
+          description: "tap a gig",
+        },
+        {
+          action: "branch",
+          branches: [
+            {
+              id: "appeared",
+              when: { type: "target-visible", target: HelpTarget.GigOverride },
+              steps: [
+                {
+                  action: "highlight",
+                  target: HelpTarget.GigOverride,
+                  description: "appeared",
+                },
+              ],
+            },
+            {
+              id: "absent",
+              when: { type: "target-missing", target: HelpTarget.GigOverride },
+              steps: [
+                {
+                  action: "highlight",
+                  target: HelpTarget.GigStatus,
+                  description: "absent",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      onUnavailable,
+    );
+
+    expect(await waitFor(() => popoverText() === "tap a gig")).toBe(true);
+    // `gig-override` does not exist yet, so a branch resolved at this
+    // moment — which is what the tour is doing while this popover sits
+    // on screen — would commit to "absent".
+    expect(document.querySelector('[data-testid="gig-override"]')).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // The tap, and then the screen it opens. Separate statements
+    // because that is the real order: the route changes on the tap and
+    // the detail screen paints once its data is in.
+    document
+      .querySelector<HTMLElement>('[data-testid="gig-row"]')!
+      .dispatchEvent(new Event("click", { bubbles: true }));
+    document.body.innerHTML = `
+      <div data-testid="gig-status">Status</div>
+      <input data-testid="gig-override" />`;
+    paint("gig-status");
+    paint("gig-override");
+
+    expect(await waitFor(() => popoverText() === "appeared")).toBe(true);
+    expect(onUnavailable).not.toHaveBeenCalled();
+  }, 15_000);
+
   it("ends the tour on a terminal step inside a branch", async () => {
     // record-work's `no-gigs-yet` shape: the alternative ends, and the
     // step written after the branch is never reached.
