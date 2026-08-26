@@ -24,6 +24,7 @@ import { ServicesRepo } from "../repos/services.ts";
 import { AllocationsRepo } from "../repos/allocations.ts";
 import { recomputePaidTotals } from "./paid-totals.ts";
 import { checkAllocationWrite, checkPaymentWrite } from "./payment-invariants.ts";
+import { checkGigParent } from "./gig-invariants.ts";
 import type { UpsertResult } from "../repos/clients.ts";
 
 export type SyncEntity =
@@ -175,6 +176,17 @@ export async function applySyncOps(
           (await clientsRepo.get(userId, parsed.data.clientId)) === null
         ) {
           results.push(errored(op.id, "clientId does not reference your client"));
+          break;
+        }
+        const parentViolation = await checkGigParent(
+          d1,
+          userId,
+          op.id,
+          parsed.data.parentGigId ?? null,
+          parsed.data.clientId ?? null,
+        );
+        if (parentViolation !== null) {
+          results.push(errored(op.id, parentViolation.message));
           break;
         }
         const existing = await gigsRepo.get(userId, op.id);

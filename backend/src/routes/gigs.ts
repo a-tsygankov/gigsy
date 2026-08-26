@@ -5,6 +5,7 @@ import { requireAuth, type AuthVars } from "../middleware/auth.ts";
 import { GigInput, entityId } from "../domain/schemas.ts";
 import { GigsRepo } from "../repos/gigs.ts";
 import { ClientsRepo } from "../repos/clients.ts";
+import { checkGigParent } from "../services/gig-invariants.ts";
 
 export const gigsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }>()
   .use("*", requireAuth)
@@ -32,6 +33,17 @@ export const gigsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }>(
       if (client === null) {
         return c.json({ error: "clientId does not reference your client" }, 400);
       }
+    }
+
+    const parentViolation = await checkGigParent(
+      c.env.DB,
+      userId,
+      id,
+      input.parentGigId ?? null,
+      input.clientId ?? null,
+    );
+    if (parentViolation !== null) {
+      return c.json({ error: parentViolation.message }, 400);
     }
 
     const repo = GigsRepo.for(c.env.DB);
