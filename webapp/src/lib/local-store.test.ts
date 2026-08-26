@@ -1036,30 +1036,54 @@ describe("gig parent link", () => {
     expect(child?.parentGigId).toBeNull();
   });
 
-  it("queues the cleared child as an outbox op, not just a Dexie write", async () => {
-    // Clearing only the local row would leave this device out of step
-    // with the server: the clear has to travel, which is why it is
-    // routed through `putGig` rather than written to Dexie directly.
+  it("clears the child WITHOUT queuing an outbox op for it", async () => {
+    // The clear is a local mirror and must stay one. Queuing an upsert
+    // here would rebuild the child from THIS device's copy with a fresh
+    // `modifiedAt`: a laptop that last synced an hour ago would beat a
+    // phone's newer edit on LWW and discard it silently, from a write
+    // the user never asked for. Nothing is lost by staying local — the
+    // server runs its own ON DELETE SET NULL when this delete drains
+    // (migration 0018, verified against the live D1 instance in
+    // backend/test/gig-parent-column.test.ts) and the same pull brings
+    // that null back down.
     const { store } = makeStore();
     await store.putGig(G1, { status: "confirmed" });
     await store.putGig(G2, { status: "lead", parentGigId: G1 });
+    // The child is already synced: drop the op its own creation queued,
+    // so anything found for it afterwards can only have come from the
+    // removal.
+    await store.deleteOp(`gig:${G2}`);
 
     await store.removeGig(G1);
 
+    expect((await store.getGig(G2))?.parentGigId).toBeNull();
     const ops = await store.pendingOps();
-    expect(ops.find((o) => o.entityId === G1)?.op).toBe("delete");
+    // The parent's delete is the ONLY thing this queued.
+    expect(ops.map((o) => `${o.entity}:${o.entityId}:${o.op}`)).toEqual([
+      `gig:${G1}:delete`,
+    ]);
+    expect(await store.hasPendingOp("gig", G2)).toBe(false);
+  });
 
-    const childOp = ops.find((o) => o.entityId === G2);
-    expect(childOp?.op).toBe("upsert");
-    // Present AND null — a dropped key is the incident this file exists
-    // to prevent, and would leave the link standing on a later replay.
-    expect(childOp?.payload).toHaveProperty("parentGigId");
-    expect((childOp?.payload as { parentGigId: string | null }).parentGigId).toBeNull();
+  it("does not fold a stale full-record upsert into a child's existing op", async () => {
+    // The other half of the same rule: when the child DOES have an
+    // undrained op, the removal must leave it exactly as it was rather
+    // than overwriting its payload with a whole gig rebuilt from the
+    // local copy.
+    const { store } = makeStore();
+    await store.putGig(G1, { status: "confirmed" });
+    await store.putGig(G2, { status: "lead", parentGigId: G1, notes: "the child" });
+    const before = (await store.pendingOps()).find((o) => o.entityId === G2);
+
+    await store.removeGig(G1);
+
+    const after = (await store.pendingOps()).find((o) => o.entityId === G2);
+    expect(after).toEqual(before);
   });
 
   it("leaves an unrelated gig's link alone when some other gig is removed", async () => {
     // Guards the `where(...).equals(id)` against becoming a scan that
-    // clears every child — a mutation the two tests above would not see.
+    // clears every child — a mutation the tests above would not see.
     const { store } = makeStore();
     await store.putGig(G1, { status: "confirmed" });
     await store.putGig(G2, { status: "lead", parentGigId: G1 });

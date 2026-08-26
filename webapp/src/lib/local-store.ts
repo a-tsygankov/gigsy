@@ -6,7 +6,6 @@
  * `applyServerRecord` (which deliberately bypasses the outbox).
  */
 import type { GigsyUserDB, PendingImage, PendingOp, SyncEntityName } from "./db.ts";
-import { gigToInput } from "./gig-input.ts";
 import { refuseQueuedImage, type QueueRefusal } from "./image-queue.ts";
 import type {
   Allocation,
@@ -164,14 +163,37 @@ export class LocalStore {
   }
 
   async removeGig(id: string): Promise<void> {
+    const now = this.clock();
     // Mirrors the server's ON DELETE SET NULL (migration 0018). Dexie
     // is an independent store and deletes locally first, so without
     // this the child keeps a link to a gig that is already gone.
-    const children = await this.db.gigs.where("parentGigId").equals(id).toArray();
-    for (const child of children) {
-      await this.putGig(child.id, { ...gigToInput(child), parentGigId: null });
-    }
-    await this.removeEntity("gig", id);
+    //
+    // A local mirror only, deliberately WITHOUT an outbox op. The
+    // server clears its own side when this delete drains — 0018's
+    // ON DELETE SET NULL, verified honoured against this D1 instance in
+    // backend/test/gig-parent-column.test.ts — and the same pull brings
+    // that null back down (pullEntity applies server rows before
+    // deleting locally-orphaned ones, so it lands in that pull, not the
+    // next one). Queuing an upsert here would rebuild the child from
+    // THIS device's copy and stamp a fresh `modifiedAt`, so a laptop
+    // that last synced an hour ago would win LWW against a phone's
+    // newer edit and silently discard it — the same class of loss as
+    // the durationMinutes incident in the OutboxPayload comment above,
+    // and worse in one respect, because the stale base is this store's
+    // own copy. The user never asked to write the child. It would also
+    // make one case strictly worse: a delete the server rejects is
+    // undone by the engine restoring the parent, but a clear that had
+    // already landed would leave the link gone anyway.
+    //
+    // One transaction with the delete, so a crash between them cannot
+    // leave some children cleared with their parent still present.
+    await this.db.transaction("rw", this.db.gigs, this.db.pendingOps, async () => {
+      const children = await this.db.gigs.where("parentGigId").equals(id).toArray();
+      for (const child of children) {
+        await this.db.gigs.update(child.id, { parentGigId: null });
+      }
+      await this.enqueueRemoval("gig", id, now);
+    });
   }
 
   // ── clients ──────────────────────────────────────────────────────
