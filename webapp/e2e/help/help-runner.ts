@@ -10,6 +10,7 @@
  */
 import { expect, type Locator, type Page } from "@playwright/test";
 import { targetSelector, type HelpTarget } from "../../src/help/targets.ts";
+import { matchesRoute } from "../../src/help/routes.ts";
 import type {
   BranchStep,
   HelpBranch,
@@ -418,17 +419,38 @@ async function performAction(page: Page, step: ActionStep): Promise<void> {
       }
       await locatorFor(page, step.target).selectOption(step.value);
       return;
+    case "navigate": {
+      const container = locatorFor(page, step.target);
+      await expect(container).toBeVisible({ timeout: TARGET_APPEAR_TIMEOUT_MS });
+      // The tour spotlights a container of choices and lets the person
+      // pick their own row (TourRenderer.ts wires the listener on the
+      // container and lets the tap bubble). The runner has no
+      // preference and cannot have one — which row is "yours" is the
+      // one thing a scenario deliberately does not know — so it takes
+      // the first. A stand-in for the tap, not a claim about which row
+      // matters.
+      //
+      // `a[href]` rather than the container itself: clicking the
+      // wrapper lands wherever its centre happens to be, which is a row
+      // on a full list and padding on a short one.
+      await container.locator("a[href]").first().click();
+      await page.waitForURL((url) => matchesRoute(step.route, url.pathname), {
+        timeout: TARGET_APPEAR_TIMEOUT_MS,
+      });
+      return;
+    }
     case "external":
       // Browser/OS UI — metadata only, nothing executable exists to
       // drive.
       return;
     default: {
-      // Exhaustiveness guard: if HelpStep ever grows a sixth action
-      // (types.ts's own comment on NavigateStep anticipates exactly
-      // this), `step` here stops being `never` and this line fails to
-      // compile — turning a silently-skipped, stepsRun-still-incremented
-      // step into a build failure instead of a scenario reporting green
-      // while doing less than it claims.
+      // Exhaustiveness guard: it already caught NavigateStep once — this
+      // line failed to compile the moment types.ts grew a sixth action,
+      // which is exactly why the `case "navigate"` above exists — and it
+      // will catch the next added action the same way, turning a
+      // silently-skipped, stepsRun-still-incremented step into a build
+      // failure instead of a scenario reporting green while doing less
+      // than it claims.
       const exhaustive: never = step;
       throw new Error(`unhandled help step action: ${JSON.stringify(exhaustive)}`);
     }
@@ -447,6 +469,12 @@ function makeStepCursor(): { next(): number } {
   return { next: () => n++ };
 }
 
+/** Whether the caller should keep going. A terminal step ends the whole
+ *  scenario, not just the branch it sits in — which is the point of it
+ *  (types.ts's `HelpStepBase.end`), so the signal has to travel back
+ *  out through this function's own recursion. */
+type StepOutcome = "continue" | "stop";
+
 async function runSteps(
   page: Page,
   scenario: HelpScenario,
@@ -454,7 +482,7 @@ async function runSteps(
   trace: HelpRunTrace,
   branchId: string | undefined,
   cursor: { next(): number },
-): Promise<void> {
+): Promise<StepOutcome> {
   for (const step of steps) {
     const index = cursor.next();
 
@@ -468,7 +496,15 @@ async function runSteps(
       // HelpScenarioError by the time it got here.
       const taken = await resolveBranch(page, scenario, step, index, branchId);
       trace.branchesTaken.push(taken.id);
-      await runSteps(page, scenario, taken.steps, trace, taken.id, cursor);
+      const outcome = await runSteps(
+        page,
+        scenario,
+        taken.steps,
+        trace,
+        taken.id,
+        cursor,
+      );
+      if (outcome === "stop") return "stop";
       continue;
     }
 
@@ -486,13 +522,17 @@ async function runSteps(
       });
     }
     // Counts only executed leaf steps, matching TourRenderer.ts's
-    // `flatten()` — which replaces a branch step with its taken steps
+    // expansion — which replaces a branch step with its taken steps
     // rather than counting the branch node itself. The two adapters
     // must agree on "how many steps is this scenario": a future doc
     // generator reading both would otherwise see them disagree about a
     // scenario neither actually treats differently.
     trace.stepsRun += 1;
+
+    if (step.end === true) return "stop";
   }
+
+  return "continue";
 }
 
 /**
@@ -501,9 +541,11 @@ async function runSteps(
  *
  * Throws a `HelpScenarioError` — naming the scenario, step, action,
  * target and (if applicable) branch — the moment anything does not
- * match what the scenario describes. `startRoute` is handled by the
- * caller's fixture (`prepareHelpScenario`) before this runs; there is no
- * navigate step in the model.
+ * match what the scenario describes.
+ * `startRoute` is handled by the caller's fixture
+ * (`prepareHelpScenario`) before this runs; a `navigate` step is what
+ * moves the page after that, and a step marked `end` stops the
+ * scenario wherever it sits.
  */
 export async function runHelpScenario(
   page: Page,
