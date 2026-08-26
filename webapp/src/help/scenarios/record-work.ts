@@ -31,6 +31,18 @@ import type { HelpScenario } from "../types.ts";
  * cannot happen, and the Work-card steps written after the branch must
  * not run on a screen those two never leave.
  *
+ * The three conditions on that first branch are `find-a-gig`'s, kept
+ * deliberately identical, and each reads something PRESENT — the row
+ * wrapper, the filter bar, or the "No gigs yet" box. That file's header
+ * carries the reasoning; the short version is that the filter bar is
+ * also absent while the gig query is pending and again after it has
+ * failed, so inferring "this account owns no gigs" from its absence
+ * told people with hundreds of gigs that they had none, for as long as
+ * a cold sync took. What made it worse HERE than there is the
+ * `end: true` below: a wrong commit did not merely mis-describe one
+ * screen, it closed the walkthrough and dropped every Work-card step
+ * after it.
+ *
  * Every step is a `highlight`, for the reason `create-gig.ts`'s header
  * gives at length: this runs in CI against a shared dev database, and
  * `performAction` really does fill, select and click. That file's form
@@ -180,10 +192,13 @@ export const recordWork: HelpScenario = {
         },
         {
           id: "no-gigs-yet",
-          // No filter bar at all means the user owns no gigs — the bar
-          // is unconditional on `all.length > 0`, so there is nothing to
-          // search and no row to tap.
-          when: { type: "target-missing", target: HelpTarget.GigFilters },
+          // The "No gigs yet" box itself, not the absence of the filter
+          // bar — see this file's header, and `find-a-gig`'s. Gigs.tsx
+          // mounts it on `gigs.data?.length === 0`, so it says "the
+          // account owns nothing" and never "the list has not arrived
+          // yet", which is the distinction the copy below depends on
+          // and the terminal step makes expensive to get wrong.
+          when: { type: "target-visible", target: HelpTarget.GigsEmpty },
           steps: [
             {
               action: "highlight",

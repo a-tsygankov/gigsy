@@ -88,6 +88,28 @@ than no help at all. Use a `branch` step with a `HelpCondition` per
 state, and give every condition a real chance to hold — a branch step
 with no matching condition is a hard failure, not a silent no-op.
 
+**Say what the screen is SAYING, not what it has not got round to
+saying — prefer `target-visible` over `target-missing`.** An element's
+presence is a claim; its absence is three claims wearing one face. The
+gig list is the worked example. `gig-filters` is mounted on
+`all.length > 0`, and `all` is `gigs.data ?? []`, so it is missing when
+the account owns no gigs, missing while the query is pending, and
+missing after the query has errored. `find-a-gig` and `record-work`
+both read that absence as "no gigs on this account", and both therefore
+told people with hundreds of gigs that they had none for as long as a
+cold sync took — the 250ms settle both adapters apply is a flicker
+guard, not a network budget. The fix was not a longer debounce but a
+positive target: Gigs.tsx's "No gigs yet" box carries `gigs-empty`, and
+`gigs.data?.length === 0` is true in exactly one of the three states.
+
+The trade is that loading and errored now match no alternative, and a
+branch with no winner is a hard failure. Take it. Loading resolves well
+inside the branch budget, and "help isn't available right now" is the
+truth about a screen that failed to load — which is more than the
+confident wrong answer it replaces. If you find yourself reaching for
+`target-missing` to mean "this account has nothing", check first
+whether the screen already says so somewhere you can tag.
+
 **If your scenario toggles something persisted, reset it in the Playwright
 fixture — never by reading state and clicking conditionally.**
 `configure-working-hours` flips Sunday on. That setting is written

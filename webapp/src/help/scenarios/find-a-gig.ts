@@ -33,20 +33,41 @@ import type { HelpScenario } from "../types.ts";
  *   - `gig-filters` is mounted whenever the user owns any gig at all
  *     (`all.length > 0`), independently of what the filters currently
  *     hide.
+ *   - `gigs-empty` is the "No gigs yet" box, mounted on
+ *     `gigs.data?.length === 0` — the query having answered, and
+ *     answered with nothing.
  *
- * So filters-with-a-list is "gigs showing", filters-without-a-list is
- * "you have gigs, the filters are hiding them", and no filters at all
- * is "nothing here yet". Confirmed against Gigs.tsx rather than assumed.
+ * So a list is "gigs showing", filters-without-a-list is "you have
+ * gigs, the filters are hiding them", and the empty box is "nothing
+ * here yet". Confirmed against Gigs.tsx rather than assumed.
  *
- * Branch conditions are checked before the user has done anything —
- * both adapters agree there (docs/help/README.md §2) — but they are
- * still racing the gig query on a cold open, since "no gig-filters yet"
- * looks identical to "no gigs at all" for as long as the list is
- * loading. Both adapters debounce a candidate before committing to it
- * (`settleBranch`, `resolveBranch`), which is what makes that
- * survivable, and it is the same shape `configure-working-hours`
- * already relies on for `start-day-0`. Worth knowing about rather than
- * worth a positional target.
+ * All three read something that is PRESENT, which is a correction
+ * rather than a style. `no-gigs-yet` used to be `target-missing
+ * gig-filters`, and the filter bar is missing in three states rather
+ * than one: the account owns no gigs, the gig query is still pending,
+ * and the gig query failed. Branch conditions are checked before the
+ * user has done anything — both adapters agree there
+ * (docs/help/README.md §2) — so on a cold open that condition was
+ * racing the first sync, and the debounce both adapters apply before
+ * committing (`settleBranch`, `resolveBranch`) is 250ms: enough for a
+ * fast local read, not for a slow one. It really happened —
+ * `no-gigs-yet` on an account of 396 gigs, recorded in
+ * e2e/help/help-fixtures.ts's `waitForGigsToHydrate`. The empty state
+ * cannot be early in those two ways, because it is not on screen until
+ * the query has answered.
+ *
+ * What that gives up: while the list is loading, and after it has
+ * failed, no alternative holds at all. Loading is what the branch
+ * budget exists for. A failed load now ends in "help isn't available
+ * right now" — which is honest about a screen with nothing to walk,
+ * unlike the confident wrong answer it replaces.
+ *
+ * One case survives, and it is a different case. Reads never touch the
+ * network (`OfflineDataService.listGigs`), so a device part-way through
+ * its first pull answers `[]` honestly and Gigs.tsx renders "No gigs
+ * yet". This branch then agrees with the screen instead of contradicting
+ * it — which is all a help scenario can promise, and is not what the
+ * old condition did.
  */
 export const findAGig: HelpScenario = {
   id: "find-a-gig",
@@ -125,10 +146,15 @@ export const findAGig: HelpScenario = {
         },
         {
           id: "no-gigs-yet",
-          // No filter bar at all means the user owns no gigs — the bar
-          // is unconditional on `all.length > 0`, so there is nothing to
-          // search and no row to tap.
-          when: { type: "target-missing", target: HelpTarget.GigFilters },
+          // The "No gigs yet" box itself, not the absence of the filter
+          // bar: the bar is also absent while the list is loading and
+          // after it has failed, and the copy below is a claim about the
+          // account, not about the render. Still last of the three,
+          // though the position no longer carries meaning — with every
+          // condition positive the three are mutually exclusive, so this
+          // resolves the same wherever it sits. Kept here because
+          // "showing, hidden, none" is the order a reader expects.
+          when: { type: "target-visible", target: HelpTarget.GigsEmpty },
           steps: [
             {
               action: "highlight",
