@@ -474,7 +474,14 @@ export async function runTour(
     driveSteps.push(driveStep);
     // After this step, not on it: the interaction step's own target is
     // still part of the screen the tour opened on.
-    if (isUserInteraction(step)) afterFirstInteraction = true;
+    //
+    // A navigate step RESETS this rather than setting it. Every other
+    // interaction reveals something on the screen you are already on —
+    // a re-render away. A navigate step's next target is on a screen
+    // that has not loaded its data yet, which is the cold-load case the
+    // long budget exists for. Guarded on `isUserInteraction` so a
+    // highlight after a click does not reset it.
+    if (isUserInteraction(step)) afterFirstInteraction = step.action !== "navigate";
   }
 
   if (options.signal.aborted) return () => undefined;
@@ -575,22 +582,24 @@ export async function runTour(
       // leaves the page mid-step has to end the scenario with the
       // banner, exactly as a target that never arrived does (§10).
       if (step.action === "external") return;
-      // …with one exception, and it is the reason navigate steps exist:
-      // this step's target is EXPECTED to leave the page, because the
-      // tap on it unmounts the screen it lives on. Watching it would
-      // report the success case as `target gig-list disappeared` and
-      // kill the tour on the hop it was built to make. The next step's
-      // own `waitForElement` covers the gap instead — Driver's
-      // MutationObserver sits on `document.documentElement`, above
-      // React's root, so it survives the remount.
-      if (step.action !== "navigate") {
-        stepCleanups.push(
-          watchTarget(step.target, () => {
-            options.onUnavailable(`target ${step.target.id} disappeared`);
-            endTourAfterHook();
-          }),
-        );
-      }
+      // A navigate step's target is EXPECTED to leave the page — the
+      // tap on it unmounts the screen it lives on — so the watchdog
+      // must not report that. But "vanished because the user tapped"
+      // and "vanished for some other reason" are different failures,
+      // and only the first is success: a sync that empties the list, or
+      // a re-render that drops the container for some unrelated cause,
+      // would otherwise leave the tour on a dead popover until the NEXT
+      // step's own budget runs out and then names the wrong target. So
+      // the tap silences the watchdog (via `advanced` below), rather
+      // than the step type disabling it outright.
+      let advanced = false;
+      stepCleanups.push(
+        watchTarget(step.target, () => {
+          if (advanced) return;
+          options.onUnavailable(`target ${step.target.id} disappeared`);
+          endTourAfterHook();
+        }),
+      );
 
       if (step.action !== "click" && step.action !== "navigate") return;
 
@@ -607,8 +616,24 @@ export async function runTour(
       // That is what "the person picks their own row" means here: the
       // tour never needs to know which one.
       const eventName = step.target.kind === "switch" ? "change" : "click";
-      const onFire = (): void => tour.moveNext();
-      operable.addEventListener(eventName, onFire, { once: true });
+      const onFire = (event: Event): void => {
+        // A navigate step's target is a CONTAINER, so a tap can land on
+        // its own whitespace (e.g. `gig-list`'s `space-y-3` gaps) as
+        // easily as on a row. That tap navigates nowhere, and with no
+        // Next button on this step there is no way back from advancing
+        // on it — so only a tap that actually hit a link or button
+        // counts as the choice this step is waiting for.
+        if (
+          step.action === "navigate" &&
+          !(event.target as Element | null)?.closest("a[href], button")
+        ) {
+          return;
+        }
+        advanced = true;
+        operable.removeEventListener(eventName, onFire);
+        tour.moveNext();
+      };
+      operable.addEventListener(eventName, onFire);
       stepCleanups.push(() =>
         operable.removeEventListener(eventName, onFire),
       );

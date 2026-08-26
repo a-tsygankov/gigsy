@@ -420,17 +420,22 @@ describe("runTour against the real driver.js", () => {
   });
 
   describe("a navigate step", () => {
-    // The three things this task adds that the mocked TourRenderer.test.ts
-    // cannot see: no Next button on the popover (there `showButtons` is
-    // asserted directly, but not that the real popover honours it), a tap
-    // on a ROW INSIDE the container advancing by bubbling, and the
-    // container's own disappearance — the ordinary consequence of the tap
-    // unmounting its screen — never being reported as a failure.
-    it("advances on a tap inside its container, shows no Next, and does not report the container leaving", async () => {
+    // The things this task adds that the mocked TourRenderer.test.ts cannot
+    // see: no Next button on the popover (there `showButtons` is asserted
+    // directly, but not that the real popover honours it), a tap on a ROW
+    // INSIDE the container advancing by bubbling, a tap on the container's
+    // own whitespace NOT advancing it, and the container's own
+    // disappearance — the ordinary consequence of the tap unmounting its
+    // screen — never being reported as a failure.
+    function gigList(): void {
       document.body.innerHTML = `
         <div data-testid="gig-list">
           <a data-testid="gig-row" href="#">Row 1</a>
         </div>`;
+    }
+
+    it("advances on a tap inside its container, shows no Next, and does not report the container leaving", async () => {
+      gigList();
       const onUnavailable = vi.fn();
 
       await start(
@@ -462,17 +467,57 @@ describe("runTour against the real driver.js", () => {
         .querySelector<HTMLElement>('[data-testid="gig-row"]')!
         .dispatchEvent(new Event("click", { bubbles: true }));
 
-      // The tap unmounts the whole screen `gig-list` was on and mounts
-      // the next one in its place — the same shape a real route change
-      // produces, and the exact moment `watchTarget` must stay quiet for.
+      // The unmount and the next screen's mount are NOT simultaneous in
+      // production: the tap leaves `/gigs` immediately, but `GigDetail`
+      // only paints once its data has loaded. Collapsing both into one
+      // synchronous DOM write — as an earlier version of this test did —
+      // lets `watchTarget`'s MutationObserver record `gig-list` gone and
+      // `gig-status` arrived in the SAME record, and Driver re-highlights
+      // onto the new target well inside `TARGET_GRACE_MS` (250ms),
+      // disconnecting the observer before its pending timer ever fires.
+      // That made the test pass whether or not the watchdog was actually
+      // suppressed for navigate — a mutation test on the production code
+      // confirmed it (see the task report). Separating the two writes by
+      // more than the grace period is what makes the gap real.
+      document.body.innerHTML = "";
+      await new Promise((resolve) => setTimeout(resolve, 400));
       document.body.innerHTML = `<div data-testid="gig-status">Status</div>`;
 
       expect(await waitFor(() => popoverText() === "here it is")).toBe(true);
-      // Long enough to outlast TARGET_GRACE_MS and prove no watchdog
-      // fired quietly in the background after the popover already moved
-      // on.
+      // Outlasts the watchdog's own grace period a second time, now that
+      // it has settled onto the new step's target — proving nothing fired
+      // quietly in the background after the popover moved on.
       await new Promise((resolve) => setTimeout(resolve, 800));
       expect(onUnavailable).not.toHaveBeenCalled();
+    }, 15_000);
+
+    it("does not advance on a tap that lands on the container's own whitespace, not a row", async () => {
+      // `gig-list` is `space-y-3` — 12px gaps between rows, inside the
+      // div, hitting the div itself. Driver's own
+      // `.driver-active .driver-active-element * { pointer-events: auto }`
+      // makes the whole spotlighted container live, so a thumb landing
+      // there fires this listener exactly like a row would, unless the
+      // listener itself tells the two apart.
+      gigList();
+      const container = document.querySelector<HTMLElement>('[data-testid="gig-list"]')!;
+
+      await start([
+        {
+          action: "navigate",
+          target: HelpTarget.GigList,
+          route: "/gigs/:id",
+          description: "tap a gig",
+        },
+        { action: "highlight", target: HelpTarget.GigStatus, description: "here it is" },
+      ]);
+      expect(await waitFor(() => popoverText() === "tap a gig")).toBe(true);
+
+      // Dispatched on the container itself, not on `gig-row` — the same
+      // event a tap on the gap between rows would produce.
+      container.dispatchEvent(new Event("click", { bubbles: true }));
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(popoverText()).toBe("tap a gig");
     }, 15_000);
   });
 
