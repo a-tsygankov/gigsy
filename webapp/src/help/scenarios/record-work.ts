@@ -72,9 +72,13 @@ import type { HelpScenario } from "../types.ts";
  *     nothing about it is specific to recording work.
  *   - The Edit button onto the Job card's form as a step of its own.
  *     `create-gig` already walks that form field by field. It appears
- *     below only as where the two "this control isn't on this gig"
- *     alternatives send you, because a missing rate or a fixed fee is
- *     something you change on the job, not here.
+ *     below only as where `pay-not-yet` sends you when no figure can be
+ *     shown at all, because a missing rate or fee is something you
+ *     change on the job, not here. `fixed-fee-gig` — the other
+ *     "control isn't on this gig" alternative — points at the Job
+ *     card's Pays row instead of the button: highlighting the same
+ *     button two branch steps running would leave the spotlight
+ *     sitting still, which reads as a stuck tour rather than a walk.
  *
  * The copy explains what a control is FOR and what it changes
  * elsewhere — same rule as every other scenario in this directory. Two
@@ -137,7 +141,7 @@ export const recordWork: HelpScenario = {
               target: HelpTarget.GigWorkStopButton,
               title: "Stop",
               description:
-                "Stamps the finish the same way Start stamps the beginning, and stays disabled until there's a start to close. The span between the two — minus whatever you log as a break below — becomes the time this gig actually took, and on an hourly gig that's what gets multiplied by the rate instead of the planned duration.",
+                "Stamps the finish the same way Start stamps the beginning. It stays disabled until there's a start to close, and disables again once a finish is already stamped — so if it's grey, either nothing has started yet or this shift is already closed out. The span between the two — minus whatever you log as a break below — becomes the time this gig actually took, and on an hourly gig that's what gets multiplied by the rate instead of the planned duration.",
             },
             {
               action: "highlight",
@@ -160,7 +164,7 @@ export const recordWork: HelpScenario = {
               target: HelpTarget.GigFiltersToggle,
               title: "Your filters are hiding everything",
               description:
-                "You do have gigs — none of them matches what is set right now, so there is no row here to open. Widen it: a date range drops every undated gig, \"hide past gigs\" drops everything before today, and Clear filters puts all of it back at once.",
+                "You do have gigs — none of them matches what is set right now, so there is no row here to open. Open this panel and widen it: a date range drops every undated gig, \"hide past gigs\" drops everything before today, and Clear filters puts all of it back at once.",
             },
             {
               action: "highlight",
@@ -208,7 +212,7 @@ export const recordWork: HelpScenario = {
               target: HelpTarget.GigExpectedPay,
               title: "What it's worth",
               description:
-                "Updates the instant anything above it changes. A fixed-fee gig just shows the agreed amount. An hourly one prices the time you've actually recorded once Start and Stop have both landed — before that, it quotes rate × the planned duration from the Job card instead, so there's always a figure here, not a blank.",
+                "Updates the instant any of the times or amounts above it change. A fixed-fee gig just shows the agreed amount. An hourly one prices the time you've actually recorded once Start and Stop have both landed — before that, it quotes rate × the planned duration from the Job card instead, so there's always a figure here, not a blank.",
             },
           ],
         },
@@ -221,7 +225,7 @@ export const recordWork: HelpScenario = {
               target: HelpTarget.GigEditButton,
               title: "No figure on this one yet",
               description:
-                "A line showing what the gig is worth appears above once there's something to work it out from — an agreed amount on a fixed-fee gig, or a rate and a duration on an hourly one. Both live on the job, not here: this button opens the form where you set them, and the figure appears as soon as one of them is there.",
+                "A line showing what the gig is worth appears in the Work card below, once there's something to work it out from — an agreed amount on a fixed-fee gig, or a rate and a duration on an hourly one. Both live on the job, not here: this button opens the form where you set them, and the figure appears as soon as one of them is there.",
             },
           ],
         },
@@ -249,10 +253,10 @@ export const recordWork: HelpScenario = {
           steps: [
             {
               action: "highlight",
-              target: HelpTarget.GigEditButton,
+              target: HelpTarget.JobPay,
               title: "This one is a fixed fee",
               description:
-                "An hourly gig gets an Override box here, for the shift that didn't bill exactly rate × time — a minimum charged even though it ran short, a discount given on the day. A fixed-fee gig needs none: the agreed amount IS the answer, and you change it on the job form behind this button.",
+                "This gig is priced as a fixed fee, which is why the Work card below has no Override box. An hourly gig gets one, for the shift that didn't bill exactly rate × time — a minimum charged even though it ran short, a discount given on the day. A fixed fee needs none: the amount on this line is the answer, and Edit above is where you change it.",
             },
           ],
         },
@@ -263,7 +267,7 @@ export const recordWork: HelpScenario = {
       target: HelpTarget.GigPayments,
       title: "Payments",
       description:
-        "Where money you actually receive against this gig gets its own record — an amount, a date, a photo of the proof if you have one, each entry itemised on its own. If you or a client ever need to check exactly what arrived and when, this is where to look.",
+        "Where money you actually receive against this gig gets its own record — an amount, a date, a photo of the proof if you have one. One payment can cover several gigs at once, so what shows on each entry here is this gig's share of it, not necessarily the whole transfer. If you or a client ever need to check exactly what arrived and when, this is where to look.",
     },
   ],
 };

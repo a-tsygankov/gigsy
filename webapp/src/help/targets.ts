@@ -107,6 +107,12 @@ export const HelpTarget = {
   // anything already pointing at them still resolves; what changed is
   // the screen they resolve on.
   GigEditButton: element("gig-edit"),
+  // The Job card's "Pays" row — how the work is PRICED, as agreed,
+  // which is a different statement from what it earned (that is
+  // `GigExpectedPay`, on the work card). Unconditional: `payLine`
+  // returns "Fixed fee — not set" or "Hourly — no rate set" rather
+  // than rendering nothing, so this resolves on every gig.
+  JobPay: element("job-pay"),
   GigStatus: element("gig-status"),
   GigWorkStartButton: element("work-start"),
   GigWorkStopButton: element("work-stop"),
