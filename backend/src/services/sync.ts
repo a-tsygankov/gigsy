@@ -185,6 +185,7 @@ export async function applySyncOps(
               op.id,
               {
                 clientId: parsed.data.clientId ?? null,
+                parentGigId: parsed.data.parentGigId ?? null,
                 title: parsed.data.title ?? null,
                 status: parsed.data.status,
                 location: parsed.data.location ?? null,

@@ -23,6 +23,7 @@ export type GigRecord = typeof gigs.$inferSelect;
 // nobody derived.
 export interface GigData {
   clientId: string | null;
+  parentGigId: string | null;
   title: string | null;
   status: GigStatus;
   location: string | null;
