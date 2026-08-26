@@ -165,9 +165,11 @@ as the `durationMinutes` incident, and worse in that the stale base is
 the store's own copy.
 
 The trip also buys nothing. The server clears its side when the parent's
-delete drains (verified against this D1 instance), that delete drains
-*before* the child's op anyway, and the same pull brings the null back
-down. It only adds a failure mode: if the parent's delete is refused
+delete drains (honoured by the local/emulated D1 the test suite runs
+against — `@cloudflare/vitest-pool-workers` — not yet confirmed against
+remote D1), that delete drains *before* the child's op anyway, and the
+same pull brings the null back down. It only adds a failure mode: if
+the parent's delete is refused
 server-side the engine restores the parent, but the child's clear has
 already landed, so the link is lost while the parent returns.
 

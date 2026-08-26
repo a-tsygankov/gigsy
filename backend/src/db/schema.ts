@@ -112,6 +112,12 @@ export const gigs = sqliteTable(
       .notNull()
       .references(() => users.id),
     clientId: text("client_id").references(() => clients.id),
+    // No `.references()` here: a self-reference needs Drizzle's
+    // `AnySQLiteColumn` escape hatch, which this table doesn't use.
+    // The real foreign key — including `ON DELETE SET NULL` — lives
+    // only in migration 0018's raw DDL. If DDL is ever regenerated
+    // from this schema (`drizzle-kit generate`), that delete action is
+    // silently lost; the migration file is the source of truth for it.
     parentGigId: text("parent_gig_id"),
     /** Optional name. Most gigs are identified by their client; this
      *  is for when that is not enough. */

@@ -100,7 +100,18 @@ export function GigDetail() {
   const remove = useMutation({
     mutationFn: () => api.deleteGig(id),
     onSuccess: async () => {
+      // The list AND every gig's own cache entry: deleting a parent
+      // clears its children's `parentGigId` in Dexie, but a child's
+      // ["gig", childId] entry can still be sitting in React Query
+      // holding the stale link (e.g. you viewed the child, followed
+      // its "Part of" link here, and deleted). Invalidating only
+      // ["gigs"] would leave GigEdit seeding a parentGigId the server
+      // no longer has, and re-saving that stale value the same way
+      // commitPatch below invalidates both keys for the same reason.
+      // Prefix match — no id — so every child's detail cache is
+      // covered, not just this gig's own.
       await queryClient.invalidateQueries({ queryKey: ["gigs"] });
+      await queryClient.invalidateQueries({ queryKey: ["gig"] });
       navigate("/gigs");
     },
   });

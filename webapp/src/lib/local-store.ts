@@ -170,8 +170,11 @@ export class LocalStore {
     //
     // A local mirror only, deliberately WITHOUT an outbox op. The
     // server clears its own side when this delete drains — 0018's
-    // ON DELETE SET NULL, verified honoured against this D1 instance in
-    // backend/test/gig-parent-column.test.ts — and the same pull brings
+    // ON DELETE SET NULL, honoured by the local/emulated D1
+    // backend/test/gig-parent-column.test.ts runs against
+    // (@cloudflare/vitest-pool-workers) — NOT yet confirmed against
+    // remote D1; if remote differs, GigsRepo.remove clears children
+    // explicitly as the fallback — and the same pull brings
     // that null back down (pullEntity applies server rows before
     // deleting locally-orphaned ones, so it lands in that pull, not the
     // next one). Queuing an upsert here would rebuild the child from

@@ -23,9 +23,12 @@
 -- prove it honours the action — 0015's header records this instance
 -- accepting and silently ignoring PRAGMA foreign_keys=off. A test
 -- deletes a real parent and asserts the child survives with a null
--- link. If it turns out D1 does not honour it, GigsRepo.remove clears
--- children explicitly instead; the webapp has to do that locally
--- regardless (lib/local-store.ts).
+-- link (backend/test/gig-parent-column.test.ts), and it passes — but
+-- only against the LOCAL/EMULATED D1 that @cloudflare/vitest-pool-workers
+-- runs the suite against. That is NOT yet confirmed against remote D1.
+-- If remote D1 turns out not to honour the action, GigsRepo.remove
+-- clears children explicitly instead; the webapp has to do that
+-- locally regardless (lib/local-store.ts).
 --
 -- ONE STATEMENT DOES NOT SELF-HEAL, the same way 0016's ALTER TABLE
 -- payments ADD COLUMN does not. The ALTER below has no conditional

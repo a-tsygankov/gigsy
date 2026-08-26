@@ -53,6 +53,7 @@ const api = {
   listServicesByGig: vi.fn(async () => []),
   listPaymentsByGig: vi.fn(async () => []),
   listAllocationsByGig: vi.fn(async () => []),
+  deleteGig: vi.fn(async () => {}),
 };
 
 let ALL: Gig[] = [];
@@ -74,6 +75,32 @@ async function render(all: Gig[], openId: string) {
   document.body.appendChild(container);
   root = createRoot(container);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  await act(async () => {
+    root!.render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[`/gigs/${openId}`]}>
+          <HelpProvider>
+            <Routes>
+              <Route path="/gigs/:id" element={<GigDetail />} />
+            </Routes>
+          </HelpProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  });
+  return container;
+}
+
+/**
+ * Same as `render`, but with a caller-supplied QueryClient so the test
+ * can inspect its cache afterward — e.g. whether a sibling gig's own
+ * ["gig", id] entry was invalidated by a delete.
+ */
+async function renderWithClient(client: QueryClient, all: Gig[], openId: string) {
+  ALL = all;
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
   await act(async () => {
     root!.render(
       <QueryClientProvider client={client}>
@@ -142,5 +169,44 @@ describe("GigDetail parent link", () => {
     const list = el.querySelector('[data-testid="gig-children"]');
     expect(list?.textContent).toContain("Second day");
     expect(list?.textContent).not.toContain("Someone else's follow-up");
+  });
+
+  it("shows neither surface when the parent is missing from listGigs' result", async () => {
+    // Parent "gone" links to an id `listGigs()` never returns — as if
+    // it were deleted on another device and this one hasn't pulled the
+    // change yet. A link to nowhere is worse than showing nothing.
+    const orphan = gig({ id: "k", title: "Second day", parentGigId: "gone" });
+    const el = await render([orphan], "k");
+
+    expect(el.querySelector('[data-testid="gig-parent"]')).toBeNull();
+    expect(el.querySelector('[data-testid="gig-children"]')).toBeNull();
+  });
+
+  it("invalidates a child's own gig cache entry when its parent is deleted", async () => {
+    // Reproduces: view child C, follow its "Part of" link to parent P,
+    // delete P from here. C's own ["gig", "k"] cache entry still holds
+    // the pre-delete `parentGigId: "p"` unless this invalidation covers
+    // it too — and GigEdit seeds its form straight from that entry.
+    const parent = gig({ id: "p", title: "The original booking" });
+    const child = gig({ id: "k", title: "Second day", parentGigId: "p" });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["gig", "k"], child);
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const el = await renderWithClient(client, [parent, child], "p");
+
+    const deleteButton = el.querySelector('[data-testid="gig-delete"]') as HTMLButtonElement;
+    expect(deleteButton).not.toBeNull();
+    await act(async () => {
+      deleteButton.click();
+      // Flush the mutationFn promise and the onSuccess awaits after
+      // it — both are microtask chains the synchronous notifyManager
+      // patch does not itself drain.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(api.deleteGig).toHaveBeenCalledWith("p");
+    expect(client.getQueryState(["gig", "k"])?.isInvalidated).toBe(true);
+    confirmSpy.mockRestore();
   });
 });
