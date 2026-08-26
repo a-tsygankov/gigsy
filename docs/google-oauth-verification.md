@@ -146,10 +146,19 @@ reviewer is actually asking, which is not "what does your app do" but
 >
 > **On why this is the narrowest scope available:** `calendar.freebusy`
 > is the narrowest of the four scopes `freebusy.query` accepts, and it
-> is the one Gigsy requests. `calendar.app.created` cannot serve this
+> is what Gigsy requests. `calendar.app.created` cannot serve this
 > feature at all — it covers only events our own app created, which is
 > precisely the data we do *not* need to read, since the whole point is
 > the commitments Gigsy does not know about.
+
+**Not true yet.** The paragraph above is written for the scope this app
+should request, and the code still requests `calendar.readonly`
+(`webapp/src/lib/google-signin.ts`). It becomes accurate the moment the
+swap in `google-oauth-scopes.md` §7 lands, and not before — which is
+the whole reason this section carries a do-not-submit warning rather
+than a corrected justification ready to paste. Submitting it as it
+stands would repeat the exact mistake this change exists to fix, one
+scope over.
 >
 > This scope is **off by default**, is never bundled into sign-in or
 > into connecting Calendar, and is requested only at the moment a user

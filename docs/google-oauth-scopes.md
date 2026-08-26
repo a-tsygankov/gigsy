@@ -4,7 +4,7 @@ What Gigsy actually needs from Google, what it currently asks for, and
 what can go. Every "required" line below is traced to the API call that
 needs it, not to memory.
 
-**The short version:** Gigsy asks for four scopes and needs four, but
+**The short version:** Gigsy asks for five scopes and needs five, but
 one of them — `calendar.readonly` — is far broader than the job it does
 and should be swapped for `calendar.freebusy`. Nothing needs removing
 from the consent screen beyond that; the long list in the console is
