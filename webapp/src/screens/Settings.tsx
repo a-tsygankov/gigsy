@@ -10,7 +10,6 @@ import {
 } from "../lib/push.ts";
 import { fetchTierVersions } from "../lib/versions.ts";
 import { AppHeader, Button, Card, SectionHeading } from "../components/index.ts";
-import { HelpSection } from "../help/runtime/HelpSection.tsx";
 import { AppearanceSection } from "./settings/AppearanceSection.tsx";
 import { AvailabilitySection } from "./settings/AvailabilitySection.tsx";
 import { AvailabilityLinkSection } from "./settings/AvailabilityLinkSection.tsx";
@@ -234,9 +233,6 @@ export function Settings() {
 
         <SectionHeading>Notifications on this device</SectionHeading>
         <NotificationsSection />
-
-        <SectionHeading>Help</SectionHeading>
-        <HelpSection />
 
         <SectionHeading>Account</SectionHeading>
         <AccountSection />

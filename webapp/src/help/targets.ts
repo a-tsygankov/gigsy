@@ -29,7 +29,6 @@ const painted = (id: string): HelpTarget => ({ id, kind: "switch" });
  *  want to read. */
 export const HelpTarget = {
   SettingsLink: element("settings-link"),
-  SettingsHelp: element("settings-help"),
 
   SettingsNotifications: element("settings-notifications"),
   // A <Button>, not a Toggle, despite the name — Settings.tsx:108.
