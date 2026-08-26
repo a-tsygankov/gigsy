@@ -419,6 +419,63 @@ describe("runTour against the real driver.js", () => {
     }, 15_000);
   });
 
+  describe("a navigate step", () => {
+    // The three things this task adds that the mocked TourRenderer.test.ts
+    // cannot see: no Next button on the popover (there `showButtons` is
+    // asserted directly, but not that the real popover honours it), a tap
+    // on a ROW INSIDE the container advancing by bubbling, and the
+    // container's own disappearance — the ordinary consequence of the tap
+    // unmounting its screen — never being reported as a failure.
+    it("advances on a tap inside its container, shows no Next, and does not report the container leaving", async () => {
+      document.body.innerHTML = `
+        <div data-testid="gig-list">
+          <a data-testid="gig-row" href="#">Row 1</a>
+        </div>`;
+      const onUnavailable = vi.fn();
+
+      await start(
+        [
+          {
+            action: "navigate",
+            target: HelpTarget.GigList,
+            route: "/gigs/:id",
+            description: "tap a gig",
+          },
+          { action: "highlight", target: HelpTarget.GigStatus, description: "here it is" },
+        ],
+        onUnavailable,
+      );
+      expect(await waitFor(() => popoverText() === "tap a gig")).toBe(true);
+      // Same rule as a click step: it advances by being done. Driver.js
+      // keeps the button in the DOM either way — `showButtons` only
+      // toggles its inline `display` — so the visible-to-the-user
+      // property is that style, not the element's presence.
+      expect(
+        document.querySelector<HTMLElement>(".driver-popover-next-btn")?.style
+          .display,
+      ).toBe("none");
+
+      // The listener sits on `gig-list`; this tap lands on a row inside
+      // it and reaches the listener only by bubbling. Nothing here tells
+      // the tour which row was chosen — that is the point.
+      document
+        .querySelector<HTMLElement>('[data-testid="gig-row"]')!
+        .dispatchEvent(new Event("click", { bubbles: true }));
+
+      // The tap unmounts the whole screen `gig-list` was on and mounts
+      // the next one in its place — the same shape a real route change
+      // produces, and the exact moment `watchTarget` must stay quiet for.
+      document.body.innerHTML = `<div data-testid="gig-status">Status</div>`;
+
+      expect(await waitFor(() => popoverText() === "here it is")).toBe(true);
+      // Long enough to outlast TARGET_GRACE_MS and prove no watchdog
+      // fired quietly in the background after the popover already moved
+      // on.
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      expect(onUnavailable).not.toHaveBeenCalled();
+    }, 15_000);
+  });
+
   it("leaves a clean DOM when the caller cancels mid-tour", async () => {
     document.body.innerHTML = `<a data-testid="settings-link">Settings</a>`;
     const cancel = await start([

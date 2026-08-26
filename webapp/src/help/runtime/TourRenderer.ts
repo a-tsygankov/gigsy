@@ -73,15 +73,18 @@ function isFlatStep(step: HelpStep): step is FlatStep {
 }
 
 /** A step the USER performs, and therefore the only kind that can put
- *  new DOM on the page part-way through a tour. All three of types.ts's
+ *  new DOM on the page part-way through a tour. All four of types.ts's
  *  action steps count — a `select` that reveals something downstream is
- *  no different from a `click` that does. `highlight` and `external`
- *  change nothing. */
-function isUserInteraction(step: FlatStep): boolean {
+ *  no different from a `click` that does, and a `navigate` replaces the
+ *  whole screen. `highlight` and `external` change nothing.
+ *
+ *  Exported for unit testing; nothing outside this file calls it. */
+export function isUserInteraction(step: FlatStep): boolean {
   return (
     step.action === "click" ||
     step.action === "input" ||
-    step.action === "select"
+    step.action === "select" ||
+    step.action === "navigate"
   );
 }
 
@@ -457,9 +460,10 @@ export async function runTour(
             popover: {
               title: step.title ?? scenario.title,
               description: step.description,
-              // A click step advances by being done, not by pressing Next.
+              // A click or navigate step advances by being done, not by
+              // pressing Next.
               showButtons:
-                step.action === "click"
+                step.action === "click" || step.action === "navigate"
                   ? ["close"]
                   : ["next", "previous", "close"],
             },
@@ -571,14 +575,24 @@ export async function runTour(
       // leaves the page mid-step has to end the scenario with the
       // banner, exactly as a target that never arrived does (§10).
       if (step.action === "external") return;
-      stepCleanups.push(
-        watchTarget(step.target, () => {
-          options.onUnavailable(`target ${step.target.id} disappeared`);
-          endTourAfterHook();
-        }),
-      );
+      // …with one exception, and it is the reason navigate steps exist:
+      // this step's target is EXPECTED to leave the page, because the
+      // tap on it unmounts the screen it lives on. Watching it would
+      // report the success case as `target gig-list disappeared` and
+      // kill the tour on the hop it was built to make. The next step's
+      // own `waitForElement` covers the gap instead — Driver's
+      // MutationObserver sits on `document.documentElement`, above
+      // React's root, so it survives the remount.
+      if (step.action !== "navigate") {
+        stepCleanups.push(
+          watchTarget(step.target, () => {
+            options.onUnavailable(`target ${step.target.id} disappeared`);
+            endTourAfterHook();
+          }),
+        );
+      }
 
-      if (step.action !== "click") return;
+      if (step.action !== "click" && step.action !== "navigate") return;
 
       const operable = resolveOperableElement(step.target);
       if (operable === null) return;
@@ -587,6 +601,11 @@ export async function runTour(
       // tapping Toggle's separate day-name <label>, or keyboard Tab +
       // Space — only `change` on the input catches all three; `click`
       // on the painted span catches only the first.
+      //
+      // A navigate step's target is a container, so this listener sits
+      // on the list and the tap on a row inside it arrives by bubbling.
+      // That is what "the person picks their own row" means here: the
+      // tour never needs to know which one.
       const eventName = step.target.kind === "switch" ? "change" : "click";
       const onFire = (): void => tour.moveNext();
       operable.addEventListener(eventName, onFire, { once: true });

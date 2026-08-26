@@ -1015,3 +1015,31 @@ describe("runTour", () => {
     expect(vi.mocked(driverJs.driver)).not.toHaveBeenCalled();
   });
 });
+
+describe("isUserInteraction", () => {
+  it("counts a navigate step, so later targets get the short wait", async () => {
+    // A navigate step puts a whole new screen on the page, so anything
+    // after it is a re-render away rather than a cold data load away —
+    // the exact distinction the two wait budgets draw.
+    const { isUserInteraction } = await import("./TourRenderer.ts");
+    expect(
+      isUserInteraction({
+        action: "navigate",
+        target: HelpTarget.GigList,
+        route: "/gigs/:id",
+        description: "Tap one.",
+      }),
+    ).toBe(true);
+  });
+
+  it("still does not count a highlight", async () => {
+    const { isUserInteraction } = await import("./TourRenderer.ts");
+    expect(
+      isUserInteraction({
+        action: "highlight",
+        target: HelpTarget.GigList,
+        description: "Look.",
+      }),
+    ).toBe(false);
+  });
+});
