@@ -75,4 +75,24 @@ describe("gigs.parent_gig_id", () => {
     const got = (await read.json()) as { parentGigId: string | null };
     expect(got.parentGigId).toBeNull();
   });
+
+  // The sync door needs its own round-trip. tsc catches DELETING the
+  // passthrough in services/sync.ts, because GigData.parentGigId is
+  // required — but it cannot catch the line being MIS-WIRED, and
+  // replacing it with a hardcoded null left all of sync.test.ts,
+  // gigs-routes.test.ts and the tests above green. This is an
+  // offline-first app: /api/sync carries most writes, so the door the
+  // CRUD tests do not touch is the one that matters most.
+  it("round-trips through the /api/sync batch", async () => {
+    const p = "bb000000-0000-4000-8000-000000000006";
+    const c = "bb000000-0000-4000-8000-000000000007";
+    await api(U1, "POST", "/api/sync", { ops: [
+      { entity: "gig", op: "upsert", id: p, modifiedAt: 1000,
+        payload: { clientId: ACME, status: "confirmed" } },
+      { entity: "gig", op: "upsert", id: c, modifiedAt: 1000,
+        payload: { clientId: ACME, status: "lead", parentGigId: p } },
+    ]});
+    const read = await api(U1, "GET", `/api/gigs/${c}`);
+    expect(((await read.json()) as { parentGigId: string | null }).parentGigId).toBe(p);
+  });
 });

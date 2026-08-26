@@ -26,6 +26,25 @@
 -- link. If it turns out D1 does not honour it, GigsRepo.remove clears
 -- children explicitly instead; the webapp has to do that locally
 -- regardless (lib/local-store.ts).
+--
+-- ONE STATEMENT DOES NOT SELF-HEAL, the same way 0016's ALTER TABLE
+-- payments ADD COLUMN does not. The ALTER below has no conditional
+-- form: SQLite rejects `ADD COLUMN IF NOT EXISTS` with `near
+-- "EXISTS": syntax error`. So applying this file twice aborts at
+-- statement 1 with `duplicate column name: parent_gig_id` and stops
+-- the batch there, BEFORE the CREATE INDEX. Both of those were run
+-- against this D1 instance rather than inferred, the same standard
+-- 0015's header set.
+--
+-- WHAT THAT COSTS AN OPERATOR: a --remote run that drops between the
+-- two statements leaves the column added and the index missing, and
+-- re-running the file will not create it — the retry dies on the
+-- ALTER first. Recovery is to run the CREATE INDEX statement below
+-- on its own; it is IF NOT EXISTS, so it is safe whether or not the
+-- index already made it (also checked). Nothing is lost or corrupted
+-- either way. There is no partial state here for a re-run to repair,
+-- which is why this note is the whole remedy and no rerun test sits
+-- beside 0016's and 0017's.
 ALTER TABLE gigs ADD COLUMN parent_gig_id TEXT
   REFERENCES gigs(id) ON DELETE SET NULL;
 
