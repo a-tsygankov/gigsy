@@ -39,6 +39,14 @@ export const GIG_SOURCES = ["manual", "email", "photo"] as const;
 export const GigInput = z
   .object({
     clientId: entityId.nullish(),
+    /** The gig this one came from — a follow-up, or one arm of a split.
+     *  Grouping only: nothing is shared or inherited. The rules that
+     *  keep it coherent arrive in services/gig-invariants.ts — Task 2
+     *  of this feature, named here the way 0017's header named its own
+     *  follow-up. They cannot live here, because a zod schema cannot
+     *  ask the database whether the parent exists, belongs to the same
+     *  client, or already has a parent of its own. */
+    parentGigId: entityId.nullish(),
     title: z.string().max(200).nullish(),
     status: z.enum(GIG_STATUSES).default("lead"),
     location: z.string().max(500).nullish(),

@@ -5,6 +5,7 @@ import type { Gig } from "./types.ts";
 const GIG: Gig = {
   id: "g1",
   clientId: "c1",
+  parentGigId: "g0",
   title: "Costco tasting",
   status: "confirmed",
   location: "Costco on 5th",
@@ -29,6 +30,7 @@ describe("gigToInput", () => {
   it("carries every writable field through unchanged", () => {
     expect(gigToInput(GIG)).toEqual({
       clientId: "c1",
+      parentGigId: "g0",
       title: "Costco tasting",
       status: "confirmed",
       location: "Costco on 5th",
@@ -83,6 +85,7 @@ describe("gigToInput", () => {
     // `gigToInput` became.
     expect(patched).toEqual({
       clientId: "c1",
+      parentGigId: "g0",
       title: "Costco tasting",
       status: "confirmed",
       location: "Costco on 5th",

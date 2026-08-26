@@ -24,6 +24,7 @@ function gig(id: string, clientId: string | null): Gig {
   return {
     id,
     clientId,
+    parentGigId: null,
     title: id,
     status: "confirmed",
     location: null,

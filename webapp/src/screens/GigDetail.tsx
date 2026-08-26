@@ -22,7 +22,7 @@ import { formatMoney } from "../lib/format.ts";
 import { gigDisplayTitle } from "../lib/gig-title.ts";
 import { commitGigPatch } from "../lib/gig-write.ts";
 import { isPaid } from "../lib/gig-pay.ts";
-import type { GigInput } from "../lib/types.ts";
+import type { Gig, GigInput } from "../lib/types.ts";
 import { JobCard } from "./gigs/JobCard.tsx";
 import { WorkCard } from "./gigs/WorkCard.tsx";
 import {
@@ -63,6 +63,13 @@ export function GigDetail() {
     queryKey: ["allocations", "gig", id],
     queryFn: () => api.listAllocationsByGig(id),
   });
+  /**
+   * The sibling gigs, for the "Part of" / "Follow-up jobs" surfaces
+   * below. Keyed ["gigs"] — the same key the rest of the app uses for
+   * the gig list — so this shares that cache instead of firing its own
+   * fetch.
+   */
+  const gigs = useQuery({ queryKey: ["gigs"], queryFn: () => api.listGigs() });
 
   /**
    * Write one field, without disturbing the rest of the gig.
@@ -93,7 +100,18 @@ export function GigDetail() {
   const remove = useMutation({
     mutationFn: () => api.deleteGig(id),
     onSuccess: async () => {
+      // The list AND every gig's own cache entry: deleting a parent
+      // clears its children's `parentGigId` in Dexie, but a child's
+      // ["gig", childId] entry can still be sitting in React Query
+      // holding the stale link (e.g. you viewed the child, followed
+      // its "Part of" link here, and deleted). Invalidating only
+      // ["gigs"] would leave GigEdit seeding a parentGigId the server
+      // no longer has, and re-saving that stale value the same way
+      // commitPatch below invalidates both keys for the same reason.
+      // Prefix match — no id — so every child's detail cache is
+      // covered, not just this gig's own.
       await queryClient.invalidateQueries({ queryKey: ["gigs"] });
+      await queryClient.invalidateQueries({ queryKey: ["gig"] });
       navigate("/gigs");
     },
   });
@@ -104,6 +122,38 @@ export function GigDetail() {
       ? null
       : (clients.data?.find((c) => c.id === data.clientId)?.name ??
         (clients.isPending ? "…" : null));
+
+  /** How a sibling gig (parent or child) is named — same helper the
+   * heading above uses, so a follow-up reads the same way it would if
+   * you opened it directly. */
+  const nameOf = useCallback(
+    (g: Gig): string =>
+      gigDisplayTitle(
+        g,
+        g.clientId == null
+          ? null
+          : (clients.data?.find((c) => c.id === g.clientId)?.name ?? null),
+      ),
+    [clients.data],
+  );
+
+  /**
+   * "Part of" and "Follow-up jobs" both come from `listGigs()`, a query
+   * separate from `gig` itself. Until it resolves — or if the linked
+   * gig has been deleted on another device and not yet pulled here —
+   * there is nothing to point at. A heading over an empty list, or a
+   * line linking nowhere, would be worse than showing neither surface,
+   * so both stay null/empty (and thus hidden) until the data actually
+   * names something.
+   */
+  const parent =
+    gigs.data === undefined || data?.parentGigId == null
+      ? null
+      : (gigs.data.find((g) => g.id === data.parentGigId) ?? null);
+  const children =
+    gigs.data === undefined || data === undefined
+      ? []
+      : gigs.data.filter((g) => g.parentGigId === data.id);
 
   return (
     <>
@@ -135,6 +185,23 @@ export function GigDetail() {
                 <StatusPill status={data.status} paid={isPaid(data)} />
               </span>
             </div>
+
+            {/* At most one of "Part of" and "Follow-up jobs" can ever
+                render for a given gig — Task 2's invariants keep the
+                link one level deep in both directions, so a gig with a
+                parent cannot itself have children. */}
+            {parent !== null && (
+              <p className="text-sm text-slate-600" data-testid="gig-parent">
+                Part of{" "}
+                <CardLink
+                  to={`/gigs/${parent.id}`}
+                  dense
+                  className="inline-block px-1.5 py-0.5"
+                >
+                  {nameOf(parent)}
+                </CardLink>
+              </p>
+            )}
 
             <JobCard gig={data} clientName={clientName} />
 
@@ -291,6 +358,19 @@ export function GigDetail() {
                 })}
               </div>
             </section>
+
+            {children.length > 0 && (
+              <section className="pt-2" data-testid="gig-children">
+                <SectionHeading>Follow-up jobs</SectionHeading>
+                <div className="space-y-2">
+                  {children.map((child) => (
+                    <CardLink key={child.id} to={`/gigs/${child.id}`} dense>
+                      {nameOf(child)}
+                    </CardLink>
+                  ))}
+                </div>
+              </section>
+            )}
 
             <Button
               data-testid="gig-delete"

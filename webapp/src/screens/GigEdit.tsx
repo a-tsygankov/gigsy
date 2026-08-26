@@ -27,6 +27,7 @@ import { commitGigPatch, type GigPatch } from "../lib/gig-write.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { formatDuration } from "../lib/format.ts";
 import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
+import { gigDisplayTitle } from "../lib/gig-title.ts";
 import {
   AppHeader,
   Button,
@@ -40,6 +41,7 @@ import {
 
 interface FormState {
   clientId: string; // "" = none
+  parentGigId: string; // "" = part of nothing
   title: string;
   dateTime: string; // "YYYY-MM-DDTHH:mm", the DateTimeField value
   durationMinutes: string; // "" = not set
@@ -52,6 +54,7 @@ interface FormState {
 
 const BLANK: FormState = {
   clientId: "",
+  parentGigId: "",
   title: "",
   dateTime: "",
   durationMinutes: "",
@@ -78,6 +81,12 @@ export function GigEdit() {
     queryKey: ["clients"],
     queryFn: () => api.listClients(),
   });
+  /**
+   * Every gig, for the "Part of" picker below. Keyed ["gigs"] — the
+   * same key the list and the hub use — so this shares that cache
+   * rather than firing a fetch of its own.
+   */
+  const gigs = useQuery({ queryKey: ["gigs"], queryFn: () => api.listGigs() });
 
   const [form, setForm] = useState<FormState>(BLANK);
   const [moneyError, setMoneyError] = useState<string | null>(null);
@@ -87,6 +96,7 @@ export function GigEdit() {
     if (gig.data === undefined) return;
     setForm({
       clientId: gig.data.clientId ?? "",
+      parentGigId: gig.data.parentGigId ?? "",
       title: gig.data.title ?? "",
       dateTime: msToLocalInput(gig.data.dateTime),
       durationMinutes:
@@ -107,6 +117,68 @@ export function GigEdit() {
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  /**
+   * What this gig could be part of — the client-side echo of the three
+   * server rules that filter candidates (backend services/
+   * gig-invariants.ts). Offering anything else would only produce a
+   * save the worker refuses.
+   *
+   * `form.clientId` is a string where "" means none — that is how the
+   * form spells null, and `submit` below already converts it the same
+   * way. Comparing the raw value against `g.clientId` would never
+   * match a client-less gig, so two unattributed gigs — which ARE the
+   * same client as far as the rule is concerned — would silently
+   * offer each other nothing.
+   *
+   * Read off `form`, not off `gig.data`: change the client in the box
+   * above and the list must re-filter, or the picker keeps offering
+   * the old client's jobs.
+   */
+  const formClientId = form.clientId === "" ? null : form.clientId;
+  const parentOptions = (gigs.data ?? []).filter(
+    (g) =>
+      g.id !== id &&
+      (g.clientId ?? null) === formClientId &&
+      g.parentGigId === null,
+  );
+
+  /**
+   * The fifth rule, and the only one that constrains the gig being
+   * EDITED rather than the candidates: a gig that already has
+   * follow-ups may not itself become a follow-up. Task 2's review
+   * proved the other four permitted a two-level chain — accept
+   * `C → B`, then accept `B → A`, and the stored tree is two deep.
+   *
+   * It cannot be expressed by filtering the list, so the picker is
+   * disabled with a reason instead. An empty dropdown would read as
+   * "nothing matches"; this is "this gig cannot be a child", which is
+   * a different fact, and one the user can act on.
+   */
+  const hasChildren = (gigs.data ?? []).some((g) => g.parentGigId === id);
+
+  /**
+   * Change the client and a parent already picked can stop being
+   * valid. Nothing on screen says so: a controlled `<select>` whose
+   * value matches no option reports "" from the DOM, so the box LOOKS
+   * empty while `form` still holds the old id — and the save sends it,
+   * for the worker to refuse with a 400 the user cannot explain.
+   *
+   * Only the client can invalidate a selection from this form, so that
+   * is the only mismatch checked. Two things are deliberately left
+   * alone: a parent the gig list does not (yet) contain, and one that
+   * gained a parent of its own elsewhere. Both are absences of local
+   * knowledge, not user edits, and clearing on them would quietly
+   * unlink a gig because a pull had not landed.
+   */
+  useEffect(() => {
+    if (form.parentGigId === "" || gigs.data === undefined) return;
+    const chosen = gigs.data.find((g) => g.id === form.parentGigId);
+    if (chosen === undefined) return;
+    if ((chosen.clientId ?? null) !== formClientId) {
+      setForm((f) => ({ ...f, parentGigId: "" }));
+    }
+  }, [form.parentGigId, formClientId, gigs.data]);
 
   const save = useMutation({
     // A new gig has nothing to merge onto, so it is written whole. An
@@ -215,6 +287,7 @@ export function GigEdit() {
     // from erasing them.
     const fields: GigInput = {
       clientId: form.clientId === "" ? null : form.clientId,
+      parentGigId: form.parentGigId === "" ? null : form.parentGigId,
       title: form.title.trim() === "" ? null : form.title.trim(),
       dateTime: localInputToMs(form.dateTime),
       durationMinutes:
@@ -285,6 +358,36 @@ export function GigEdit() {
                   </option>
                 ))}
               </Select>
+            </Field>
+
+            <Field label="Part of">
+              <Select
+                data-testid="gig-parent-select"
+                disabled={hasChildren}
+                value={form.parentGigId}
+                onChange={(e) => set("parentGigId", e.target.value)}
+              >
+                <option value="">Not part of anything</option>
+                {parentOptions.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {gigDisplayTitle(
+                      g,
+                      g.clientId === null
+                        ? null
+                        : (clients.data?.find((c) => c.id === g.clientId)?.name ?? null),
+                    )}
+                  </option>
+                ))}
+              </Select>
+              {hasChildren && (
+                <span
+                  className="mt-1 block text-xs text-slate-500"
+                  data-testid="gig-parent-blocked"
+                >
+                  This job has follow-ups of its own, so it can&rsquo;t also be part
+                  of another job. Unlink them first.
+                </span>
+              )}
             </Field>
 
             <Field label="Date & time">

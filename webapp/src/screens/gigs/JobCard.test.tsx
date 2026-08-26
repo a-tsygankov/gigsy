@@ -13,6 +13,7 @@ import type { Gig } from "../../lib/types.ts";
 const GIG: Gig = {
   id: "g1",
   clientId: null,
+  parentGigId: null,
   title: null,
   status: "confirmed",
   location: null,

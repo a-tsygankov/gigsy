@@ -33,6 +33,7 @@ const BREAK_LONGER_THAN_SPAN =
 function gigDataFrom(pay: PayableGig): GigData {
   return {
     clientId: null,
+    parentGigId: null,
     title: null,
     status: "lead",
     location: null,

@@ -15,6 +15,10 @@ export { PAY_TYPES };
 export interface Gig {
   id: string;
   clientId: string | null;
+  /** The gig this one came from — a follow-up, or one arm of a split.
+   *  Grouping only: nothing is shared or inherited. Null for a gig that
+   *  is part of nothing, which is most of them. */
+  parentGigId: string | null;
   /** Optional name; the UI falls back to the first line of notes. */
   title: string | null;
   status: GigStatus;
@@ -61,6 +65,7 @@ export interface Gig {
 
 export interface GigInput {
   clientId?: string | null;
+  parentGigId?: string | null;
   title?: string | null;
   status?: GigStatus;
   location?: string | null;

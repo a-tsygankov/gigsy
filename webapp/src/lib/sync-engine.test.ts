@@ -18,6 +18,7 @@ function serverGig(overrides: Partial<Gig> = {}): Gig {
   return {
     id: G1,
     clientId: null,
+    parentGigId: null,
     title: null,
     status: "completed",
     location: "server copy",

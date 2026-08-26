@@ -23,6 +23,7 @@ export type GigRecord = typeof gigs.$inferSelect;
 // nobody derived.
 export interface GigData {
   clientId: string | null;
+  parentGigId: string | null;
   title: string | null;
   status: GigStatus;
   location: string | null;
@@ -59,6 +60,22 @@ export class GigsRepo {
       .from(gigs)
       .where(and(eq(gigs.id, id), eq(gigs.userId, userId)));
     return rows[0] ?? null;
+  }
+
+  /**
+   * The gigs that name `id` as their parent. Served by idx_gigs_parent
+   * (migration 0018), so this is one indexed read.
+   *
+   * The parent invariants need the link looked at from BELOW as well as
+   * above — see services/gig-invariants.ts. Checking only the parent a
+   * write names bounds the chain from one end and leaves the other one
+   * open, which is exactly the hole a review found.
+   */
+  async listChildren(userId: string, id: string): Promise<GigRecord[]> {
+    return this.db
+      .select()
+      .from(gigs)
+      .where(and(eq(gigs.parentGigId, id), eq(gigs.userId, userId)));
   }
 
   async upsert(

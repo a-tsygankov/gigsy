@@ -1,0 +1,54 @@
+-- A gig can name the gig it came from.
+--
+-- Two situations, one column. A FOLLOW-UP links back to the job it
+-- followed. A SPLIT's children link back to the engagement they came
+-- out of. The link is grouping only: each gig keeps its own status,
+-- its own money, its own expenses. Nothing is shared or inherited.
+--
+-- NO REBUILD, unlike 0015 and 0017. SQLite permits a REFERENCES clause
+-- on ADD COLUMN provided the column's default is NULL, which it is.
+-- This is why `delivered` (0017) shipped first: a self-referencing key
+-- on gigs would have forced that rebuild to stage the table against
+-- itself.
+--
+-- NOTHING IS BACKFILLED. Every existing gig gets NULL, which is the
+-- right value for a gig that is part of nothing.
+--
+-- ON DELETE SET NULL: deleting a parent costs the grouping, never the
+-- work. Each child is an independent job carrying its own money, so
+-- CASCADE would destroy records nobody asked to remove, and refusing
+-- the delete would turn a working action into an error.
+--
+-- THE ACTION IS NOT ASSUMED TO WORK. That D1 accepts this DDL does not
+-- prove it honours the action — 0015's header records this instance
+-- accepting and silently ignoring PRAGMA foreign_keys=off. A test
+-- deletes a real parent and asserts the child survives with a null
+-- link (backend/test/gig-parent-column.test.ts), and it passes — but
+-- only against the LOCAL/EMULATED D1 that @cloudflare/vitest-pool-workers
+-- runs the suite against. That is NOT yet confirmed against remote D1.
+-- If remote D1 turns out not to honour the action, GigsRepo.remove
+-- clears children explicitly instead; the webapp has to do that
+-- locally regardless (lib/local-store.ts).
+--
+-- ONE STATEMENT DOES NOT SELF-HEAL, the same way 0016's ALTER TABLE
+-- payments ADD COLUMN does not. The ALTER below has no conditional
+-- form: SQLite rejects `ADD COLUMN IF NOT EXISTS` with `near
+-- "EXISTS": syntax error`. So applying this file twice aborts at
+-- statement 1 with `duplicate column name: parent_gig_id` and stops
+-- the batch there, BEFORE the CREATE INDEX. Both of those were run
+-- against this D1 instance rather than inferred, the same standard
+-- 0015's header set.
+--
+-- WHAT THAT COSTS AN OPERATOR: a --remote run that drops between the
+-- two statements leaves the column added and the index missing, and
+-- re-running the file will not create it — the retry dies on the
+-- ALTER first. Recovery is to run the CREATE INDEX statement below
+-- on its own; it is IF NOT EXISTS, so it is safe whether or not the
+-- index already made it (also checked). Nothing is lost or corrupted
+-- either way. There is no partial state here for a re-run to repair,
+-- which is why this note is the whole remedy and no rerun test sits
+-- beside 0016's and 0017's.
+ALTER TABLE gigs ADD COLUMN parent_gig_id TEXT
+  REFERENCES gigs(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_gigs_parent ON gigs(parent_gig_id);

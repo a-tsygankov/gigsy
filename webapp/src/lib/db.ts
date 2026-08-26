@@ -127,6 +127,13 @@ export class GigsyUserDB extends Dexie {
     this.version(4).stores({
       pendingImages: "paymentId, queuedAt",
     });
+    // Finding a gig's children is a query BY parentGigId, which Dexie
+    // cannot serve unindexed. A version's `stores()` is a delta over
+    // the previous one, so naming `gigs` here re-declares only that
+    // store and leaves the other six untouched.
+    this.version(5).stores({
+      gigs: "id, dateTime, modifiedAt, parentGigId",
+    });
   }
 }
 

@@ -17,6 +17,7 @@ import gigExpectedCentsSql from "../../migrations/0014_gig_expected_cents.sql?ra
 import gigStatusCancelledSql from "../../migrations/0015_gig_status_cancelled.sql?raw";
 import paymentAllocationsSql from "../../migrations/0016_payment_allocations.sql?raw";
 import gigStatusDeliveredSql from "../../migrations/0017_gig_status_delivered.sql?raw";
+import gigParentSql from "../../migrations/0018_gig_parent.sql?raw";
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
@@ -87,9 +88,16 @@ export const MIGRATIONS_BEFORE_DELIVERED_STATUS = [
 
 export const DELIVERED_STATUS_MIGRATION = gigStatusDeliveredSql;
 
-const MIGRATIONS = [
+export const MIGRATIONS_BEFORE_GIG_PARENT = [
   ...MIGRATIONS_BEFORE_DELIVERED_STATUS,
   DELIVERED_STATUS_MIGRATION,
+];
+
+export const GIG_PARENT_MIGRATION = gigParentSql;
+
+const MIGRATIONS = [
+  ...MIGRATIONS_BEFORE_GIG_PARENT,
+  GIG_PARENT_MIGRATION,
 ];
 
 /**
