@@ -296,6 +296,86 @@ describe("flatten", () => {
     // wait rather than the wait happening to be fast this run.
     expect(Date.now() - started).toBeLessThan(500);
   });
+
+  it("stops at a terminal step and drops everything after it", async () => {
+    const { flatten } = await import("./TourRenderer.ts");
+    const stop: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.SettingsLink,
+      description: "stop",
+      end: true,
+    };
+    const unreachable: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.SettingsHelp,
+      description: "unreachable",
+    };
+
+    await expect(
+      flatten([stop, unreachable], new AbortController().signal),
+    ).resolves.toEqual([stop]);
+  });
+
+  it("lets a terminal step inside a branch end the whole scenario", async () => {
+    // The case record-work depends on: `no-gigs-yet` has no row to tap,
+    // so the Work-card steps written AFTER the branch must not run.
+    const { flatten } = await import("./TourRenderer.ts");
+    document.body.innerHTML = "";
+    const deadEnd: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigAdd,
+      description: "nothing to find yet",
+      end: true,
+    };
+    const afterTheBranch: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigStatus,
+      description: "only for the branch that continued",
+    };
+    const branch: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "no-gigs-yet",
+          when: { type: "target-missing", target: HelpTarget.GigFilters },
+          steps: [deadEnd],
+        },
+      ],
+    };
+
+    await expect(
+      flatten([branch, afterTheBranch], new AbortController().signal),
+    ).resolves.toEqual([deadEnd]);
+  });
+
+  it("keeps going past a branch whose taken alternative did not end", async () => {
+    const { flatten } = await import("./TourRenderer.ts");
+    stubVisible("gig-filters");
+    const inBranch: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigSearch,
+      description: "in the branch",
+    };
+    const afterTheBranch: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigStatus,
+      description: "after the branch",
+    };
+    const branch: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "showing",
+          when: { type: "target-visible", target: HelpTarget.GigFilters },
+          steps: [inBranch],
+        },
+      ],
+    };
+
+    await expect(
+      flatten([branch, afterTheBranch], new AbortController().signal),
+    ).resolves.toEqual([inBranch, afterTheBranch]);
+  });
 });
 
 /** A fake Driver.js instance plus the config it was built with, so a

@@ -154,10 +154,78 @@ async function settleBranch(
   return null;
 }
 
-/** Flattens branches against the live DOM, so the tour is a plain list
- *  by the time Driver.js sees it. Exported for unit testing — this is
- *  the one piece of this file that is pure enough to test without
- *  mocking Driver.js.
+/** The scenario, half-resolved: the flat steps that are known, the
+ *  model steps still waiting for a DOM to resolve against, and whether
+ *  a terminal step has already closed the walk.
+ *
+ *  Two consumers: `flatten`, which loops until `rest` is empty, and
+ *  `runTour`, which stops after each branch so the next one is resolved
+ *  against the screen the user has reached rather than the one they
+ *  started on. */
+interface Expansion {
+  flat: FlatStep[];
+  rest: HelpStep[];
+  /** A terminal step was appended, so `rest` is unreachable and is
+   *  returned empty. */
+  ended: boolean;
+}
+
+/** Appends steps until a terminal step (stop, drop the rest) or a
+ *  branch (stop, leave the branch at the head of `rest`). Touches no
+ *  DOM: it never resolves a branch itself, which is what lets the
+ *  caller decide WHEN that resolution happens. */
+function takeUntilBranch(steps: HelpStep[]): Expansion {
+  const flat: FlatStep[] = [];
+  for (let i = 0; i < steps.length; i += 1) {
+    const step = steps[i]!;
+    if (!isFlatStep(step)) return { flat, rest: steps.slice(i), ended: false };
+    flat.push(step);
+    if (step.end === true) return { flat, rest: [], ended: true };
+  }
+  return { flat, rest: [], ended: false };
+}
+
+/** Resolves the ONE branch at the head of `steps` against the live DOM
+ *  and appends everything up to the next branch. `null` is the same
+ *  hard failure it has always been: no branch condition held.
+ *
+ *  Exported for unit testing alongside `flatten`. */
+export async function expandBranch(
+  steps: HelpStep[],
+  signal: AbortSignal,
+  branchTimeoutMs = 10_000,
+  branchStableMs = 250,
+): Promise<Expansion | null> {
+  const head = steps[0];
+  if (head === undefined || isFlatStep(head)) return takeUntilBranch(steps);
+
+  const taken = await settleBranch(head, signal, branchTimeoutMs, branchStableMs);
+  if (taken === null) return null;
+  // validate.ts rejects a branch step whose own steps nest another
+  // branch, so this should never happen — but if it somehow did, that
+  // is the same kind of failure an unmatched branch is, not a step to
+  // silently drop from the tour.
+  if (taken.some((step) => !isFlatStep(step))) return null;
+
+  const inner = takeUntilBranch(taken);
+  // `inner.rest` is necessarily empty — a branch's steps hold no branch
+  // — so the only thing it can tell us is whether the alternative
+  // ended. If it did, everything written after this branch step is
+  // unreachable, which is the entire point of the flag.
+  if (inner.ended) return { flat: inner.flat, rest: [], ended: true };
+
+  const after = takeUntilBranch(steps.slice(1));
+  return {
+    flat: [...inner.flat, ...after.flat],
+    rest: after.rest,
+    ended: after.ended,
+  };
+}
+
+/** Flattens every branch against the live DOM in one pass. Still used
+ *  by anything that wants the whole list at once; `runTour` no longer
+ *  does, because resolving a branch before the user has reached its
+ *  screen is exactly the bug this file used to have.
  *
  *  `branchTimeoutMs` exists so tests can exercise the "no branch
  *  matched" path without waiting out the real 10s default;
@@ -168,24 +236,17 @@ export async function flatten(
   branchTimeoutMs = 10_000,
   branchStableMs = 250,
 ): Promise<FlatStep[] | null> {
-  const flat: FlatStep[] = [];
-  for (const step of steps) {
+  let state = takeUntilBranch(steps);
+  const flat = [...state.flat];
+
+  while (!state.ended && state.rest.length > 0) {
     if (signal.aborted) return null;
-    if (!isFlatStep(step)) {
-      const taken = await settleBranch(step, signal, branchTimeoutMs, branchStableMs);
-      if (taken === null) return null;
-      for (const inner of taken) {
-        // validate.ts rejects a branch step whose own steps nest another
-        // branch, so this should never happen — but if it somehow did,
-        // that is the same kind of failure an unmatched branch is, not
-        // a step to silently drop from the tour.
-        if (!isFlatStep(inner)) return null;
-        flat.push(inner);
-      }
-      continue;
-    }
-    flat.push(step);
+    const grown = await expandBranch(state.rest, signal, branchTimeoutMs, branchStableMs);
+    if (grown === null) return null;
+    flat.push(...grown.flat);
+    state = grown;
   }
+
   return flat;
 }
 
