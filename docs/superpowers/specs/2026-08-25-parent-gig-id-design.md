@@ -25,7 +25,7 @@ gig they came from.
 | Question | Decision |
 |---|---|
 | Shape | One nullable column on `gigs`, not a new table. |
-| Depth | **One level.** A parent may not itself have a parent. |
+| Depth | **One level**, enforced from both sides — see rules 3 and 5. |
 | Client | **Same client only**, including both being null. |
 | Deleting a parent | `ON DELETE SET NULL` — children survive as ordinary gigs with the link cleared. |
 | Self-parent | Refused. |
@@ -67,7 +67,7 @@ delete and asserts the child survives with a null link. If D1 does not
 honour the action, the fallback is to clear children explicitly in
 `GigsRepo.remove` — which the offline path needs regardless (below).
 
-## Four invariants, one module, two doors
+## Six invariants, one module, two doors
 
 Every gig write reaches D1 through the CRUD route (`routes/gigs.ts`) or
 the offline outbox (`services/sync.ts`). `services/payment-invariants.ts`
@@ -79,12 +79,32 @@ module both doors call.
 2. The parent must have the **same `clientId`** — including both null.
 3. The parent must not itself have a parent.
 4. A gig may not be its own parent.
+5. A gig that already has children may not acquire a parent.
+6. A gig may not change client while its children still point at it.
 
-**Rule 3 makes cycles unreachable, and that is the reason to prefer it.**
-If A's parent is B, then B has no parent. B cannot later adopt A,
-because A now has one. No traversal, no recursive query, no cycle
-detection. The single cycle it does not catch is a gig parenting itself,
-which is why rule 4 is stated separately rather than folded in.
+**Rules 3 and 5 are the same rule from opposite sides, and an earlier
+draft of this spec had only one of them.** Rule 3 stops a gig pointing
+*at* a parented gig, which bounds depth from above. It does not stop a
+gig that already has children from becoming someone's child — and that
+produces exactly the two-level chain "one level" forbids. Proved against
+the live D1 instance during implementation: `C → B` accepted, then
+`B → A` accepted, leaving a stored chain two deep and reachable through
+the intended picker. Rule 5 closes it.
+
+**Cycles are unreachable, and that survives the correction.** If A's
+parent is B, then B has no parent, so B cannot later adopt A — the last
+edge closing any cycle must target a node that already has one. No
+traversal, no recursive query, no cycle detection at any length. The
+single cycle this does not catch is a gig parenting itself, which is why
+rule 4 is stated separately.
+
+**Rule 6 exists because the invariant is two-directional while the check
+is not.** Rule 2 is stated as a property of the link, but a write that
+names no parent at all can falsify it: move a parent to another client
+and its children are left pointing at a gig on somebody else's history.
+Refused rather than cascaded, following `payment-invariants.ts`'s I5,
+which takes the same stance when a payment's client change would strand
+its allocations.
 
 Each violation is refused with a distinct message, identical at both
 doors — the route maps it to a 400, `sync.ts` to an `errored()` result.
@@ -143,6 +163,12 @@ that do not already have a parent — the same-client and one-level rules
 are what keep that list short enough to read. A gig with no client
 offers only other client-less gigs.
 
+**A gig that already has follow-ups cannot take a parent at all** (rule
+5), so for that gig the picker is disabled rather than empty, with a
+line saying why. An empty dropdown reads as "nothing matches"; this is
+"this gig cannot be a child", which is a different fact and one the user
+can act on by unlinking its follow-ups first.
+
 Nothing appears in reports, in the CSV export, or in `ClientEdit`'s
 history groups.
 
@@ -150,7 +176,7 @@ history groups.
 
 **Backend**, mirroring `test/payment-invariants.test.ts`:
 
-- each of the four invariants refused, at **both** doors, with identical
+- each of the six invariants refused, at **both** doors, with identical
   messages
 - a cross-client link refused, including the both-null case being
   *allowed*

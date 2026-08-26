@@ -1091,6 +1091,33 @@ cd webapp && pnpm exec vitest run src/screens/GigEdit.test.tsx
 
 Expected: PASS.
 
+- [ ] **Step 4b: A gig with follow-ups cannot take a parent**
+
+Added after Task 2's review, which proved the original rule set allowed
+a two-level chain. Rule 5 — *a gig that already has children may not
+acquire a parent* — constrains the gig being **edited**, not the
+options, so it cannot be expressed by filtering the list.
+
+If the gig being edited has children, disable the picker and say why:
+
+```tsx
+  const hasChildren = (gigs.data ?? []).some((g) => g.parentGigId === id);
+```
+
+Render the `Select` with `disabled={hasChildren}` and, when
+`hasChildren`, a line beneath it reading something like "This job has
+follow-ups of its own, so it can't also be part of another job. Unlink
+them first." Give that line `data-testid="gig-parent-blocked"`.
+
+An empty dropdown would read as "nothing matches"; this is "this gig
+cannot be a child", which is a different fact and one the user can act
+on.
+
+Add a test: a gig with a child renders the picker disabled and the
+explanation present; a gig without children renders it enabled and the
+explanation absent. Then mutate — drop the `disabled` binding — and
+confirm the test fails.
+
 - [ ] **Step 5: Prove each exclusion is load-bearing**
 
 Remove each of the three filter clauses in turn and confirm exactly one test fails each time. Restore after each, and report the three results. A filter whose removal breaks nothing is not being tested.
