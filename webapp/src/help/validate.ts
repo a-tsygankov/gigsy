@@ -47,18 +47,88 @@ export function validateHelpRegistry(scenarios: HelpScenario[]): HelpProblem[] {
     }
 
     const branchIds = new Set<string>();
-    const checkExternal = (step: HelpStep, where: string): void => {
+
+    /** Per-step rules, applied identically wherever a step can appear:
+     *  the scenario's own top-level steps, a branch's steps, and a
+     *  variant's steps. `where` is what tells the three call sites
+     *  apart — it names the branch or variant a message should point
+     *  at, and is "" for the top level. */
+    const checkStep = (step: HelpStep, where: string): void => {
+      const qualified = where !== "";
+
       if (step.action === "external" && step.description.trim() === "") {
         report(
-          where === ""
-            ? "external step has an empty description"
-            : `${where} has an external step with an empty description`,
+          qualified
+            ? `${where} has an external step with an empty description`
+            : "external step has an empty description",
+        );
+      }
+
+      if (step.action !== "navigate") return;
+
+      if (!executable) report("non-executable scenario has a navigate step");
+
+      const id = step.target.id;
+      if (step.route.trim() === "") {
+        report(
+          qualified
+            ? `${where} has a navigate step for target "${id}" with no route`
+            : `navigate step for target "${id}" has no route`,
+        );
+      } else if (!step.route.startsWith("/")) {
+        const tail = `route "${step.route}", which must start with "/"`;
+        report(
+          qualified
+            ? `${where} has a navigate step for target "${id}" with ${tail}`
+            : `navigate step for target "${id}" has ${tail}`,
         );
       }
     };
 
+    /** A terminal step with steps written after it in the same list
+     *  silently drops them — the class of quiet wrongness this file
+     *  exists to make loud. A terminal step in the LAST position of a
+     *  scenario's own steps is a harmless no-op and is not reported:
+     *  that would be the validator arguing about redundancy rather than
+     *  correctness.
+     *
+     *  A branch step gets the same treatment one level up: if every one
+     *  of its alternatives ends, the branch itself is terminal on every
+     *  path that can reach it, and anything written after it in this
+     *  same list is exactly as dead as what follows a plain step marked
+     *  `end` — just with the flag one layer further down. */
+    const checkTerminalPlacement = (list: HelpStep[], branchId?: string): void => {
+      list.forEach((step, index) => {
+        const isLast = index === list.length - 1;
+
+        if (step.action === "branch") {
+          const everyAlternativeEnds =
+            step.branches.length > 0 &&
+            step.branches.every((b) => {
+              const last = b.steps[b.steps.length - 1];
+              return last !== undefined && last.action !== "branch" && last.end === true;
+            });
+          if (everyAlternativeEnds && !isLast) {
+            report(
+              "every alternative of a branch step ends, but steps are written after it",
+            );
+          }
+          return;
+        }
+
+        if (step.end !== true || isLast) return;
+        report(
+          branchId === undefined
+            ? "a step marked end is not the last of the scenario's own steps"
+            : `branch "${branchId}" has a step marked end that is not its last`,
+        );
+      });
+    };
+
+    checkTerminalPlacement(scenario.steps);
+
     for (const step of scenario.steps) {
-      checkExternal(step, "");
+      checkStep(step, "");
       if (step.action !== "branch") continue;
 
       if (step.branches.length === 0) report("branch step has no branches");
@@ -74,8 +144,9 @@ export function validateHelpRegistry(scenarios: HelpScenario[]): HelpProblem[] {
         if (branch.steps.some((s) => s.action === "branch")) {
           report(`branch "${branch.id}" nests another branch step`);
         }
+        checkTerminalPlacement(branch.steps, branch.id);
         for (const inner of branch.steps) {
-          checkExternal(inner, `branch "${branch.id}"`);
+          checkStep(inner, `branch "${branch.id}"`);
         }
       }
     }
@@ -126,7 +197,15 @@ export function validateHelpRegistry(scenarios: HelpScenario[]): HelpProblem[] {
           report(`variant "${variant.environment}" has no steps`);
         }
         for (const step of variant.steps) {
-          checkExternal(step, `variant "${variant.environment}"`);
+          checkStep(step, `variant "${variant.environment}"`);
+          // A variant renders as prose through HelpMenu's VariantPicker —
+          // there is no tour, so nothing ever reads `end` here. Report it
+          // rather than silently accepting a flag that does nothing.
+          if (step.end === true) {
+            report(
+              `variant "${variant.environment}" has a step marked end, which does nothing outside a tour`,
+            );
+          }
         }
       }
       // A wrong user-agent guess must never leave someone with nothing.

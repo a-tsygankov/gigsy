@@ -41,4 +41,17 @@ describe("the help registry", () => {
   it("starts the settings-link scenario somewhere that renders it", () => {
     expect(getHelpScenario("open-settings")?.startRoute).toBe("/");
   });
+
+  // The bug this whole change exists to fix: record-work used to start
+  // on a hard-coded gig id that only the Playwright fixture created, so
+  // on a real account GigDetail rendered "Couldn't open this gig" and
+  // every step degraded to prose. A scenario must reach a gig the way a
+  // person does.
+  it("starts record-work on the gig list, not on a gig id", () => {
+    const scenario = getHelpScenario("record-work");
+    expect(scenario?.startRoute).toBe("/gigs");
+    expect(JSON.stringify(scenario)).not.toMatch(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+    );
+  });
 });

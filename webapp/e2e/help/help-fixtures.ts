@@ -11,7 +11,6 @@
  */
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { requireTestAuth, resetGigListView } from "../helpers/test-auth.ts";
-import { RECORD_WORK_GIG_ID } from "../../src/help/scenarios/record-work.ts";
 import type { HelpScenario } from "../../src/help/types.ts";
 
 /** Hosts a local stack can legitimately be reached at. `"[::1]"` keeps
@@ -122,115 +121,73 @@ export async function resetWorkingWeek(
   });
 }
 
-/**
- * Title marker for the gig `ensureAtLeastOneGig` plants. Distinct enough
- * that anyone who finds one of these in a dev account — locally or in
- * CI — knows immediately it came from this fixture and not from a human
- * or a scenario. Also doubles as an idempotency check on its own: see
- * `ensureAtLeastOneGig`.
- */
-const SEEDED_GIG_TITLE = "[help-fixtures] seeded so find-a-gig has a row";
+/** The one gig this suite plants, and the id it plants it under.
+ *
+ *  The id lives HERE and nowhere else. It used to be exported from
+ *  `record-work.ts` as that scenario's `startRoute`, which is what made
+ *  the scenario pass in CI and fail for every real user: on any account
+ *  but this one the gig does not exist, `GigDetail` renders "Couldn't
+ *  open this gig", and all seven of the scenario's targets go
+ *  unresolved. No scenario knows a gig id any more — `record-work`
+ *  reaches a gig the way a person does, through the list.
+ *
+ *  What the fixture still owes CI is DETERMINISM. The runner performs a
+ *  navigate step by clicking the first row (help-runner.ts), so "the
+ *  first row" has to mean something fixed. */
+const WALKABLE_GIG_ID = "11111111-1111-4111-a111-111111111111";
+const WALKABLE_GIG_TITLE = "[help-fixtures] the gig help walks — do not edit";
 
 /**
- * Guarantee the account owns at least one gig, seeding one through the
- * API when it owns none.
+ * Upsert the one gig `record-work` walks into a known shape, every run.
  *
- * `find-a-gig`'s `expectedCiBranches: ["gigs-showing"]` used to hold only
- * by accident of CI step ordering: `test:e2e` runs before `help:test` in
- * `webapp-e2e-full` (deploy.yml) and plants several hundred gigs first,
- * so `help:test` never actually ran against the state it needs to
- * handle. Point it at a freshly migrated D1 — alone, or if those steps
- * are ever reordered — and the account has zero gigs, `find-a-gig`
- * correctly takes `no-gigs-yet`, and the branch assertion fails: a
- * missing precondition reading like a scenario bug. This closes that gap
- * by making the precondition true itself instead of hoping something
- * upstream already made it true.
+ * Unconditional, like `resetWorkingWeek` and unlike the seed-if-empty
+ * helper this replaced: a PUT with the same id replaces the record
+ * (`backend/src/routes/gigs.ts`), so re-running after a previous pass
+ * resets it rather than inheriting a start stamp with no stop, or an
+ * override somebody's run left behind.
  *
- * Idempotent and bounded, not "create a gig every run": it lists first
- * and only calls `PUT /api/gigs/:id` when the account has none at all.
- * Every CI run after the first, and every developer machine with real
- * data on it (this account has several hundred), sees a non-empty list
- * and this is a no-op — it does not matter whether an existing gig is
- * one this function planted earlier or one a human or another suite
- * wrote; "any gig" is all `find-a-gig`'s `gigs-showing` branch needs.
+ * Being unconditional also means this guarantees the account owns a gig
+ * at all — which is what `ensureAtLeastOneGig` used to be for, and why
+ * that function is gone. `find-a-gig`'s `gigs-showing` precondition is
+ * met by this same call.
  *
- * Through the API, matching `resetWorkingWeek` and `resetGigListView` in
- * this same file: a token from `POST /api/auth/test-login`, then the
- * REST call — `PUT /api/gigs/:id` with a fresh UUID, per how `GigEdit.tsx`
- * creates a gig and what `backend/src/domain/schemas.ts`'s `GigInput`
- * actually requires (nothing beyond `status` and `source`, both
- * defaulted). `SEEDED_GIG_TITLE` marks provenance for whoever finds it.
+ * Three fields are load-bearing, not decoration:
  *
- * This is a fixture pinning a precondition, not a scenario writing data
- * — the same distinction `resetWorkingWeek` and `resetGigListView`
- * already draw. Phase 13's rule that no *scenario* creates, updates or
- * deletes a record is untouched: `find-a-gig` still only walks the
- * screen and stops at a row. What changed is which layer guarantees the
- * row exists to walk to.
- */
-async function ensureAtLeastOneGig(request: APIRequestContext, baseURL: string): Promise<void> {
-  const login = await request.post(`${baseURL}/api/auth/test-login`, {
-    data: { email: "dev@test.local" },
-  });
-  if (!login.ok()) return; // No test auth here; the spec skips anyway.
-  const { accessToken } = (await login.json()) as { accessToken: string };
-  const headers = { authorization: `Bearer ${accessToken}` };
-
-  const listed = await request.get(`${baseURL}/api/gigs`, { headers });
-  if (!listed.ok()) return;
-  const { items } = (await listed.json()) as { items?: unknown[] };
-  if (items === undefined || items.length > 0) return; // Already has gigs — no-op.
-
-  await request.put(`${baseURL}/api/gigs/${crypto.randomUUID()}`, {
-    headers,
-    data: { title: SEEDED_GIG_TITLE, status: "lead", source: "manual" },
-  });
-}
-
-/** Title marker for the `record-work` fixture gig, matching
- *  `SEEDED_GIG_TITLE`'s purpose above for a different scenario. */
-const RECORD_WORK_GIG_TITLE = "[help-fixtures] record-work's own gig — do not edit";
-
-/**
- * Upsert `record-work`'s one gig into a known shape, every run.
+ *   - `dateTime` FIVE YEARS OUT. The default saved view sorts `newest`
+ *     — `dateTime` descending, nulls last (`lib/gig-filters.ts`) — so a
+ *     date beyond anything a real account holds puts this gig at the
+ *     top of the list, which is the row `help-runner.ts` clicks. Five
+ *     years rather than one because the shared dev account holds
+ *     several hundred gigs and a year out is a plausible booking.
+ *   - `payType: "hourly"` with a rate. `WorkCard`'s override control
+ *     renders only on an hourly gig, so a fixed-fee fixture would send
+ *     `record-work` down its `fixed-fee-gig` branch and contradict that
+ *     scenario's own `expectedCiBranches`.
+ *   - `durationMinutes`. `expectedCents` returns null with no billable
+ *     minutes to price (`lib/gig-pay.ts`), and a null figure means no
+ *     `gig-expected-pay` element and the `pay-not-yet` branch instead.
  *
- * Unlike `ensureAtLeastOneGig`, this is not "seed one if the account has
- * none" — it is "make THIS id mean this" unconditionally, the same
- * `resetWorkingWeek` pattern for the same reason: `record-work` does not
- * find its gig through the list the way `find-a-gig` hands one over
- * (see that scenario's header on why no scenario can point at "a row"),
- * it starts on this fixed id directly (`RECORD_WORK_GIG_ID`,
- * `record-work.ts`'s `startRoute`). A PUT with the same id replaces the
- * record (`backend/src/routes/gigs.ts`), so re-running this after a
- * previous `record-work` pass — which writes work-log fields onto this
- * exact gig — resets it rather than accumulating whatever the last run
- * left behind.
- *
- * `payType: "hourly"` is load-bearing, not a random choice: WorkCard's
- * `GigOverride` control only renders on an hourly gig
- * (`WorkCard.tsx`'s `isHourly && <HourlyOverride ...>`), so a fixed-fee
- * fixture would leave that scenario step's target permanently
- * unresolved. `status: "confirmed"` and a real `dateTime` keep the gig
- * off any "needs a date" empty state the rest of the screen might show;
  * `workStartedAt`/`workEndedAt` stay unset so Start renders enabled and
- * Stop disabled, same as WorkCard.tsx's own guard on a not-yet-started
- * gig — a highlight step never clicks either one, but there is no
- * reason to start the fixture off in a state its own screen wouldn't
- * reach on its own.
+ * Stop disabled, matching WorkCard.tsx's own guard on a not-yet-started
+ * gig — a highlight step never presses either, but there is no reason
+ * to start the fixture in a state its own screen would not reach.
  */
-async function ensureRecordWorkGig(request: APIRequestContext, baseURL: string): Promise<void> {
+async function ensureWalkableGig(
+  request: APIRequestContext,
+  baseURL: string,
+): Promise<void> {
   const login = await request.post(`${baseURL}/api/auth/test-login`, {
     data: { email: "dev@test.local" },
   });
   if (!login.ok()) return; // No test auth here; the spec skips anyway.
   const { accessToken } = (await login.json()) as { accessToken: string };
 
-  await request.put(`${baseURL}/api/gigs/${RECORD_WORK_GIG_ID}`, {
+  await request.put(`${baseURL}/api/gigs/${WALKABLE_GIG_ID}`, {
     headers: { authorization: `Bearer ${accessToken}` },
     data: {
-      title: RECORD_WORK_GIG_TITLE,
+      title: WALKABLE_GIG_TITLE,
       status: "confirmed",
-      dateTime: Date.now() + 24 * 60 * 60 * 1000,
+      dateTime: Date.now() + 5 * 365 * 24 * 60 * 60 * 1000,
       durationMinutes: 180,
       payType: "hourly",
       hourlyRateCents: 4500,
@@ -247,7 +204,7 @@ const SEEDED_PAYMENT_NOTES = "[help-fixtures] seeded so find-a-payment has a row
 
 /**
  * Guarantee the account owns at least one payment, seeding one when it
- * owns none. `ensureAtLeastOneGig`'s reasoning applies unchanged, one
+ * owns none. `ensureWalkableGig`'s reasoning applies unchanged, one
  * entity over: `find-a-payment` declares
  * `expectedCiBranches: ["payments-showing"]`, and against a freshly
  * migrated D1 the account has no payments, the scenario correctly takes
@@ -393,22 +350,31 @@ async function waitForInitialPull(
  * them.
  *
  * Which makes this a precondition problem, not a flake. `find-a-gig`'s
- * `target-missing gig-filters` condition is *correct* during that
- * window, so the settle-then-recheck debounce in help-runner.ts does not
- * save it — it commits to `no-gigs-yet` and every target on the branch
- * that matters (`gig-search`, `gig-filters-toggle`, `gig-list`) goes
- * unresolved, which the README's §6 warns turns them into prose.
+ * `no-gigs-yet` condition is *correct* during that window, so the
+ * settle-then-recheck debounce in help-runner.ts does not save it — it
+ * commits to that branch and every target on the branch that matters
+ * (`gig-search`, `gig-filters-toggle`, `gig-list`) goes unresolved,
+ * which the README's §6 warns turns them into prose.
+ *
+ * That is still true after the condition stopped being `target-missing
+ * gig-filters` and became `target-visible gigs-empty`. The change fixed
+ * a different, larger hole — the filter bar is also absent while the
+ * query is PENDING and after it has ERRORED, neither of which is a
+ * statement about the account (help/targets.ts's `GigsEmpty`). It does
+ * nothing about this window, and cannot: an unhydrated store answers
+ * `[]` honestly, so Gigs.tsx really does render "No gigs yet" and the
+ * branch really is agreeing with the screen. Only a wait fixes a
+ * precondition, which is what this function is.
  * Observed directly: the first `help:test` run against this stack took
  * `no-gigs-yet` on an account of 396 gigs, before hydration had caught
  * up — the account was never the problem, the wait was missing.
  *
  * The *other* half of the precondition — that the account has a gig to
- * hydrate at all — is `ensureAtLeastOneGig`'s job, called before this
- * one in `prepareHelpScenario`. This function only ever waits for
- * something the server already has; it does not create anything itself,
- * which is why it still returns immediately, honestly, when the server
- * genuinely has zero gigs (a broken call to `ensureAtLeastOneGig`, a
- * user other than `dev@test.local`, or similar).
+ * hydrate at all — is `ensureWalkableGig`'s job, called before this one
+ * in `prepareHelpScenario`. This function only ever waits for something
+ * the server already has; it does not create anything itself, which is
+ * why it still returns immediately, honestly, when the server genuinely
+ * has zero gigs (a user other than `dev@test.local`, or similar).
  *
  * Deliberately NOT a scenario step and not a longer debounce. A step
  * would make the tour wait too, on a page where the user is watching
@@ -497,23 +463,15 @@ async function waitForGigsToHydrate(
  * Reusing gig-list.spec.ts's own helper rather than a second copy of
  * the PATCH keeps one definition of "the default view".
  *
- * Guarantees the account has a gig at all, before worrying about which
- * ones are visible: `ensureAtLeastOneGig` seeds exactly one, and only
- * when the account has none. Without it, `gigs-showing` was true only
- * because some *other* CI job happened to run first and leave gigs
- * behind — a dependency this fixture now removes by making the
- * precondition true itself.
- *
- * Pins `record-work`'s own gig into shape for the same reason, and
- * unconditionally like `resetWorkingWeek` rather than "only if missing"
- * like `ensureAtLeastOneGig`: `record-work` starts on one fixed id
- * (`RECORD_WORK_GIG_ID`) rather than finding a gig through the list, so
- * a stale copy left mid-shift by an earlier `record-work` run — a start
- * stamp with no stop, an override already set — is exactly the kind of
- * leftover state a later run must not inherit.
+ * Pins the one gig help walks into shape, unconditionally. That single
+ * upsert does two jobs: it guarantees the account owns a gig at all —
+ * `find-a-gig`'s `gigs-showing` precondition — and it puts a gig with a
+ * known pay shape at the top of the default view, which is the row
+ * `record-work`'s navigate step lands the runner on. See
+ * `ensureWalkableGig`.
  *
  * Seeds a payment on the same "only if the account has none" terms as
- * `ensureAtLeastOneGig`, for `find-a-payment`'s `payments-showing`
+ * `ensureWalkableGig`, for `find-a-payment`'s `payments-showing`
  * branch, and then waits for the first pull to actually finish before
  * navigating anywhere — see `waitForInitialPull`, which is where the
  * reason lives and is worth reading, because it is not a timing tweak:
@@ -535,8 +493,7 @@ export async function prepareHelpScenario(
   await requireTestAuth(request, baseURL);
   await resetWorkingWeek(request, baseURL);
   await resetGigListView(request, baseURL);
-  await ensureAtLeastOneGig(request, baseURL);
-  await ensureRecordWorkGig(request, baseURL);
+  await ensureWalkableGig(request, baseURL);
   await ensureAtLeastOnePayment(request, baseURL);
 
   await page.goto("/login");

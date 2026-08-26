@@ -10,6 +10,7 @@
  */
 import { expect, type Locator, type Page } from "@playwright/test";
 import { targetSelector, type HelpTarget } from "../../src/help/targets.ts";
+import { matchesRoute } from "../../src/help/routes.ts";
 import type {
   BranchStep,
   HelpBranch,
@@ -64,8 +65,19 @@ const BRANCH_STABLE_MS = 750;
  * target to show up on a cold stack — and a plain step's target waits on
  * exactly the same thing. It had simply never been given the same
  * treatment, inheriting Playwright's default `expect` timeout of 5s
- * instead: nothing in playwright.config.ts sets one, and `actionTimeout`
- * governs click/fill/selectOption but not `toBeVisible`.
+ * instead.
+ *
+ * playwright.config.ts's `help` project now sets `expect: { timeout:
+ * 15_000 }` (added in e7c9ffa, for the same cold-start reason as this
+ * constant), so passing `TARGET_APPEAR_TIMEOUT_MS` explicitly here is no
+ * longer widening a 5s default — it is narrowing that 15s project
+ * default down to 10s, on purpose: this wait and `resolveBranch`'s are
+ * waiting on the same kind of thing (a documented element appearing on
+ * a cold stack), and keeping their budgets equal is the reason this
+ * constant was defined as `= BRANCH_APPEAR_TIMEOUT_MS` rather than its
+ * own number. Whether 10s is still the right number to hold against the
+ * project's 15s is an open question — settle it with real timing data
+ * from a live run, not by guessing here.
  *
  * `configure-working-hours` is what found this. `AvailabilitySection`
  * returns null until `GET /api/settings` resolves, so on a cold CI
@@ -184,7 +196,10 @@ function describeBranchCandidates(branches: HelpBranch[]): string {
  *  `expect(...).toBeVisible()`) — verified `isVisible()` throws under
  *  strict mode the same way those do, so leaving it unqualified here
  *  keeps every locator in this file behind one consistent rule instead
- *  of two.
+ *  of two. (The `navigate` case's `.first()` on `a[href]` does not
+ *  break that rule: it picks among ROWS inside an already strictly
+ *  resolved target, not among duplicate matches of the target itself —
+ *  a choice, not a masked bug.)
  *
  *  `deadline` (the caller's own `Date.now() + BRANCH_APPEAR_TIMEOUT_MS`,
  *  computed once in `resolveBranch`) is what makes this conditional
@@ -418,17 +433,76 @@ async function performAction(page: Page, step: ActionStep): Promise<void> {
       }
       await locatorFor(page, step.target).selectOption(step.value);
       return;
+    case "navigate": {
+      const container = locatorFor(page, step.target);
+      await expect(container).toBeVisible({ timeout: TARGET_APPEAR_TIMEOUT_MS });
+      // The tour spotlights a container of choices and lets the person
+      // pick their own row (types.ts's `NavigateStep.target` doc states
+      // this intent directly: a CONTAINER of choices, whose tap
+      // advances the step by bubbling to it). The runner has no
+      // preference and cannot have one — which row is "yours" is the
+      // one thing a scenario deliberately does not know — so it takes
+      // the first. Not arbitrary, though: help-fixtures.ts deliberately
+      // gives its fixture gig a far-future `dateTime` so that gig sorts
+      // to row 1 every run, and a later task's `expectedCiBranches` for
+      // this scenario depends on "first" meaning that fixed gig. A
+      // stand-in for the tap, not a claim that any row would do.
+      //
+      // `a[href]` rather than the container itself: clicking the
+      // wrapper lands wherever its centre happens to be, which is a row
+      // on a full list and padding on a short one.
+      const before = page.url();
+      await container.locator("a[href]").first().click();
+      try {
+        await page.waitForURL(
+          // `url.href !== before` matters because `waitForURL` tests the
+          // CURRENT url first and returns immediately if it already
+          // matches (Playwright's own source, coreBundle.js) — without
+          // this clause, a navigate step whose destination pattern
+          // already matches where the page started would pass instantly
+          // whether or not the click did anything, silently defeating
+          // the one thing this step exists to prove. No race from
+          // adding it: on the short-circuit check the predicate is
+          // evaluated against `before` itself, returns false, and
+          // `waitForURL` correctly falls through to waiting for a real
+          // navigation.
+          (url) => url.href !== before && matchesRoute(step.route, url.pathname),
+          { timeout: TARGET_APPEAR_TIMEOUT_MS },
+        );
+      } catch (cause) {
+        // Playwright's own timeout message says nothing about intent
+        // when the argument is a predicate — `toUrl` is only populated
+        // for a string pattern, so the bare message is just "waiting
+        // for navigation until load", which would leave a
+        // HelpScenarioError's `Target:` line (see `stepFailure`, which
+        // uses this message as-is) naming `step.target` — the container
+        // that WAS visible and WAS clicked fine — for a failure that is
+        // actually "the tap went nowhere". Only this call site knows
+        // the route it was waiting for, so it has to say so here or
+        // nowhere.
+        throw new Error(
+          `tapped the first link inside "${step.target.id}" but the URL never ` +
+            `matched "${step.route}" within ${TARGET_APPEAR_TIMEOUT_MS}ms ` +
+            `(still on ${new URL(page.url()).pathname})`,
+          { cause },
+        );
+      }
+      return;
+    }
     case "external":
       // Browser/OS UI — metadata only, nothing executable exists to
       // drive.
       return;
     default: {
-      // Exhaustiveness guard: if HelpStep ever grows a sixth action
-      // (types.ts's own comment on NavigateStep anticipates exactly
-      // this), `step` here stops being `never` and this line fails to
-      // compile — turning a silently-skipped, stepsRun-still-incremented
-      // step into a build failure instead of a scenario reporting green
-      // while doing less than it claims.
+      // Exhaustiveness guard: it already caught NavigateStep once — this
+      // line failed to compile the moment types.ts grew a sixth
+      // executable action (HelpStep itself has seven members; `branch`
+      // is not one of `performAction`'s cases — see `ActionStep`), which
+      // is exactly why the `case "navigate"` above exists — and it will
+      // catch the next added action the same way, turning a
+      // silently-skipped, stepsRun-still-incremented step into a build
+      // failure instead of a scenario reporting green while doing less
+      // than it claims.
       const exhaustive: never = step;
       throw new Error(`unhandled help step action: ${JSON.stringify(exhaustive)}`);
     }
@@ -447,6 +521,12 @@ function makeStepCursor(): { next(): number } {
   return { next: () => n++ };
 }
 
+/** Whether the caller should keep going. A terminal step ends the whole
+ *  scenario, not just the branch it sits in — which is the point of it
+ *  (types.ts's `HelpStepBase.end`), so the signal has to travel back
+ *  out through this function's own recursion. */
+type StepOutcome = "continue" | "stop";
+
 async function runSteps(
   page: Page,
   scenario: HelpScenario,
@@ -454,7 +534,7 @@ async function runSteps(
   trace: HelpRunTrace,
   branchId: string | undefined,
   cursor: { next(): number },
-): Promise<void> {
+): Promise<StepOutcome> {
   for (const step of steps) {
     const index = cursor.next();
 
@@ -468,7 +548,15 @@ async function runSteps(
       // HelpScenarioError by the time it got here.
       const taken = await resolveBranch(page, scenario, step, index, branchId);
       trace.branchesTaken.push(taken.id);
-      await runSteps(page, scenario, taken.steps, trace, taken.id, cursor);
+      const outcome = await runSteps(
+        page,
+        scenario,
+        taken.steps,
+        trace,
+        taken.id,
+        cursor,
+      );
+      if (outcome === "stop") return "stop";
       continue;
     }
 
@@ -486,13 +574,17 @@ async function runSteps(
       });
     }
     // Counts only executed leaf steps, matching TourRenderer.ts's
-    // `flatten()` — which replaces a branch step with its taken steps
+    // expansion — which replaces a branch step with its taken steps
     // rather than counting the branch node itself. The two adapters
     // must agree on "how many steps is this scenario": a future doc
     // generator reading both would otherwise see them disagree about a
     // scenario neither actually treats differently.
     trace.stepsRun += 1;
+
+    if (step.end === true) return "stop";
   }
+
+  return "continue";
 }
 
 /**
@@ -501,9 +593,11 @@ async function runSteps(
  *
  * Throws a `HelpScenarioError` — naming the scenario, step, action,
  * target and (if applicable) branch — the moment anything does not
- * match what the scenario describes. `startRoute` is handled by the
- * caller's fixture (`prepareHelpScenario`) before this runs; there is no
- * navigate step in the model.
+ * match what the scenario describes.
+ * `startRoute` is handled by the caller's fixture
+ * (`prepareHelpScenario`) before this runs; a `navigate` step is what
+ * moves the page after that, and a step marked `end` stops the
+ * scenario wherever it sits.
  */
 export async function runHelpScenario(
   page: Page,
@@ -515,6 +609,11 @@ export async function runHelpScenario(
     stepsRun: 0,
   };
 
+  // The returned StepOutcome is intentionally unread here: at the top
+  // level, "a terminal step stopped the scenario" and "the steps ran
+  // out" are the same outcome — trace already records everything either
+  // one leaves behind — so there is nothing left for this call site to
+  // branch on.
   await runSteps(page, scenario, scenario.steps, trace, undefined, makeStepCursor());
 
   return trace;

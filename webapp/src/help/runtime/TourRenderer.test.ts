@@ -27,19 +27,172 @@ function stubVisible(testId: string, size = { width: 40, height: 40 }): void {
     }) as DOMRect;
 }
 
-describe("flatten", () => {
-  it("passes a branch-free step list through unchanged", async () => {
-    const { flatten } = await import("./TourRenderer.ts");
+describe("expandBranch", () => {
+  // `runTour`'s whole one-branch-at-a-time loop is built on the
+  // `{flat, rest}` shape `expandBranch` returns, so that shape needs
+  // its own direct tests rather than staying an implementation detail
+  // nobody pins. The tests it replaced observed only the collapsed
+  // list — exactly the projection that discards `rest`.
+
+  it("treats a flat head as a plain take, stopping at the next branch without resolving it", async () => {
+    const { expandBranch } = await import("./TourRenderer.ts");
+    document.body.innerHTML = "";
+    const a: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.SettingsLink,
+      description: "a",
+    };
+    const branch: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "x",
+          // Never rendered in this test's DOM. If `expandBranch` tried
+          // to resolve this branch too, instead of leaving it in
+          // `rest`, this would hang until the default 10s
+          // branchTimeoutMs rather than resolving immediately.
+          when: { type: "target-visible", target: HelpTarget.SettingsNotifications },
+          steps: [
+            { action: "highlight", target: HelpTarget.SettingsNotifications, description: "unreached" },
+          ],
+        },
+      ],
+    };
+
+    await expect(
+      expandBranch([a, branch], new AbortController().signal),
+    ).resolves.toEqual({ flat: [a], rest: [branch] });
+  });
+
+  it("leaves rest headed by the next branch, without resolving that one too", async () => {
+    // The exact property the next task's loop depends on: resolving
+    // ONE branch at a time means the branch after it must come back
+    // untouched, not pre-resolved against today's DOM.
+    const { expandBranch } = await import("./TourRenderer.ts");
+    stubVisible("gig-filters");
+    const inFirst: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigSearch,
+      description: "first",
+    };
+    const first: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "showing",
+          when: { type: "target-visible", target: HelpTarget.GigFilters },
+          steps: [inFirst],
+        },
+      ],
+    };
+    const second: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "never",
+          // Same "would hang if resolved" tell as the test above.
+          when: { type: "target-visible", target: HelpTarget.SettingsNotifications },
+          steps: [
+            { action: "highlight", target: HelpTarget.SettingsNotifications, description: "unreached" },
+          ],
+        },
+      ],
+    };
+
+    await expect(
+      expandBranch([first, second], new AbortController().signal),
+    ).resolves.toEqual({ flat: [inFirst], rest: [second] });
+  });
+
+  it("a branch whose taken alternative ends leaves rest empty and drops what follows the branch", async () => {
+    const { expandBranch } = await import("./TourRenderer.ts");
+    document.body.innerHTML = "";
+    const deadEnd: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigAdd,
+      description: "dead end",
+      end: true,
+    };
+    const afterTheBranch: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigStatus,
+      description: "after",
+    };
+    const branch: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "no-gigs-yet",
+          when: { type: "target-missing", target: HelpTarget.GigFilters },
+          steps: [deadEnd],
+        },
+      ],
+    };
+
+    await expect(
+      expandBranch([branch, afterTheBranch], new AbortController().signal),
+    ).resolves.toEqual({ flat: [deadEnd], rest: [] });
+  });
+
+  it("a branch whose taken alternative does not end appends what follows the branch", async () => {
+    const { expandBranch } = await import("./TourRenderer.ts");
+    stubVisible("gig-filters");
+    const inBranch: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigSearch,
+      description: "in branch",
+    };
+    const afterTheBranch: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigStatus,
+      description: "after",
+    };
+    const branch: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "showing",
+          when: { type: "target-visible", target: HelpTarget.GigFilters },
+          steps: [inBranch],
+        },
+      ],
+    };
+
+    await expect(
+      expandBranch([branch, afterTheBranch], new AbortController().signal),
+    ).resolves.toEqual({ flat: [inBranch, afterTheBranch], rest: [] });
+  });
+  // — ported from the retired `flatten` —
+  //
+  // `flatten` resolved every branch in one pass and `runTour` no longer
+  // calls it, so it was deleted rather than left as dead code its own
+  // tests kept alive. What it pinned that nothing else did is below,
+  // rewritten against `expandBranch` — which is where that behaviour
+  // actually lives, since `flatten` only ever looped on it.
+  //
+  // Three of its tests were dropped as already covered, not lost:
+  // "lets a terminal step inside a branch end the whole scenario" and
+  // "keeps going past a branch whose taken alternative did not end" are
+  // the two `end`-semantics tests above; "returns null on an
+  // already-aborted signal" pinned an entry check that only `flatten`
+  // had, and the property it protected — an abandoned attempt must not
+  // become a served tour — is pinned on `runTour` itself, by "does not
+  // construct a Driver.js tour for an already-abandoned attempt".
+
+  it("returns a branch-free list whole, with nothing left to resolve", async () => {
+    const { expandBranch } = await import("./TourRenderer.ts");
     const steps: HighlightStep[] = [
       { action: "highlight", target: HelpTarget.SettingsLink, description: "a" },
       { action: "highlight", target: HelpTarget.SettingsNotifications, description: "b" },
     ];
 
-    await expect(flatten(steps, new AbortController().signal)).resolves.toEqual(steps);
+    await expect(
+      expandBranch(steps, new AbortController().signal),
+    ).resolves.toEqual({ flat: steps, rest: [] });
   });
 
   it("takes the first branch whose target-visible condition holds", async () => {
-    const { flatten } = await import("./TourRenderer.ts");
+    const { expandBranch } = await import("./TourRenderer.ts");
     stubVisible("settings-link");
     const taken: HighlightStep = {
       action: "highlight",
@@ -67,11 +220,13 @@ describe("flatten", () => {
       ],
     };
 
-    await expect(flatten([branch], new AbortController().signal)).resolves.toEqual([taken]);
+    await expect(
+      expandBranch([branch], new AbortController().signal),
+    ).resolves.toEqual({ flat: [taken], rest: [] });
   });
 
   it("takes a target-missing branch when the element is absent", async () => {
-    const { flatten } = await import("./TourRenderer.ts");
+    const { expandBranch } = await import("./TourRenderer.ts");
     document.body.innerHTML = "";
     const taken: HighlightStep = {
       action: "highlight",
@@ -99,11 +254,18 @@ describe("flatten", () => {
       ],
     };
 
-    await expect(flatten([branch], new AbortController().signal)).resolves.toEqual([taken]);
+    await expect(
+      expandBranch([branch], new AbortController().signal),
+    ).resolves.toEqual({ flat: [taken], rest: [] });
   });
 
-  it("interleaves resolved branch steps with the plain steps around them", async () => {
-    const { flatten } = await import("./TourRenderer.ts");
+  it("walks a branch sitting between plain steps, one call per branch", async () => {
+    // `flatten` did this in a single pass; `runTour` does it across two
+    // steps of the tour, which is the whole point of the change. Two
+    // explicit calls rather than a loop helper, so what the caller has
+    // to do stays visible instead of hiding behind a re-implementation
+    // of the function this replaced.
+    const { expandBranch } = await import("./TourRenderer.ts");
     document.body.innerHTML = "";
     const before: HighlightStep = {
       action: "highlight",
@@ -130,14 +292,20 @@ describe("flatten", () => {
         },
       ],
     };
+    const signal = new AbortController().signal;
 
-    await expect(
-      flatten([before, branch, after], new AbortController().signal),
-    ).resolves.toEqual([before, taken, after]);
+    await expect(expandBranch([before, branch, after], signal)).resolves.toEqual({
+      flat: [before],
+      rest: [branch, after],
+    });
+    await expect(expandBranch([branch, after], signal)).resolves.toEqual({
+      flat: [taken, after],
+      rest: [],
+    });
   });
 
   it("a 1×1 sr-only node does not count as visible", async () => {
-    const { flatten } = await import("./TourRenderer.ts");
+    const { expandBranch } = await import("./TourRenderer.ts");
     // The exact shape Toggle's real <input> has: present in the DOM,
     // but a 1x1 box — precisely the node this system must never treat
     // as "visible" (see targets.ts's own comment on the switch trap).
@@ -171,11 +339,13 @@ describe("flatten", () => {
       ],
     };
 
-    await expect(flatten([branch], new AbortController().signal)).resolves.toEqual([taken]);
+    await expect(
+      expandBranch([branch], new AbortController().signal),
+    ).resolves.toEqual({ flat: [taken], rest: [] });
   });
 
   it("returns null when no branch matches before the timeout", async () => {
-    const { flatten } = await import("./TourRenderer.ts");
+    const { expandBranch } = await import("./TourRenderer.ts");
     // Present AND visible, so "target-missing" never holds — the DOM
     // never changes during the wait, so this genuinely never matches
     // rather than timing out for an unrelated reason.
@@ -196,12 +366,12 @@ describe("flatten", () => {
     // A short branchTimeoutMs, not the real 10s default — this is
     // exactly what that parameter exists for.
     await expect(
-      flatten([branch], new AbortController().signal, 20),
+      expandBranch([branch], new AbortController().signal, 20),
     ).resolves.toBeNull();
   });
 
   it("does not commit to a branch whose target only appears momentarily", async () => {
-    const { flatten } = await import("./TourRenderer.ts");
+    const { expandBranch } = await import("./TourRenderer.ts");
     document.body.innerHTML = "";
 
     function addVisible(testId: string): HTMLElement {
@@ -268,12 +438,12 @@ describe("flatten", () => {
     // A short branchStableMs, not the real 250ms default, so the test
     // stays fast — same reasoning as branchTimeoutMs above.
     await expect(
-      flatten([branch], new AbortController().signal, 5_000, 30),
-    ).resolves.toEqual([settled]);
+      expandBranch([branch], new AbortController().signal, 5_000, 30),
+    ).resolves.toEqual({ flat: [settled], rest: [] });
   });
 
   it("stops promptly once the signal aborts, instead of waiting out the timeout", async () => {
-    const { flatten } = await import("./TourRenderer.ts");
+    const { expandBranch } = await import("./TourRenderer.ts");
     document.body.innerHTML = "";
     const controller = new AbortController();
     const branch: BranchStep = {
@@ -291,10 +461,108 @@ describe("flatten", () => {
 
     controller.abort();
     const started = Date.now();
-    await expect(flatten([branch], controller.signal, 10_000)).resolves.toBeNull();
+    await expect(
+      expandBranch([branch], controller.signal, 10_000),
+    ).resolves.toBeNull();
     // Well under the 10s timeout — proves the abort short-circuited the
     // wait rather than the wait happening to be fast this run.
     expect(Date.now() - started).toBeLessThan(500);
+  });
+
+  it("stops at a terminal step and drops everything after it", async () => {
+    // This exact shape — a step marked `end` with more steps written
+    // after it — is one validate.ts itself rejects ("a step marked end
+    // that is not the last of the scenario's own steps"). Pinning the
+    // defensive behaviour on it anyway is legitimate: it is the honest
+    // answer to "what does this do if something upstream ever fails to
+    // enforce that rule".
+    const { expandBranch } = await import("./TourRenderer.ts");
+    const stop: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.SettingsLink,
+      description: "stop",
+      end: true,
+    };
+    const unreachable: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.SettingsNotifications,
+      description: "unreachable",
+    };
+
+    await expect(
+      expandBranch([stop, unreachable], new AbortController().signal),
+    ).resolves.toEqual({ flat: [stop], rest: [] });
+  });
+
+  it("short-circuits a branch that would never settle, once an earlier terminal step already ended the walk", async () => {
+    // Same "forbidden by validate.ts, legitimate to pin anyway" shape
+    // as the terminal-step test above: `stop` is not the last step here
+    // either.
+    const { expandBranch } = await import("./TourRenderer.ts");
+    const stop: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.SettingsLink,
+      description: "stop",
+      end: true,
+    };
+    const neverSettles: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "never",
+          // Never rendered in this test's DOM, so this branch would
+          // hang until branchTimeoutMs if it were ever resolved. It
+          // must not be: `stop` already ended the walk.
+          when: { type: "target-visible", target: HelpTarget.SettingsNotifications },
+          steps: [
+            { action: "highlight", target: HelpTarget.SettingsNotifications, description: "unreached" },
+          ],
+        },
+      ],
+    };
+
+    const started = Date.now();
+    await expect(
+      expandBranch([stop, neverSettles], new AbortController().signal, 10_000),
+    ).resolves.toEqual({ flat: [stop], rest: [] });
+    // Well under the 10s branchTimeoutMs — proves the terminal step
+    // stopped the walk before `neverSettles` was ever resolved, rather
+    // than this happening to be a fast run of the real wait.
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+
+  it("drops the steps written after a terminal step inside a branch, not just the ones after the branch", async () => {
+    // Another shape validate.ts forbids on its own terms (a step
+    // marked `end` that is not the last of ITS OWN branch's steps),
+    // pinned for the same reason as the other two: it is what actually
+    // happens if that rule is ever not enforced.
+    const { expandBranch } = await import("./TourRenderer.ts");
+    stubVisible("gig-filters");
+    const deadEnd: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigAdd,
+      description: "stop here",
+      end: true,
+    };
+    const unreachableInBranch: HighlightStep = {
+      action: "highlight",
+      target: HelpTarget.GigSearch,
+      description: "never reached",
+    };
+    const branch: BranchStep = {
+      action: "branch",
+      branches: [
+        {
+          id: "showing",
+          when: { type: "target-visible", target: HelpTarget.GigFilters },
+          steps: [deadEnd, unreachableInBranch],
+        },
+      ],
+    };
+
+    await expect(
+      expandBranch([branch], new AbortController().signal),
+    ).resolves.toEqual({ flat: [deadEnd], rest: [] });
   });
 });
 
@@ -304,6 +572,12 @@ interface FakeDriver {
   drive: ReturnType<typeof vi.fn>;
   moveNext: ReturnType<typeof vi.fn>;
   destroy: ReturnType<typeof vi.fn>;
+  /** The real library sets `activeIndex` in `m()` before it fires
+   *  `onHighlightStarted`, and `runTour` reads it from inside that hook
+   *  to decide whether the next branch is safe to resolve yet. */
+  getActiveIndex: ReturnType<typeof vi.fn>;
+  getConfig: ReturnType<typeof vi.fn>;
+  setConfig: ReturnType<typeof vi.fn>;
 }
 
 // Real elements, not mocks: `runTour`'s click-advance wiring calls
@@ -324,11 +598,14 @@ function renderToggle(testId: string, inputId: string): { input: HTMLInputElemen
 describe("runTour", () => {
   let driverConfig: Record<string, unknown> | undefined;
   let fakeInstance: FakeDriver;
+  /** Whatever step `highlightStarted` last pretended to enter. */
+  let activeIndex: number | undefined;
 
   beforeEach(async () => {
     vi.resetModules();
     document.body.innerHTML = "";
     driverConfig = undefined;
+    activeIndex = undefined;
 
     vi.doMock("driver.js/dist/driver.css", () => ({}));
     vi.doMock("driver.js", () => ({
@@ -339,6 +616,15 @@ describe("runTour", () => {
           moveNext: vi.fn(),
           destroy: vi.fn(() => {
             (driverConfig?.["onDestroyed"] as (() => void) | undefined)?.();
+          }),
+          getActiveIndex: vi.fn(() => activeIndex),
+          getConfig: vi.fn(() => driverConfig),
+          // The real `setConfig` replaces the config the instance reads
+          // from, which is the same object these tests inspect — so a
+          // mid-tour rebuild has to be visible here too, or `steps`
+          // assertions would go on describing the tour as it started.
+          setConfig: vi.fn((config: Record<string, unknown>) => {
+            driverConfig = config;
           }),
         };
         return fakeInstance;
@@ -363,6 +649,7 @@ describe("runTour", () => {
       | undefined;
     const original = steps[index]!;
     const clone = { ...original, popover: { ...(original["popover"] as object) } };
+    activeIndex = index;
     onHighlightStarted?.(element, clone, {});
   }
 
@@ -671,6 +958,153 @@ describe("runTour", () => {
     expect(fakeInstance.moveNext).not.toHaveBeenCalled();
   });
 
+  it("does not poll a second time for a branch that already failed to settle", async () => {
+    // Two things can ask for the same branch: the resolve-ahead fired
+    // from `onHighlightStarted`, which swallows its result, and the
+    // Next press behind it. The single-flight promise only merges them
+    // while the first is still running — once it has settled, a second
+    // call would start a whole new `settleBranch`, and `settleBranch`
+    // polls right up to its 10s deadline before giving up. That is
+    // roughly twenty seconds of dead air before the banner, on a tour
+    // that was already known to be broken ten seconds in.
+    //
+    // Deliberately slow (the real 10s budget is not injectable through
+    // `runTour`), because the whole property is about what happens
+    // AFTER the first budget is spent. Pressing Next earlier would only
+    // pin the single-flight, which is a different guard.
+    const { runTour } = await import("./TourRenderer.ts");
+    stubVisible("settings-link");
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<a data-testid="settings-help">Help</a>',
+    );
+    const onUnavailable = vi.fn();
+    const scenario = {
+      id: "s",
+      title: "T",
+      category: "settings" as const,
+      steps: [
+        // An interaction, so the eager pre-`drive()` loop stops here and
+        // the branch behind it is resolved lazily.
+        { action: "click" as const, target: HelpTarget.SettingsLink, description: "tap" },
+        // And a highlight after it, so the step that reaches the branch
+        // is one that actually renders a Next button. `readyToGrow` also
+        // needs the interaction PERFORMED before it will resolve, which
+        // is what entering this step means.
+        { action: "highlight" as const, target: HelpTarget.SettingsNotifications, description: "read" },
+        {
+          action: "branch" as const,
+          branches: [
+            {
+              id: "never",
+              // `settings-link` is present and visible throughout, so
+              // this never holds and the DOM never changes.
+              when: {
+                type: "target-missing" as const,
+                target: HelpTarget.SettingsLink,
+              },
+              steps: [
+                {
+                  action: "highlight" as const,
+                  target: HelpTarget.SettingsNotifications,
+                  description: "unreached",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    await runTour(scenario, {
+      signal: new AbortController().signal,
+      onUnavailable,
+    });
+    // Entering the last known step starts the resolve-ahead.
+    highlightStarted(1, document.querySelector('[data-testid="settings-help"]')!);
+
+    // Outlast `settleBranch`'s full 10s deadline, so the first attempt
+    // has genuinely finished and recorded its verdict.
+    await new Promise((resolve) => setTimeout(resolve, 10_600));
+    expect(onUnavailable).not.toHaveBeenCalled();
+
+    const started = Date.now();
+    (driverConfig?.["onNextClick"] as () => void)();
+    await vi.waitFor(() => expect(onUnavailable).toHaveBeenCalled(), {
+      timeout: 2_000,
+    });
+
+    expect(onUnavailable).toHaveBeenCalledWith("no branch matched");
+    // The point: answered from the recorded verdict, not by spending
+    // another 10s budget on a DOM that has not changed.
+    expect(Date.now() - started).toBeLessThan(1_000);
+  }, 20_000);
+
+  it("advances a click step through the same guard the Next button uses", async () => {
+    // A click or navigate step renders `showButtons: ["close"]`, so the
+    // tap on the control is the ONLY pointer path forward. Wiring it
+    // straight to `moveNext` bypassed every protection `advance` adds:
+    // with a branch still unresolved behind such a step, `moveNext` ran
+    // off the end of a one-step array and destroyed the tour, banner
+    // and all. Driven here through the real listener, not by calling
+    // the hook, because the listener is the thing that was wrong.
+    const { runTour } = await import("./TourRenderer.ts");
+    stubVisible("settings-link");
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<a data-testid="settings-help">Help</a>',
+    );
+    const onUnavailable = vi.fn();
+    const scenario = {
+      id: "s",
+      title: "T",
+      category: "settings" as const,
+      steps: [
+        { action: "click" as const, target: HelpTarget.SettingsLink, description: "tap" },
+        {
+          action: "branch" as const,
+          branches: [
+            {
+              id: "showing",
+              when: {
+                type: "target-visible" as const,
+                target: HelpTarget.SettingsLink,
+              },
+              steps: [
+                {
+                  action: "highlight" as const,
+                  target: HelpTarget.SettingsNotifications,
+                  description: "behind the branch",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    await runTour(scenario, {
+      signal: new AbortController().signal,
+      onUnavailable,
+    });
+    highlightStarted(0, document.querySelector('[data-testid="settings-link"]')!);
+    // Only the click step is known at this point; the branch is not.
+    expect((driverConfig?.["steps"] as unknown[]).length).toBe(1);
+
+    document
+      .querySelector<HTMLElement>('[data-testid="settings-link"]')!
+      .dispatchEvent(new Event("click", { bubbles: true }));
+
+    // The tap awaited the branch instead of walking off the end, so the
+    // step behind it exists by the time the tour moves.
+    await vi.waitFor(
+      () => expect((driverConfig?.["steps"] as unknown[]).length).toBe(2),
+      { timeout: 3_000 },
+    );
+    expect(fakeInstance.moveNext).toHaveBeenCalledTimes(1);
+    expect(onUnavailable).not.toHaveBeenCalled();
+  }, 15_000);
+
   it("does not construct a Driver.js tour for an already-abandoned attempt", async () => {
     const { runTour } = await import("./TourRenderer.ts");
     const controller = new AbortController();
@@ -689,5 +1123,33 @@ describe("runTour", () => {
     await runTour(scenario, { signal: controller.signal, onUnavailable: vi.fn() });
 
     expect(vi.mocked(driverJs.driver)).not.toHaveBeenCalled();
+  });
+});
+
+describe("isUserInteraction", () => {
+  it("counts a navigate step, so later targets get the short wait", async () => {
+    // A navigate step puts a whole new screen on the page, so anything
+    // after it is a re-render away rather than a cold data load away —
+    // the exact distinction the two wait budgets draw.
+    const { isUserInteraction } = await import("./TourRenderer.ts");
+    expect(
+      isUserInteraction({
+        action: "navigate",
+        target: HelpTarget.GigList,
+        route: "/gigs/:id",
+        description: "Tap one.",
+      }),
+    ).toBe(true);
+  });
+
+  it("still does not count a highlight", async () => {
+    const { isUserInteraction } = await import("./TourRenderer.ts");
+    expect(
+      isUserInteraction({
+        action: "highlight",
+        target: HelpTarget.GigList,
+        description: "Look.",
+      }),
+    ).toBe(false);
   });
 });

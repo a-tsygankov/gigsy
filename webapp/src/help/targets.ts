@@ -47,12 +47,48 @@ export const HelpTarget = {
   TogglePrefix: painted("toggle-prefix"),
 
   // ── the gig list (Gigs.tsx, gigs/GigFilters.tsx) ──
+  // Three ids for three states, and the third exists because two of
+  // them could not be told apart.
+  //
   // `gig-list` is mounted only while at least one row is showing, which
   // is what lets a branch use it to mean "there is a gig here to open".
-  // `gig-filters` is mounted whenever the user owns any gig at all, so
-  // the two together separate "no gigs" from "gigs, all filtered out".
+  // `gig-filters` is mounted whenever the user owns any gig at all
+  // (`all.length > 0`), so the two together separate "gigs showing"
+  // from "gigs, all filtered out".
+  //
+  // `gigs-empty` is the "No gigs yet" box, and what it adds is a
+  // POSITIVE form of the third state. `all` is `gigs.data ?? []`, so
+  // `all.length === 0` — and therefore a missing `gig-filters` — is
+  // equally true while the gig query is still pending and after it has
+  // errored. A branch reading `target-missing gig-filters` as "this
+  // account owns no gigs" was right one time in three and wrong the
+  // other two, which on a cold open meant telling somebody with several
+  // hundred gigs that they had none. Gigs.tsx mounts this box on
+  // `gigs.data?.length === 0` instead: resolved, and resolved to
+  // nothing. Ask the screen what it is SAYING, not what it has not got
+  // round to saying.
+  //
+  // The cost is that loading and errored now match no alternative at
+  // all, and a branch with no winner is a hard failure in both adapters
+  // (`settleBranch`, `resolveBranch`). That is the right trade. Loading
+  // resolves well inside the 10s branch budget, and a gig list that
+  // genuinely failed to load has no walkthrough to give — "help isn't
+  // available right now" is true of that screen, and "there are no gigs
+  // on this account" is not.
+  //
+  // What this does NOT do is make the answer infallible, and the hole
+  // left is worth naming rather than discovering. Reads go to the local
+  // store and never to the network (`OfflineDataService.listGigs`;
+  // docs/plan.md §7), so a device part-way through its first pull
+  // resolves to `[]` honestly, and Gigs.tsx renders this box. Help then
+  // says there are no gigs because the SCREEN says there are no gigs —
+  // which is exactly the contract this id exists to give. What is gone
+  // is help contradicting a screen that was making no claim at all.
+  // e2e/help/help-fixtures.ts's `waitForGigsToHydrate` still waits that
+  // window out for the suite, and still has to.
   GigList: element("gig-list"),
   GigFilters: element("gig-filters"),
+  GigsEmpty: element("gigs-empty"),
   GigSearch: element("gig-search"),
   GigFiltersToggle: element("gig-filters-toggle"),
   // The Fab is a <Link>, not a Button — an element either way.
@@ -115,6 +151,12 @@ export const HelpTarget = {
   // anything already pointing at them still resolves; what changed is
   // the screen they resolve on.
   GigEditButton: element("gig-edit"),
+  // The Job card's "Pays" row — how the work is PRICED, as agreed,
+  // which is a different statement from what it earned (that is
+  // `GigExpectedPay`, on the work card). Unconditional: `payLine`
+  // returns "Fixed fee — not set" or "Hourly — no rate set" rather
+  // than rendering nothing, so this resolves on every gig.
+  JobPay: element("job-pay"),
   GigStatus: element("gig-status"),
   GigWorkStartButton: element("work-start"),
   GigWorkStopButton: element("work-stop"),

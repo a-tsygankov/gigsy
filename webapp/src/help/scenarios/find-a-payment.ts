@@ -52,7 +52,7 @@ export const findAPayment: HelpScenario = {
   // `payments-showing` and nothing else: `/payments` opens unfiltered
   // (see the header), and `ensureAtLeastOnePayment` in help-fixtures.ts
   // guarantees the account owns a payment even on a freshly migrated
-  // D1 — the same precondition `ensureAtLeastOneGig` makes for
+  // D1 — the same precondition `ensureWalkableGig` makes for
   // `find-a-gig`, made by the fixture rather than hoped for from
   // whichever CI job happened to run first.
   expectedCiBranches: ["payments-showing"],
