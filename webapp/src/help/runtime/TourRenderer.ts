@@ -222,10 +222,15 @@ export async function expandBranch(
   };
 }
 
-/** Flattens every branch against the live DOM in one pass. Still used
- *  by anything that wants the whole list at once; `runTour` no longer
- *  does, because resolving a branch before the user has reached its
- *  screen is exactly the bug this file used to have.
+/** Flattens every branch against the live DOM in one pass, measuring
+ *  every condition against the screen the tour is on when it is called.
+ *
+ *  That is fine for a scenario that begins and ends in one place, and
+ *  wrong the moment one navigates: a branch asking about a control on a
+ *  screen the user has not opened yet would be answered against the
+ *  screen they started on. `takeUntilBranch` and `expandBranch` above
+ *  exist so a caller can resolve one branch at a time instead, as the
+ *  tour reaches each one — which is what `runTour` is being moved onto.
  *
  *  `branchTimeoutMs` exists so tests can exercise the "no branch
  *  matched" path without waiting out the real 10s default;
