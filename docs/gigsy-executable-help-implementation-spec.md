@@ -400,17 +400,71 @@ export interface HelpScenario {
   executable?: false;
 }
 
-/** No NavigateStep: `startRoute` covers every scenario we have, and
- *  mid-tour navigation would need a renderer that survives the remount
- *  it causes. Add it when something actually needs it (§3.5). */
+/** `NavigateStep` was deliberately absent until `record-work` needed a
+ *  tour that outlives the screen it started on. `startRoute` still
+ *  covers every scenario that begins and ends in one place; this is for
+ *  the one that cannot, because the destination depends on which row
+ *  the person taps. */
 export type HelpStep =
   | HighlightStep
   | ClickStep
   | InputStep
   | SelectStep
+  | NavigateStep
   | BranchStep
   | ExternalInstructionStep;
 
+/** What every step but a branch carries. A `BranchStep` is a fork, not
+ *  a thing shown to anyone, so it has no copy of its own and no `end`:
+ *  a branch that ends the tour is a branch whose alternatives each end
+ *  on a terminal step. */
+export interface HelpStepBase {
+  title?: string;
+  description: string;
+  /** The tour ends here. Everything after this step is unreached —
+   *  including the steps written after the BRANCH this one sits in,
+   *  which is the whole reason the flag exists.
+   *
+   *  For a path that legitimately cannot continue. `record-work` opens
+   *  on the gig list, and two of its three alternatives have no row to
+   *  tap; the steps that walk a gig's Work card must not run for them.
+   *  `find-a-gig` says exactly this in prose today — "This walkthrough
+   *  stops here" — and this makes it something both adapters act on.
+   *
+   *  `true` rather than `boolean`: `end: false` and no `end` at all are
+   *  the same statement, and one way to say a thing is enough. */
+  end?: true;
+}
+
+/** The user's own tap takes them to another screen, and the tour
+ *  follows them there.
+ *
+ *  Not "the tour navigates". TourRenderer.ts's governing rule is that
+ *  the USER performs the action, and here it is forced as well as
+ *  chosen: only their tap knows which gig they meant. What this step
+ *  adds is permission — HelpProvider stops treating the route change as
+ *  someone walking out on the tour, and TourRenderer stops treating the
+ *  target's disappearance as a failure. */
+export interface NavigateStep extends HelpStepBase {
+  action: "navigate";
+  /** What they tap. A CONTAINER of choices, not one control: the tour
+   *  spotlights the whole list and the person picks their own row. The
+   *  tap advances the step by bubbling to this element, so anything
+   *  inside it counts. */
+  target: HelpTarget;
+  /** The route pattern the tap must land on. A ":param" segment matches
+   *  exactly one path segment; nothing else is special. See routes.ts —
+   *  the provider adds this to the routes it will tolerate mid-tour,
+   *  and the Playwright runner waits for the URL to match it. */
+  route: string;
+}
+```
+
+Mid-tour navigation and lazy branch resolution were added in
+`docs/superpowers/specs/2026-08-26-help-mid-tour-navigation-design.md`,
+which records why `startRoute` alone could not serve `record-work`.
+
+```ts
 export interface HighlightStep {
   action: "highlight";
   target: HelpTarget;

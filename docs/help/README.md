@@ -45,27 +45,39 @@ hands Driver.js `targetSelector`'s *string*, never a node, so
 `waitForElement` re-queries it — `TourRenderer.ts`.) If you add a step
 type or a runtime, keep that property.
 
-**That is true of targets. It is NOT true of branches — and the two
-adapters differ.** `TourRenderer.runTour` calls `flatten()` over the
-whole scenario *before* `tour.drive()`, so every branch step is resolved
-against the DOM as it looks when the tour starts, while the user has
-done nothing yet. `help-runner.ts`'s `runSteps` walks the list in order
-and resolves each branch step at the moment it reaches it, after every
-earlier step has already run.
+**Branches resolve where the tour reaches them — in both adapters.**
+This was not always so. `TourRenderer.runTour` used to flatten the whole
+scenario before `tour.drive()`, resolving every branch against the DOM
+as it looked when the tour started, while `help-runner.ts` walked the
+list in order and resolved each branch at the moment it got there. A
+branch placed after a click, `input`, `select` or `navigate` step
+therefore passed `help:test` and picked the wrong alternative for every
+real user. The renderer now expands one branch at a time as the tour
+approaches it, so the two agree and a branch may sit anywhere.
 
-For a branch that sits before any interaction — both of today's, on
-`/settings` — the two agree. Put a branch *after* a click, `input` or
-`select` and they diverge: the runner sees the post-interaction DOM and
-picks correctly, the tour evaluates the same condition against the
-pre-interaction DOM and may pick the other branch or, if neither
-condition holds yet, give up with "no branch matched" and show the
-unavailable banner. **You can write a scenario that passes `help:test`
-and is broken for every real user.** Nothing catches it.
+What has NOT changed is that a branch must be answerable when it is
+reached. A condition about a control on a screen the user has not opened
+yet is still unanswerable — put the `navigate` step that opens that
+screen ahead of the branch, which is what `record-work` does.
 
-So: keep branch steps ahead of the first user interaction. If a scenario
-genuinely needs to branch on state the user has just created, fix
-`flatten()` to resolve branches lazily first — do not ship the scenario
-against the current renderer and trust the green suite.
+**A tour can follow the user to another screen — say so with a
+`navigate` step.** Its `target` is a CONTAINER of choices, not one
+control: the tour spotlights the whole list, the person taps whichever
+row is theirs, and the tap bubbles to the container, so the scenario
+never learns which one. Its `route` is the pattern the tap must land on
+(`/gigs/:id`; one segment per `:param`, see `webapp/src/help/routes.ts`)
+— `HelpProvider` reads it to tell the declared hop apart from someone
+walking out on the tour, and `help-runner.ts` waits for the URL to match
+it. The runner clicks the first `a[href]` inside the container, because
+"which row is yours" is precisely what a scenario refuses to decide.
+
+**A branch alternative that cannot continue must end on a terminal
+step.** Steps written after a branch step run whichever alternative was
+taken, so a `no-gigs-yet` path would otherwise fall through into steps
+about a screen it never reached. Mark its last step `end: true` and the
+tour stops there. The flip side is that everything after a branch step
+belongs, by construction, to whichever alternative did *not* end — say
+so in a comment, as `record-work` does.
 
 **If a screen has more than one legitimate state, branch — don't
 assume.** Push notifications are either offered or explained-as-blocked;
@@ -205,9 +217,14 @@ has since been overtaken by a feature change reads as confidently as
 ever, and the suite is green throughout. Same for step order and for
 whether the walkthrough makes sense end to end.
 
-**A branch placed after an interaction.** See §2 — the runner and the
-in-app tour resolve branches at different times, and only the runner's
-answer is tested.
+**Which row a person would actually tap.** A `navigate` step's
+destination is asserted — the runner clicks the first row and waits for
+the route — but the runner's choice is a stand-in, not the user's. A
+scenario whose copy says "tap the gig you worked" is never checked
+against whether the row a human would pick behaves the same way. That is
+what the two branches at the end of `record-work` exist for, and running
+it by hand on a gig the fixture did not create is the only thing that
+proves them.
 
 So run it yourself:
 
