@@ -243,6 +243,139 @@ async function ensureRecordWorkGig(request: APIRequestContext, baseURL: string):
   });
 }
 
+const SEEDED_PAYMENT_NOTES = "[help-fixtures] seeded so find-a-payment has a row";
+
+/**
+ * Guarantee the account owns at least one payment, seeding one when it
+ * owns none. `ensureAtLeastOneGig`'s reasoning applies unchanged, one
+ * entity over: `find-a-payment` declares
+ * `expectedCiBranches: ["payments-showing"]`, and against a freshly
+ * migrated D1 the account has no payments, the scenario correctly takes
+ * `no-payments-yet`, and the branch assertion fails — a missing
+ * precondition reading like a scenario bug.
+ *
+ * `amountCents` is `positiveCents` (domain/schemas.ts), so a zero would
+ * be refused; everything else on `PaymentInput` is nullish. No
+ * allocation is created with it, which is deliberate rather than
+ * incidental: an unallocated payment is a legitimate state the product
+ * added the Money tab to make reachable at all, and it is the state the
+ * scenario's own copy calls "the pile that needs you".
+ */
+async function ensureAtLeastOnePayment(
+  request: APIRequestContext,
+  baseURL: string,
+): Promise<void> {
+  const login = await request.post(`${baseURL}/api/auth/test-login`, {
+    data: { email: "dev@test.local" },
+  });
+  if (!login.ok()) return; // No test auth here; the spec skips anyway.
+  const { accessToken } = (await login.json()) as { accessToken: string };
+  const headers = { authorization: `Bearer ${accessToken}` };
+
+  const listed = await request.get(`${baseURL}/api/payments`, { headers });
+  if (!listed.ok()) return;
+  const { items } = (await listed.json()) as { items?: unknown[] };
+  if (items === undefined || items.length > 0) return; // Already has payments.
+
+  await request.put(`${baseURL}/api/payments/${crypto.randomUUID()}`, {
+    headers,
+    data: { amountCents: 12_500, paidAt: Date.now(), notes: SEEDED_PAYMENT_NOTES },
+  });
+}
+
+/**
+ * Wait for the FIRST pull to finish, before anything navigates.
+ *
+ * This exists because of a failure that looks like slowness and is not.
+ * `SyncEngine.pull()` awaits its entities in series — gigs, clients,
+ * expenses, services, payments, allocations — and every `page.goto`
+ * is a full reload that abandons whichever one is in flight. That
+ * alone would be survivable, because the next load pulls again. What
+ * makes it fatal is `auth-store.ts`: refresh tokens ROTATE and are
+ * consumed on use, so reloading three times in quick succession can
+ * outrun the rotation being persisted, and every pull after that gets
+ * a 401. Observed directly: `GET /api/gigs` returned 401 on each load
+ * after the first, and the payments list sat on "No payments yet" for
+ * a full 60s while the account had 45 of them.
+ *
+ * So the only reliably populated window is the one BEFORE the first
+ * reload, and everything the suite reads has to land inside it. That
+ * is not a new constraint — it is why `find-a-gig` works at all today:
+ * gigs are entity one and get written in the first few hundred
+ * milliseconds, while payments are entity five and never made it.
+ * The same window is what the file's own note above about the Money
+ * tab "producing two flaky scenarios, then a DIFFERENT one on re-run"
+ * was really describing.
+ *
+ * Waiting on the payments store rather than on gigs is what makes this
+ * a guarantee instead of a coincidence: payments are the fifth of six
+ * entities, so their presence proves the four before them landed too.
+ *
+ * Read straight out of IndexedDB rather than off a rendered list, for
+ * the reason the whole problem exists: a DOM check would need a
+ * navigation to the screen that shows it, and a navigation is the
+ * thing being avoided. `GigsyUserDB` is named `gigsy-user-${userId}`
+ * (lib/db.ts), which is why this looks the database up by prefix
+ * rather than by name — the fixture has no reason to know the id.
+ *
+ * Returns honestly and immediately when the server has no payments at
+ * all: there is then nothing to wait for, `ensureAtLeastOnePayment`
+ * has already had its chance to seed one, and blocking here would turn
+ * an empty account into a timeout instead of a scenario correctly
+ * taking its own empty branch.
+ */
+async function waitForInitialPull(
+  page: Page,
+  request: APIRequestContext,
+  baseURL: string,
+): Promise<void> {
+  const login = await request.post(`${baseURL}/api/auth/test-login`, {
+    data: { email: "dev@test.local" },
+  });
+  if (!login.ok()) return; // No test auth here; the spec skips anyway.
+  const { accessToken } = (await login.json()) as { accessToken: string };
+
+  const listed = await request.get(`${baseURL}/api/payments`, {
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
+  if (!listed.ok()) return;
+  const { items } = (await listed.json()) as { items?: unknown[] };
+  if (items === undefined || items.length === 0) return;
+
+  // Same 60s budget, and the same reason as the gig wait below: two
+  // cold starts, one of them vite serving the module graph unbundled.
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(async () => {
+          const dbs = await indexedDB.databases();
+          const name = dbs
+            .map((d) => d.name)
+            .find((n) => n !== undefined && n.startsWith("gigsy-user-"));
+          if (name === undefined) return 0;
+          const db = await new Promise<IDBDatabase | null>((resolve) => {
+            const open = indexedDB.open(name);
+            open.onsuccess = () => resolve(open.result);
+            open.onerror = () => resolve(null);
+          });
+          if (db === null) return 0;
+          if (!db.objectStoreNames.contains("payments")) {
+            db.close();
+            return 0;
+          }
+          const count = await new Promise<number>((resolve) => {
+            const req = db.transaction("payments", "readonly").objectStore("payments").count();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve(0);
+          });
+          db.close();
+          return count;
+        }),
+      { timeout: 60_000 },
+    )
+    .toBeGreaterThan(0);
+}
+
 /**
  * Wait until the gig list a scenario is about to read actually reflects
  * the server.
@@ -379,9 +512,17 @@ async function waitForGigsToHydrate(
  * stamp with no stop, an override already set — is exactly the kind of
  * leftover state a later run must not inherit.
  *
+ * Seeds a payment on the same "only if the account has none" terms as
+ * `ensureAtLeastOneGig`, for `find-a-payment`'s `payments-showing`
+ * branch, and then waits for the first pull to actually finish before
+ * navigating anywhere — see `waitForInitialPull`, which is where the
+ * reason lives and is worth reading, because it is not a timing tweak:
+ * reloads consume rotating refresh tokens, so the window before the
+ * first one is the only window in which a pull reliably completes.
+ *
  * Note what this is NOT: no help scenario creates, updates or deletes a
- * record, so nothing here is cleanup after a scenario. All four resets
- * pin a PRECONDITION that other suites (or a bare freshly migrated D1)
+ * record, so nothing here is cleanup after a scenario. Every reset here
+ * pins a PRECONDITION that other suites (or a bare freshly migrated D1)
  * would otherwise leave unpredictable.
  */
 export async function prepareHelpScenario(
@@ -396,10 +537,19 @@ export async function prepareHelpScenario(
   await resetGigListView(request, baseURL);
   await ensureAtLeastOneGig(request, baseURL);
   await ensureRecordWorkGig(request, baseURL);
+  await ensureAtLeastOnePayment(request, baseURL);
 
   await page.goto("/login");
   await page.getByTestId("test-signin").click();
   await expect(page.getByTestId("tab-bar")).toBeVisible();
+
+  // Before any navigation, and before the gig wait below — this is the
+  // one window in which a pull runs to completion (see its header).
+  // Ungated, unlike the payments seed it pairs with: every scenario
+  // benefits from reading a fully populated store rather than one that
+  // happens to contain whichever entities landed before the first
+  // reload, which is the race this suite has been quietly running on.
+  await waitForInitialPull(page, request, baseURL);
 
   // Before the startRoute navigation, not after: a scenario's first step
   // may run the instant that navigation settles, and the whole point is

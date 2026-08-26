@@ -82,7 +82,7 @@ export const recordWork: HelpScenario = {
       target: HelpTarget.GigStatus,
       title: "Status",
       description:
-        "lead → confirmed → completed → delivered, and it drives real behaviour, not just a label. A lead never blocks time on your public availability page and never reaches Google Calendar — it's an offer, not a commitment; confirmed does both. Completed is what the dashboard reads as work waiting to be paid. Delivered means the work has been handed over — it's still counted as owed and still blocks the time, exactly like completed, just one step further along. Cancelled pulls the gig out of your calendar, your availability and your reports without deleting the record. Whether it's actually been paid is worked out from Paid ($) on the job form, not set here.",
+        "lead → confirmed → completed → delivered, and it drives real behaviour, not just a label. A lead never blocks time on your public availability page and never reaches Google Calendar — it's an offer, not a commitment; confirmed does both. Completed means the work is done; delivered means it has been handed over. Both are still owed and both still block the time — the difference is the dashboard's \"To deliver\" tile, which counts what is finished but not yet handed over, so a gig drops off it the moment you mark it delivered. Cancelled pulls the gig out of your calendar, your availability and your reports without deleting the record. Whether it has actually been PAID is not on this list and not yours to set: it is added up from the payments recorded against the gig, further down this screen.",
     },
     {
       action: "highlight",
@@ -124,7 +124,7 @@ export const recordWork: HelpScenario = {
       target: HelpTarget.GigPayments,
       title: "Payments",
       description:
-        "Where money you actually receive against this gig gets its own record — an amount, a date, a photo of the proof if you have one, each entry itemised on its own. If you or a client ever need to check exactly what arrived and when, this is where to look.",
+        "Where money you actually receive against this gig gets its own record — an amount, a date, a photo of the proof if you have one, each entry itemised on its own. This is also what decides whether the gig reads as paid; there is no field anywhere that you set by hand. One payment can be split across several jobs, so what you see here is this gig's share of it. Every payment on the account, gig or no gig, is on the Money tab — \"Find a payment\" walks that list.",
     },
   ],
 };
