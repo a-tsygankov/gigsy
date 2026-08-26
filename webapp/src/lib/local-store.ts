@@ -6,6 +6,7 @@
  * `applyServerRecord` (which deliberately bypasses the outbox).
  */
 import type { GigsyUserDB, PendingImage, PendingOp, SyncEntityName } from "./db.ts";
+import { gigToInput } from "./gig-input.ts";
 import { refuseQueuedImage, type QueueRefusal } from "./image-queue.ts";
 import type {
   Allocation,
@@ -82,6 +83,7 @@ export class LocalStore {
     const record: Gig = {
       id,
       clientId: input.clientId ?? null,
+      parentGigId: input.parentGigId ?? null,
       title: input.title ?? null,
       status: input.status ?? "lead",
       location: input.location ?? null,
@@ -136,6 +138,7 @@ export class LocalStore {
     };
     const payload: OutboxPayload<GigInput> = {
       clientId: record.clientId,
+      parentGigId: record.parentGigId,
       title: record.title,
       status: record.status,
       location: record.location,
@@ -161,6 +164,13 @@ export class LocalStore {
   }
 
   async removeGig(id: string): Promise<void> {
+    // Mirrors the server's ON DELETE SET NULL (migration 0018). Dexie
+    // is an independent store and deletes locally first, so without
+    // this the child keeps a link to a gig that is already gone.
+    const children = await this.db.gigs.where("parentGigId").equals(id).toArray();
+    for (const child of children) {
+      await this.putGig(child.id, { ...gigToInput(child), parentGigId: null });
+    }
     await this.removeEntity("gig", id);
   }
 

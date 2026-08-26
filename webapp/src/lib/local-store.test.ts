@@ -125,6 +125,7 @@ describe("LocalStore CRUD + outbox", () => {
     await store.applyServerRecord("gig", {
       id: G1,
       clientId: null,
+      parentGigId: null,
       title: null,
       status: "completed",
       location: null,
@@ -318,6 +319,7 @@ describe("the outbox payload carries everything the server accepts", () => {
       "hourlyRateCents",
       "location",
       "notes",
+      "parentGigId",
       "payType",
       "source",
       "status",
@@ -1001,5 +1003,147 @@ describe("GigsyUserDB v4 upgrade", () => {
     // The op the old build left behind and the photo this one queued
     // are both counted as waiting.
     expect(await store.pendingCount()).toBe(2);
+  });
+});
+
+describe("gig parent link", () => {
+  it("sends parentGigId to the server, not just to Dexie", async () => {
+    // The failure this guards is silent: the local record keeps the
+    // value and the screen keeps showing it, right up until a pull
+    // overwrites it with the server's null. That happened once already
+    // (see the OutboxPayload comment in local-store.ts).
+    const { store, db } = makeStore();
+    await store.putGig(G1, { status: "confirmed" });
+    await store.putGig(G2, { status: "lead", parentGigId: G1 });
+
+    const ops = await db.pendingOps.toArray();
+    const op = ops.find((o) => o.entityId === G2);
+    expect((op?.payload as { parentGigId?: string }).parentGigId).toBe(G1);
+  });
+
+  it("clears a child's link locally when its parent is removed", async () => {
+    // ON DELETE SET NULL is a SERVER behaviour. Dexie is a separate
+    // store and deletes locally first, so without this the local child
+    // holds a link to a gig that no longer exists — offline, possibly
+    // for days.
+    const { store } = makeStore();
+    await store.putGig(G1, { status: "confirmed" });
+    await store.putGig(G2, { status: "lead", parentGigId: G1 });
+
+    await store.removeGig(G1);
+
+    const child = await store.getGig(G2);
+    expect(child?.parentGigId).toBeNull();
+  });
+
+  it("queues the cleared child as an outbox op, not just a Dexie write", async () => {
+    // Clearing only the local row would leave this device out of step
+    // with the server: the clear has to travel, which is why it is
+    // routed through `putGig` rather than written to Dexie directly.
+    const { store } = makeStore();
+    await store.putGig(G1, { status: "confirmed" });
+    await store.putGig(G2, { status: "lead", parentGigId: G1 });
+
+    await store.removeGig(G1);
+
+    const ops = await store.pendingOps();
+    expect(ops.find((o) => o.entityId === G1)?.op).toBe("delete");
+
+    const childOp = ops.find((o) => o.entityId === G2);
+    expect(childOp?.op).toBe("upsert");
+    // Present AND null — a dropped key is the incident this file exists
+    // to prevent, and would leave the link standing on a later replay.
+    expect(childOp?.payload).toHaveProperty("parentGigId");
+    expect((childOp?.payload as { parentGigId: string | null }).parentGigId).toBeNull();
+  });
+
+  it("leaves an unrelated gig's link alone when some other gig is removed", async () => {
+    // Guards the `where(...).equals(id)` against becoming a scan that
+    // clears every child — a mutation the two tests above would not see.
+    const { store } = makeStore();
+    await store.putGig(G1, { status: "confirmed" });
+    await store.putGig(G2, { status: "lead", parentGigId: G1 });
+
+    await store.removeGig(C1);
+
+    expect((await store.getGig(G2))?.parentGigId).toBe(G1);
+  });
+});
+
+describe("GigsyUserDB v5 upgrade", () => {
+  it("adds the parentGigId index to a gigs store that already holds rows", async () => {
+    // Unlike v3 and v4, this version is NOT a new store: it re-declares
+    // `gigs` to add an index, so IndexedDB builds that index over rows
+    // that are already there. A version(5) that threw on upgrade would
+    // strand every existing user, so the case worth testing is an
+    // EXISTING database, not a fresh one.
+    const userId = `upgrade5-${++dbSeq}`;
+    const v4 = new Dexie(`gigsy-user-${userId}`);
+    v4.version(1).stores({
+      gigs: "id, dateTime, modifiedAt",
+      clients: "id, name, modifiedAt",
+      expenses: "id, createdAt, modifiedAt",
+      pendingOps: "opKey, queuedAt",
+    });
+    v4.version(2).stores({
+      services: "id, gigId, modifiedAt",
+      payments: "id, gigId, createdAt, modifiedAt",
+    });
+    v4.version(3).stores({ allocations: "id, paymentId, gigId, modifiedAt" });
+    v4.version(4).stores({ pendingImages: "paymentId, queuedAt" });
+    await v4.open();
+    // A gig written by a build that had never heard of the field, so the
+    // property is absent rather than null — the state every existing row
+    // on every existing device is in.
+    await v4.table("gigs").put({
+      id: G1,
+      clientId: null,
+      title: "written before the parent link existed",
+      status: "confirmed",
+      location: null,
+      dateTime: null,
+      durationMinutes: null,
+      payType: "fixed",
+      hourlyRateCents: null,
+      workStartedAt: null,
+      workEndedAt: null,
+      breakMinutes: null,
+      calendarEventId: null,
+      amountOfferedCents: null,
+      amountPaidCents: null,
+      expectedCents: null,
+      notes: null,
+      source: "manual",
+      createdAt: 1,
+      modifiedAt: 2,
+    });
+    await v4.table("pendingOps").put({
+      opKey: `gig:${G1}`,
+      entity: "gig",
+      entityId: G1,
+      op: "upsert",
+      payload: { status: "confirmed" },
+      modifiedAt: 500,
+      queuedAt: 500,
+    });
+    v4.close();
+
+    const { store, db } = makeStore(() => 1000, userId);
+
+    // The upgrade ran, the pre-existing row survived it untouched, and
+    // the undrained outbox came through with it.
+    expect((await store.getGig(G1))?.title).toBe(
+      "written before the parent link existed",
+    );
+    expect((await store.pendingOps()).length).toBe(1);
+    expect(db.verno).toBe(5);
+
+    // The new index answers queries, including over the legacy row —
+    // which has no `parentGigId` at all and so is simply not in it.
+    expect(await db.gigs.where("parentGigId").equals(G1).toArray()).toEqual([]);
+    await store.putGig(G2, { status: "lead", parentGigId: G1 });
+    expect(
+      (await db.gigs.where("parentGigId").equals(G1).toArray()).map((g) => g.id),
+    ).toEqual([G2]);
   });
 });

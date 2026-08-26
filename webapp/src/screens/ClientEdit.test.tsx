@@ -34,6 +34,7 @@ function gig(over: Partial<Gig>): Gig {
   return {
     id: "g1",
     clientId: "c1",
+    parentGigId: null,
     title: null,
     status: "completed",
     location: null,

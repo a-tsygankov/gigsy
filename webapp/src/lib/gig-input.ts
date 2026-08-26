@@ -63,6 +63,7 @@ export type FullGigInput = Required<Omit<GigInput, "source" | "amountPaidCents">
 export function gigToInput(gig: Gig): FullGigInput {
   return {
     clientId: gig.clientId,
+    parentGigId: gig.parentGigId,
     title: gig.title,
     status: gig.status,
     location: gig.location,

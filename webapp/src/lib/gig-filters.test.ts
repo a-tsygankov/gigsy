@@ -40,6 +40,7 @@ function gig(id: string, over: Partial<Gig> = {}): Gig {
   return {
     id,
     clientId: null,
+    parentGigId: null,
     title: null,
     status: "lead",
     location: null,
