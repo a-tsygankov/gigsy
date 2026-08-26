@@ -413,29 +413,22 @@ function helpStepOf(driveStep: DriveStep | undefined): FlatStep | undefined {
   return (driveStep as TaggedDriveStep | undefined)?.[HELP_STEP];
 }
 
-export async function runTour(
+/** The flat steps, as Driver.js wants them.
+ *
+ *  Rebuilt from the whole list every time rather than appended to, so
+ *  `afterFirstInteraction` is recomputed from scratch and cannot drift
+ *  as branches expand. Cheap: a scenario is a dozen steps. */
+function buildDriveSteps(
   scenario: HelpScenario,
-  options: TourOptions,
-): Promise<CancelTour> {
-  const { driver } = await import("driver.js");
-  await import("driver.js/dist/driver.css");
-
-  if (options.signal.aborted) return () => undefined;
-
-  const flat = await flatten(scenario.steps, options.signal);
-  if (options.signal.aborted) return () => undefined;
-  if (flat === null) {
-    options.onUnavailable("no branch matched");
-    return () => undefined;
-  }
-
+  steps: FlatStep[],
+): TaggedDriveStep[] {
   const driveSteps: TaggedDriveStep[] = [];
   // Everything up to and including the first thing the user does is
   // still racing the initial data load; after that, a late target is
   // only ever a re-render away. See TARGET_WAIT_BEFORE_INTERACTION_MS.
   let afterFirstInteraction = false;
 
-  for (const step of flat) {
+  for (const step of steps) {
     const driveStep: TaggedDriveStep =
       step.action === "external"
         ? {
@@ -449,10 +442,9 @@ export async function runTour(
             // A selector, not a resolved node: targets.ts's own CSS
             // form, re-queried by Driver.js every time it needs the
             // element (see `waitForElement` below). That is what makes
-            // a later step reachable when its target — e.g. the
-            // start-time <select> that only exists once its day has
-            // been switched on — is not in the DOM yet when the tour
-            // is built, only by the time this step is actually reached.
+            // a later step reachable when its target — e.g. anything on
+            // the screen a navigate step is about to open — is not in
+            // the DOM yet when the step is built.
             element: targetSelector(step.target),
             waitForElement: afterFirstInteraction
               ? TARGET_WAIT_AFTER_INTERACTION_MS
@@ -484,7 +476,101 @@ export async function runTour(
     if (isUserInteraction(step)) afterFirstInteraction = step.action !== "navigate";
   }
 
+  return driveSteps;
+}
+
+export async function runTour(
+  scenario: HelpScenario,
+  options: TourOptions,
+): Promise<CancelTour> {
+  const { driver } = await import("driver.js");
+  await import("driver.js/dist/driver.css");
+
   if (options.signal.aborted) return () => undefined;
+
+  // ── the scenario, resolved as the tour goes ──
+  //
+  // NOT `flatten(scenario.steps)`. Resolving every branch here would
+  // measure each condition against the screen the tour STARTS on, which
+  // is wrong the moment a scenario navigates: `record-work`'s pay
+  // branches ask about controls on a gig the user has not opened yet.
+  // help-runner.ts has always resolved branches where it reaches them;
+  // this is what makes the in-app tour agree.
+  let known: FlatStep[] = [];
+  let rest: HelpStep[] = scenario.steps;
+  let driveSteps: TaggedDriveStep[] = [];
+
+  const absorb = (grown: Expansion): void => {
+    known = [...known, ...grown.flat];
+    rest = grown.rest;
+  };
+  absorb(takeUntilBranch(rest));
+
+  /** Hand Driver.js the steps we know about now, mid-step, without
+   *  disturbing the popover already on screen. Nothing rendered holds
+   *  a reference into the array: `B()` copied out its button label and
+   *  its `{{total}}` when it built the popover and never looks again,
+   *  and `moveNext` re-reads `getConfig("steps")` every time. So the
+   *  step being read stays exactly as it was, and the next one comes
+   *  from the grown array. See `readyToGrow` for why that label is
+   *  worth getting ahead of.
+   *
+   *  `setConfig`, deliberately, NOT `setSteps` — which would freeze the
+   *  tour. `driver.js.mjs`'s `setSteps` is
+   *  `d(); resetState(); setConfig({...getConfig(), steps: e})`, and
+   *  `resetState()` empties the whole state bag, `activeIndex`
+   *  included. Every advance path reads that: `moveNext`'s `i()` bails
+   *  on `activeIndex === undefined`, so the Next button would stop
+   *  working on the very step this grew for. Measured under the real
+   *  library: `getActiveIndex()` is 1 before `setSteps` and `undefined`
+   *  after, and the following `moveNext()` leaves the popover where it
+   *  was. The `setConfig` line is the half of `setSteps` that does the
+   *  work; the `d()` it also drops only cancels a pending
+   *  `waitForElement`, which is another thing we do not want cancelled
+   *  under a step that is still waiting for its target. */
+  const rebuild = (): void => {
+    driveSteps = buildDriveSteps(scenario, known);
+    tour.setConfig({ ...tour.getConfig(), steps: driveSteps });
+  };
+
+  /** Resolve the branch at the head of `rest`. Single-flight: the
+   *  resolve-ahead from a highlight hook and a Next press racing it
+   *  must not run two `settleBranch` polls over the same branch. */
+  let growing: Promise<boolean> | null = null;
+  const grow = (): Promise<boolean> => {
+    if (growing !== null) return growing;
+    const attempt = (async () => {
+      const grown = await expandBranch(rest, options.signal);
+      if (grown === null || options.signal.aborted) return false;
+      absorb(grown);
+      rebuild();
+      return true;
+    })();
+    growing = attempt;
+    void attempt.finally(() => {
+      if (growing === attempt) growing = null;
+    });
+    return attempt;
+  };
+
+  // A scenario that OPENS on a branch has nothing to drive until that
+  // branch is resolved — `find-a-gig` is the one that does today,
+  // asking on /gigs whether the list has any gigs in it yet. Resolving
+  // eagerly here is not the bug above: no step has run, so the screen
+  // this branch asks about is exactly the one `startRoute` landed on.
+  while (known.length === 0 && rest.length > 0) {
+    const grown = await expandBranch(rest, options.signal);
+    if (options.signal.aborted) return () => undefined;
+    if (grown === null) {
+      options.onUnavailable("no branch matched");
+      return () => undefined;
+    }
+    absorb(grown);
+  }
+
+  if (options.signal.aborted) return () => undefined;
+
+  driveSteps = buildDriveSteps(scenario, known);
 
   // Everything wired for the step currently on screen: its click
   // listener and its target watchdog. Drained together when the step
@@ -529,12 +615,74 @@ export async function runTour(
     queueMicrotask(teardown);
   };
 
+  /** Can the branch at the head of `rest` be resolved against the DOM
+   *  the user is looking at right now?
+   *
+   *  The last known step is always safe — everything before the branch
+   *  has been walked. One step of lead time is safe too, and worth
+   *  having: it is what keeps the boundary step's button labelled Next
+   *  rather than Done, since Driver decides that label from whether a
+   *  next step exists at the moment it renders the popover. The
+   *  exception is a last known step that NAVIGATES, whose branch asks
+   *  about a screen that is not on the page yet.
+   *
+   *  There is not always a step to lead by. A branch at index 1 leaves
+   *  `last` at 0, so the earliest resolve-ahead IS the boundary step,
+   *  whose popover was rendered before the branch settled and keeps the
+   *  "Done" it was built with. Pressing it still advances — `advance`
+   *  calls `moveNext` on the grown array — so this costs a wrong label
+   *  on that one step, not a stuck tour. Measured under the real
+   *  library on the shape `notifications` and `working-hours` have. */
+  const readyToGrow = (index: number | undefined): boolean => {
+    if (index === undefined || rest.length === 0) return false;
+    const last = known.length - 1;
+    if (index === last) return true;
+    return index === last - 1 && known[last]?.action !== "navigate";
+  };
+
+  /** What the Next (and Done) button does. Driver's own advance is
+   *  replaced entirely by the config-level `onNextClick` below, so this
+   *  has to call `moveNext` itself — including on the true final step,
+   *  where `moveNext` runs off the end of the array and destroys the
+   *  tour, exactly as the default would.
+   *
+   *  The await is the safety net for someone who reaches the last known
+   *  step before the resolve-ahead has finished settling: without it
+   *  they would press Done on a tour that is not over. */
+  const advance = async (): Promise<void> => {
+    const index = tour.getActiveIndex();
+    if (index === known.length - 1 && rest.length > 0) {
+      const ok = await grow();
+      if (options.signal.aborted) return;
+      if (!ok) {
+        options.onUnavailable("no branch matched");
+        teardown();
+        return;
+      }
+    }
+    tour.moveNext();
+  };
+
   const tour = driver({
     popoverClass: "gigsy-help-popover",
     // The user must be able to operate the highlighted control.
     disableActiveInteraction: false,
-    showProgress: driveSteps.length > 1,
+    // `rest`, because a one-step tour that still has a branch to
+    // resolve is not a one-step tour. The cost is that `{{total}}` is
+    // read from the array Driver holds at the moment it renders each
+    // popover, so it grows as branches expand — "1 of 2" then "2 of 3".
+    // Deliberate: resolution runs ahead, so the total updates on a step
+    // boundary rather than under the step being read, and the only
+    // alternative is a fixed number (the longest path, say) that is
+    // wrong for every run instead of briefly incomplete.
+    showProgress: driveSteps.length > 1 || rest.length > 0,
     steps: driveSteps,
+    // Replaces Driver's internal advance for every step: its `L()`
+    // prefers a step's own `onNextClick`, then this, and falls back to
+    // this for the Done button too because we set no `onDoneClick`.
+    onNextClick: () => {
+      void advance();
+    },
     onHighlightStarted: (element, driveStep) => {
       // Wired here, on the step Driver.js is actually about to show,
       // not up front for every click step at once — wiring them all up
@@ -600,6 +748,11 @@ export async function runTour(
           endTourAfterHook();
         }),
       );
+
+      // Resolve the next branch now, against the screen this step is
+      // on, so it is already expanded by the time anyone presses Next.
+      // `advance` awaits it if they get there first.
+      if (readyToGrow(tour.getActiveIndex())) void grow();
 
       if (step.action !== "click" && step.action !== "navigate") return;
 

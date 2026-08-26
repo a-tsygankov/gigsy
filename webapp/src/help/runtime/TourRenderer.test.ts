@@ -628,6 +628,12 @@ interface FakeDriver {
   drive: ReturnType<typeof vi.fn>;
   moveNext: ReturnType<typeof vi.fn>;
   destroy: ReturnType<typeof vi.fn>;
+  /** The real library sets `activeIndex` in `m()` before it fires
+   *  `onHighlightStarted`, and `runTour` reads it from inside that hook
+   *  to decide whether the next branch is safe to resolve yet. */
+  getActiveIndex: ReturnType<typeof vi.fn>;
+  getConfig: ReturnType<typeof vi.fn>;
+  setConfig: ReturnType<typeof vi.fn>;
 }
 
 // Real elements, not mocks: `runTour`'s click-advance wiring calls
@@ -648,11 +654,14 @@ function renderToggle(testId: string, inputId: string): { input: HTMLInputElemen
 describe("runTour", () => {
   let driverConfig: Record<string, unknown> | undefined;
   let fakeInstance: FakeDriver;
+  /** Whatever step `highlightStarted` last pretended to enter. */
+  let activeIndex: number | undefined;
 
   beforeEach(async () => {
     vi.resetModules();
     document.body.innerHTML = "";
     driverConfig = undefined;
+    activeIndex = undefined;
 
     vi.doMock("driver.js/dist/driver.css", () => ({}));
     vi.doMock("driver.js", () => ({
@@ -663,6 +672,15 @@ describe("runTour", () => {
           moveNext: vi.fn(),
           destroy: vi.fn(() => {
             (driverConfig?.["onDestroyed"] as (() => void) | undefined)?.();
+          }),
+          getActiveIndex: vi.fn(() => activeIndex),
+          getConfig: vi.fn(() => driverConfig),
+          // The real `setConfig` replaces the config the instance reads
+          // from, which is the same object these tests inspect — so a
+          // mid-tour rebuild has to be visible here too, or `steps`
+          // assertions would go on describing the tour as it started.
+          setConfig: vi.fn((config: Record<string, unknown>) => {
+            driverConfig = config;
           }),
         };
         return fakeInstance;
@@ -687,6 +705,7 @@ describe("runTour", () => {
       | undefined;
     const original = steps[index]!;
     const clone = { ...original, popover: { ...(original["popover"] as object) } };
+    activeIndex = index;
     onHighlightStarted?.(element, clone, {});
   }
 
