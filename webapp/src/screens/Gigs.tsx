@@ -143,8 +143,21 @@ export function Gigs() {
             total={all.length}
           />
         )}
+        {/* `gigs.data?.length === 0`, never `all.length === 0`. The
+            difference is the whole point of the test id below: `all`
+            falls back to `[]` while the query is pending and again when
+            it has errored, so an empty `all` is three different screens
+            — nothing here yet, not loaded yet, and didn't load. Only
+            this condition is the first one, which is what makes
+            `gigs-empty` mean "the app is SAYING there are no gigs"
+            rather than "the app has not said otherwise". Two help
+            scenarios branch on exactly that; before the id existed they
+            inferred it from the ABSENCE of `gig-filters` and told
+            people with hundreds of gigs they had none, for as long as
+            the first sync took. See help/targets.ts's `GigsEmpty`. */}
         {gigs.data?.length === 0 && (
           <EmptyState
+            testId="gigs-empty"
             title="No gigs yet"
             hint="Capture your first lead — tastings, promo shifts, ambassador work."
             cta="Add a gig"

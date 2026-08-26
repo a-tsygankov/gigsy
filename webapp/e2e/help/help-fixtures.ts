@@ -217,11 +217,21 @@ async function ensureWalkableGig(
  * them.
  *
  * Which makes this a precondition problem, not a flake. `find-a-gig`'s
- * `target-missing gig-filters` condition is *correct* during that
- * window, so the settle-then-recheck debounce in help-runner.ts does not
- * save it — it commits to `no-gigs-yet` and every target on the branch
- * that matters (`gig-search`, `gig-filters-toggle`, `gig-list`) goes
- * unresolved, which the README's §6 warns turns them into prose.
+ * `no-gigs-yet` condition is *correct* during that window, so the
+ * settle-then-recheck debounce in help-runner.ts does not save it — it
+ * commits to that branch and every target on the branch that matters
+ * (`gig-search`, `gig-filters-toggle`, `gig-list`) goes unresolved,
+ * which the README's §6 warns turns them into prose.
+ *
+ * That is still true after the condition stopped being `target-missing
+ * gig-filters` and became `target-visible gigs-empty`. The change fixed
+ * a different, larger hole — the filter bar is also absent while the
+ * query is PENDING and after it has ERRORED, neither of which is a
+ * statement about the account (help/targets.ts's `GigsEmpty`). It does
+ * nothing about this window, and cannot: an unhydrated store answers
+ * `[]` honestly, so Gigs.tsx really does render "No gigs yet" and the
+ * branch really is agreeing with the screen. Only a wait fixes a
+ * precondition, which is what this function is.
  * Observed directly: the first `help:test` run against this stack took
  * `no-gigs-yet` on an account of 396 gigs, before hydration had caught
  * up — the account was never the problem, the wait was missing.
