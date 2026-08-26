@@ -272,8 +272,11 @@ export function makeCalendarRouter(deps: CalendarDeps = defaultCalendarDeps) {
       const created = await deps.createCalendar(minted.accessToken, "Gigsy");
       if (created === "insufficient-scope") {
         // Connecting only asks for calendar.events; making a calendar
-        // needs the broader scope. Its own code, so the UI can re-prompt
-        // for consent rather than say "something went wrong".
+        // needs calendar.app.created. Its own code, so the UI can
+        // re-prompt for that scope and retry rather than say
+        // "something went wrong" — or, as it once did, tell the user to
+        // reconnect, which re-asks for calendar.events and fails the
+        // same way.
         return c.json({ error: "reconnect-required", scope: "calendar" }, 409);
       }
       if (created === null) {

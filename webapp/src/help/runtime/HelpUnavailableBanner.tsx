@@ -2,13 +2,15 @@
  * The unavailable message, wherever the user ends up.
  *
  * A failed scenario can navigate before it fails — "Open Settings"
- * starts on "/", not "/settings" — so a message rendered only inside
- * HelpSection (mounted solely on "/settings") would land on a screen
- * nobody is looking at. Spec §10 requires the message to reach the
- * user with a way back to the menu, so this is rendered by
- * HelpProvider at the app root instead, the same place UpdateBar lives
- * and for the same reason: whichever screen the user happens to be
- * standing on when this fires is the screen it has to reach.
+ * starts on "/", not "/settings" — so a message rendered inside the
+ * menu itself could land on a screen nobody is looking at. That was a
+ * live bug when the menu was a Settings group; it is structural now
+ * that the menu is a sheet the user opens and closes. Spec §10
+ * requires the message to reach the user with a way back to the menu,
+ * so this is rendered by HelpProvider at the app root, the same place
+ * UpdateBar lives and for the same reason: whichever screen the user
+ * happens to be standing on when this fires is the screen it has to
+ * reach.
  *
  * Takes its state as props rather than calling `useHelp()` itself —
  * this file and HelpProvider.tsx would otherwise import each other,

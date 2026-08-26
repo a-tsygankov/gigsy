@@ -60,15 +60,50 @@ export const CALENDAR_EVENTS_SCOPE =
  * be presented as a choice — "let Gigsy see when you are busy, so your
  * availability page is right". A user who declines still gets the
  * page, built on Gigsy bookings alone, and the page says so.
+ *
+ * `calendar.freebusy`, NOT `calendar.readonly`. The two both permit the
+ * one call this app makes — `POST /freeBusy` — but `readonly` grants
+ * "see and download any calendar you can access": every event title,
+ * description, location and guest list. `freebusy` grants availability
+ * and nothing else, which is exactly and only what this feature reads.
+ * See `docs/google-oauth-scopes.md` for the four scopes the endpoint
+ * accepts and why this is the narrowest.
+ *
+ * Nobody is signed out by this. Google grants the union of what has
+ * been consented to, so an existing grant of `readonly` still permits
+ * the call, and `AvailabilitySection` probes with
+ * `checkCalendarFreeBusy()` before ever prompting — so a user who
+ * already enabled this is never asked again. New consent is the
+ * narrower scope.
  */
-export const CALENDAR_READONLY_SCOPE =
-  "https://www.googleapis.com/auth/calendar.readonly";
+export const CALENDAR_FREEBUSY_SCOPE =
+  "https://www.googleapis.com/auth/calendar.freebusy";
+
+/**
+ * Making the dedicated "Gigsy" calendar.
+ *
+ * `POST /calendars` is permitted by none of the scopes connecting asks
+ * for, which is why that feature could not succeed at all: it 403'd,
+ * the backend reported `reconnect-required`, and reconnecting asked for
+ * `calendar.events` again — so the retry failed identically and the
+ * advice sent people in a circle.
+ *
+ * `calendar.app.created` exists precisely for this — "make secondary
+ * Google calendars, and see, create, change and delete events on them"
+ * — and is narrower than the alternatives (`calendar`,
+ * `calendar.calendars`). It does NOT replace `calendar.events`: that is
+ * still what writes gigs onto whichever calendar the user picks, which
+ * defaults to `primary` and is not app-created. The dedicated-calendar
+ * consent therefore asks for both.
+ */
+export const CALENDAR_APP_CREATED_SCOPE =
+  "https://www.googleapis.com/auth/calendar.app.created";
 
 /** Calendar-scope consent popup (docs/plan.md §9). Resolves with the
  * one-time auth code the backend exchanges for a refresh token.
  *
  * Google grants the union of what has been consented to, so asking for
- * the readonly scope later keeps the events scope already held. */
+ * a further scope later keeps the events scope already held. */
 export async function requestCalendarCode(
   clientId: string,
   scopes: readonly string[] = [CALENDAR_EVENTS_SCOPE],

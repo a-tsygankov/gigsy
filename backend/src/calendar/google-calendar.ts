@@ -98,9 +98,13 @@ function eventBody(event: CalendarEventInput) {
  *
  * Separate from CalendarClient because it is bound to no calendar — it
  * makes one. The scope distinction matters: `calendar.events` is what
- * connecting asks for, and creating a calendar needs the broader
- * `calendar`. Reporting that as its own outcome lets the UI re-prompt
- * for consent instead of showing "something went wrong".
+ * connecting asks for, and creating a calendar needs
+ * `calendar.app.created` — which is NARROWER than the full `calendar`
+ * scope an earlier version of this comment named, and exists for
+ * exactly this ("make secondary Google calendars, and see, create,
+ * change and delete events on them"). Reporting it as its own outcome
+ * lets the UI re-prompt for that one scope instead of showing
+ * "something went wrong".
  */
 export async function createCalendar(
   accessToken: string,

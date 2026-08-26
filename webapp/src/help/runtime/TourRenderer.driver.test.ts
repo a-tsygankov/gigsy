@@ -131,11 +131,11 @@ describe("runTour against the real driver.js", () => {
   it("advances a click step when the user clicks, and shows the next step", async () => {
     document.body.innerHTML = `
       <a data-testid="settings-link">Settings</a>
-      <a data-testid="settings-help">Help</a>`;
+      <a data-testid="settings-notifications">Notifications</a>`;
 
     await start([
       { action: "click", target: HelpTarget.SettingsLink, description: "tap settings" },
-      { action: "highlight", target: HelpTarget.SettingsHelp, description: "here is help" },
+      { action: "highlight", target: HelpTarget.SettingsNotifications, description: "here is help" },
     ]);
 
     expect(await waitFor(() => popoverText() === "tap settings")).toBe(true);
@@ -155,13 +155,13 @@ describe("runTour against the real driver.js", () => {
         <input id="day-0" type="checkbox" role="switch" class="peer sr-only" data-testid="toggle-day-0" />
         <span aria-hidden="true" class="relative h-6 w-11"></span>
       </label>
-      <a data-testid="settings-help">Help</a>`;
+      <a data-testid="settings-notifications">Notifications</a>`;
     const input = document.querySelector<HTMLInputElement>('[data-testid="toggle-day-0"]')!;
     const span = document.querySelector<HTMLElement>('span[aria-hidden="true"]')!;
 
     await start([
       { action: "click", target: dayToggle(0), description: "switch it on" } satisfies ClickStep,
-      { action: "highlight", target: HelpTarget.SettingsHelp, description: "now pick a time" },
+      { action: "highlight", target: HelpTarget.SettingsNotifications, description: "now pick a time" },
     ]);
 
     expect(await waitFor(() => popoverText() === "switch it on")).toBe(true);
@@ -584,10 +584,10 @@ describe("runTour against the real driver.js", () => {
   it("does not advance after cancel, even though the listener's element is still on the page", async () => {
     document.body.innerHTML = `
       <a data-testid="settings-link">Settings</a>
-      <a data-testid="settings-help">Help</a>`;
+      <a data-testid="settings-notifications">Notifications</a>`;
     const cancel = await start([
       { action: "click", target: HelpTarget.SettingsLink, description: "tap settings" },
-      { action: "highlight", target: HelpTarget.SettingsHelp, description: "here is help" },
+      { action: "highlight", target: HelpTarget.SettingsNotifications, description: "here is help" },
     ]);
     expect(await waitFor(() => popoverText() === "tap settings")).toBe(true);
 

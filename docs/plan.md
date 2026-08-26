@@ -450,9 +450,11 @@ page built on Gigsy data alone confidently offers slots the user cannot
 work — worse than no page, because they have now promised something.
 `freebusy` is the only API allowed here because it returns times and
 never event content. Nothing from it is ever stored. It is off by
-default (`availabilityUseCalendar`) and needs `calendar.readonly` on
-top of `calendar.events`, so it is presented as a choice and never
-slipped into the connect flow; `GET /api/calendar/freebusy-check` lets
+default (`availabilityUseCalendar`) and needs `calendar.freebusy` on
+top of `calendar.events` — narrowed from `calendar.readonly`, which
+granted every event title and description for a call that returns
+neither — so it is presented as a choice and never slipped into the
+connect flow; `GET /api/calendar/freebusy-check` lets
 the settings screen tell "your grant is too narrow" (ask again) from
 "Google is down" (do not).
 

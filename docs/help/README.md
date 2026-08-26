@@ -254,7 +254,7 @@ So run it yourself:
 pnpm --filter gigsy-webapp dev
 ```
 
-Open Settings → Help, start the scenario, and do what it says — including
+Press the "?" in the header, start the scenario, and do what it says — including
 the click steps. The tour never performs the click for you (a working
 day changes what a client sees on a public availability page, so the
 tour asking a human to press the actual control isn't a UX nicety, it's
@@ -263,9 +263,15 @@ order doesn't make sense as a walkthrough, no test in this project will
 catch that but you.
 
 `e2e/help/reachability.spec.ts` covers one thing the scenario suite
-structurally cannot — that help is reachable from Settings at all and
-that a topic really starts a Driver.js tour. It is deliberately a single
-test against `open-settings`; do not add a per-scenario copy of it.
+structurally cannot — that help is reachable at all, through the
+header's "?" button, and that a topic really starts a Driver.js tour.
+It is deliberately a single test against `open-settings`; do not add a
+per-scenario copy of it.
+
+Help used to have a second door, a "Help" group on the Settings screen.
+It was removed: the header button already opened the same menu from
+every screen, `/settings` included, so the Settings group was a second
+way into one menu and the narrower of the two.
 
 ## 7. Final check before committing
 

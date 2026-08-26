@@ -9,6 +9,7 @@ import { createClient } from "./scenarios/create-client.ts";
 import { createGig } from "./scenarios/create-gig.ts";
 import { setUpEmailCapture } from "./scenarios/email-capture.ts";
 import { findAGig } from "./scenarios/find-a-gig.ts";
+import { findAPayment } from "./scenarios/find-a-payment.ts";
 import { installApp } from "./scenarios/install-app.ts";
 import { configureNotifications } from "./scenarios/notifications.ts";
 import { openSettings } from "./scenarios/open-settings.ts";
@@ -30,7 +31,11 @@ export const helpScenarios: HelpScenario[] = [
   recordWork,
   // "Clients & money": the client comes first because an expense can be
   // tied to a gig, and a gig to a client — the same order the data has.
+  // Then money in before money out, which is the order the Money tab's
+  // own segmented control puts them in (Money.tsx's OPTIONS) — reading
+  // this section should not contradict the screen it describes.
   createClient,
+  findAPayment,
   addExpense,
   // "Capture": the camera first, the email address second. The photo is
   // the route anyone can use immediately; forwarding needs a deployment

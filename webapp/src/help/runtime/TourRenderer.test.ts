@@ -53,7 +53,7 @@ describe("expandBranch", () => {
           // branchTimeoutMs rather than resolving immediately.
           when: { type: "target-visible", target: HelpTarget.SettingsNotifications },
           steps: [
-            { action: "highlight", target: HelpTarget.SettingsHelp, description: "unreached" },
+            { action: "highlight", target: HelpTarget.SettingsNotifications, description: "unreached" },
           ],
         },
       ],
@@ -93,7 +93,7 @@ describe("expandBranch", () => {
           // Same "would hang if resolved" tell as the test above.
           when: { type: "target-visible", target: HelpTarget.SettingsNotifications },
           steps: [
-            { action: "highlight", target: HelpTarget.SettingsHelp, description: "unreached" },
+            { action: "highlight", target: HelpTarget.SettingsNotifications, description: "unreached" },
           ],
         },
       ],
@@ -183,7 +183,7 @@ describe("expandBranch", () => {
     const { expandBranch } = await import("./TourRenderer.ts");
     const steps: HighlightStep[] = [
       { action: "highlight", target: HelpTarget.SettingsLink, description: "a" },
-      { action: "highlight", target: HelpTarget.SettingsHelp, description: "b" },
+      { action: "highlight", target: HelpTarget.SettingsNotifications, description: "b" },
     ];
 
     await expect(
@@ -196,12 +196,12 @@ describe("expandBranch", () => {
     stubVisible("settings-link");
     const taken: HighlightStep = {
       action: "highlight",
-      target: HelpTarget.SettingsHelp,
+      target: HelpTarget.SettingsNotifications,
       description: "taken",
     };
     const notTaken: HighlightStep = {
       action: "highlight",
-      target: HelpTarget.SettingsHelp,
+      target: HelpTarget.SettingsNotifications,
       description: "not-taken",
     };
     const branch: BranchStep = {
@@ -230,12 +230,12 @@ describe("expandBranch", () => {
     document.body.innerHTML = "";
     const taken: HighlightStep = {
       action: "highlight",
-      target: HelpTarget.SettingsHelp,
+      target: HelpTarget.SettingsNotifications,
       description: "taken",
     };
     const notTaken: HighlightStep = {
       action: "highlight",
-      target: HelpTarget.SettingsHelp,
+      target: HelpTarget.SettingsNotifications,
       description: "not-taken",
     };
     const branch: BranchStep = {
@@ -274,7 +274,7 @@ describe("expandBranch", () => {
     };
     const taken: HighlightStep = {
       action: "highlight",
-      target: HelpTarget.SettingsHelp,
+      target: HelpTarget.SettingsNotifications,
       description: "taken",
     };
     const after: HighlightStep = {
@@ -315,12 +315,12 @@ describe("expandBranch", () => {
     stubVisible("settings-link", { width: 1, height: 1 });
     const notTaken: HighlightStep = {
       action: "highlight",
-      target: HelpTarget.SettingsHelp,
+      target: HelpTarget.SettingsNotifications,
       description: "not-taken",
     };
     const taken: HighlightStep = {
       action: "highlight",
-      target: HelpTarget.SettingsHelp,
+      target: HelpTarget.SettingsNotifications,
       description: "taken",
     };
     const branch: BranchStep = {
@@ -357,7 +357,7 @@ describe("expandBranch", () => {
           id: "never",
           when: { type: "target-missing", target: HelpTarget.SettingsLink },
           steps: [
-            { action: "highlight", target: HelpTarget.SettingsHelp, description: "x" },
+            { action: "highlight", target: HelpTarget.SettingsNotifications, description: "x" },
           ],
         },
       ],
@@ -453,7 +453,7 @@ describe("expandBranch", () => {
           id: "never",
           when: { type: "target-visible", target: HelpTarget.SettingsLink },
           steps: [
-            { action: "highlight", target: HelpTarget.SettingsHelp, description: "x" },
+            { action: "highlight", target: HelpTarget.SettingsNotifications, description: "x" },
           ],
         },
       ],
@@ -485,7 +485,7 @@ describe("expandBranch", () => {
     };
     const unreachable: HighlightStep = {
       action: "highlight",
-      target: HelpTarget.SettingsHelp,
+      target: HelpTarget.SettingsNotifications,
       description: "unreachable",
     };
 
@@ -515,7 +515,7 @@ describe("expandBranch", () => {
           // must not be: `stop` already ended the walk.
           when: { type: "target-visible", target: HelpTarget.SettingsNotifications },
           steps: [
-            { action: "highlight", target: HelpTarget.SettingsHelp, description: "unreached" },
+            { action: "highlight", target: HelpTarget.SettingsNotifications, description: "unreached" },
           ],
         },
       ],
@@ -687,7 +687,7 @@ describe("runTour", () => {
       category: "settings" as const,
       steps: [
         { action: "click" as const, target: HelpTarget.SettingsLink, description: "click" },
-        { action: "highlight" as const, target: HelpTarget.SettingsHelp, description: "highlight" },
+        { action: "highlight" as const, target: HelpTarget.SettingsNotifications, description: "highlight" },
         { action: "external" as const, externalType: "browser-ui" as const, description: "ext" },
       ],
     };
@@ -712,7 +712,7 @@ describe("runTour", () => {
         // AvailabilitySection once useSettings' query resolves. A short
         // wait here calls a healthy app broken on a slow connection.
         { action: "highlight" as const, target: HelpTarget.SettingsLink, description: "a" },
-        { action: "click" as const, target: HelpTarget.SettingsHelp, description: "b" },
+        { action: "click" as const, target: HelpTarget.SettingsNotifications, description: "b" },
         // Past the first interaction, a late target is one re-render
         // away — no network — so five seconds of dead air buys nothing.
         { action: "highlight" as const, target: HelpTarget.SettingsNotifications, description: "c" },
@@ -760,7 +760,7 @@ describe("runTour", () => {
           category: "settings" as const,
           steps: [
             { action, target: HelpTarget.SettingsLink, description: "a" },
-            { action: "highlight" as const, target: HelpTarget.SettingsHelp, description: "b" },
+            { action: "highlight" as const, target: HelpTarget.SettingsNotifications, description: "b" },
           ],
         },
         { signal: new AbortController().signal, onUnavailable: vi.fn() },
@@ -991,7 +991,7 @@ describe("runTour", () => {
         // is one that actually renders a Next button. `readyToGrow` also
         // needs the interaction PERFORMED before it will resolve, which
         // is what entering this step means.
-        { action: "highlight" as const, target: HelpTarget.SettingsHelp, description: "read" },
+        { action: "highlight" as const, target: HelpTarget.SettingsNotifications, description: "read" },
         {
           action: "branch" as const,
           branches: [
@@ -1006,7 +1006,7 @@ describe("runTour", () => {
               steps: [
                 {
                   action: "highlight" as const,
-                  target: HelpTarget.SettingsHelp,
+                  target: HelpTarget.SettingsNotifications,
                   description: "unreached",
                 },
               ],
@@ -1073,7 +1073,7 @@ describe("runTour", () => {
               steps: [
                 {
                   action: "highlight" as const,
-                  target: HelpTarget.SettingsHelp,
+                  target: HelpTarget.SettingsNotifications,
                   description: "behind the branch",
                 },
               ],

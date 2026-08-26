@@ -19,13 +19,20 @@ section are both wrong until updated.
 | --- | --- | --- |
 | `openid`, `email`, `profile` (via Google Identity Services) | Non-sensitive | Signing in |
 | `https://www.googleapis.com/auth/calendar.events` | **Sensitive** | Connecting Calendar in Settings — never at sign-in |
-| `https://www.googleapis.com/auth/calendar.readonly` | **Sensitive** | Only when switching on "use my Google Calendar" for the availability page |
+| `https://www.googleapis.com/auth/calendar.freebusy` | Check the console badge | Only when switching on "use my Google Calendar" for the availability page. Replaced `calendar.readonly`; see [google-oauth-scopes.md](google-oauth-scopes.md) |
+| `https://www.googleapis.com/auth/calendar.app.created` | Check the console badge | Only when creating a separate "Gigsy" calendar from Settings |
 
-Both Calendar scopes are **sensitive**, not **restricted**. That
+`calendar.events` is **sensitive**. The other two are narrower and
+their category is the console's to state — the Data Access screen
+badges each scope automatically, so read it there rather than assuming
+either way.
+
+What matters is that none of the three is **restricted**, and that
 distinction is worth more than it looks: restricted scopes (Gmail,
 Drive) require an annual third-party CASA security assessment costing
 thousands. Sensitive scopes require review, a demo video, and a verified
-domain — no paid assessment.
+domain — no paid assessment. Calendar never reaches the restricted
+tier.
 
 ---
 
@@ -111,7 +118,18 @@ reviewer is actually asking, which is not "what does your app do" but
 > when the user explicitly connects Calendar in Settings — never as part
 > of signing in. The app is fully functional without it.
 
-### `calendar.readonly`
+### `calendar.freebusy`
+
+> [!NOTE]
+> This replaced `calendar.readonly`, which the app used to request for
+> the same feature. `readonly` grants "see and download any calendar you
+> can access" — every event title, description, location and guest list
+> — while the app calls exactly one endpoint, `POST /freeBusy`, which
+> returns busy ranges and no event content. An earlier version of this
+> pack argued no narrower scope existed; the
+> [API reference](https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query)
+> lists four, and the narrowest is now the one requested. See
+> [google-oauth-scopes.md](google-oauth-scopes.md).
 
 > Gigsy lets a user publish a single link showing an agency when they
 > are free to be booked, which replaces a back-and-forth of messages.
@@ -128,14 +146,12 @@ reviewer is actually asking, which is not "what does your app do" but
 > viewer sees only a gap, and a gap caused by a gig is indistinguishable
 > from one caused by a personal appointment.
 >
-> **On why a narrower scope is not possible:** the `freebusy` endpoint
-> is not covered by any narrower Calendar scope. `calendar.app.created`
-> only covers events our own app created, which is precisely the data we
-> do *not* need to read — the whole point is the commitments Gigsy does
-> not know about. There is no `calendar.freebusy` scope; Google requires
-> `calendar.readonly` (or broader) to call it. We therefore request the
-> narrowest scope that permits the call, and use only the single
-> endpoint that returns no event content.
+> **On why this is the narrowest scope available:** `calendar.freebusy`
+> is the narrowest of the four scopes `freebusy.query` accepts, and it
+> is what Gigsy requests. `calendar.app.created` cannot serve this
+> feature at all — it covers only events our own app created, which is
+> precisely the data we do *not* need to read, since the whole point is
+> the commitments Gigsy does not know about.
 >
 > This scope is **off by default**, is never bundled into sign-in or
 > into connecting Calendar, and is requested only at the moment a user
@@ -194,12 +210,12 @@ Reviewers reject videos that show the app but not the grant.
 4. **Create a confirmed gig with a date.** Switch to Google Calendar and
    show the event that appeared. Delete the gig; show the event go.
 5. **Settings → availability → switch on "use my Google Calendar".**
-   Show the *separate* consent prompt for `calendar.readonly`.
+   Show the *separate* consent prompt for `calendar.freebusy`.
 6. **Put a personal appointment on the Google Calendar** — give it an
    obvious title like "Dentist — Dr Smith, 3pm".
 7. **Open the public availability link in a private window.** Show that
    the time is blocked out and that **the title is nowhere on the page**.
-   This is the shot that earns `calendar.readonly`: it demonstrates
+   This is the shot that earns `calendar.freebusy`: it demonstrates
    free/busy-only use better than any sentence in the justification.
 8. **Settings → disconnect.** Show that access can be withdrawn.
 

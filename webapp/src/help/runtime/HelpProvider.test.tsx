@@ -127,11 +127,13 @@ describe("HelpProvider", () => {
   });
 
   it("renders the unavailable message where the user actually is, even after the scenario navigated away first", async () => {
-    // The bug this guards: HelpSection (the only thing that used to
-    // show `unavailable`) mounts solely on "/settings", but a scenario
-    // can fail after navigating elsewhere — "Open Settings" starts on
-    // "/". A message that only a menu on "/settings" can show is
-    // invisible to a user who is, at the moment of failure, on "/".
+    // The bug this guards: the menu used to be a Settings group, the
+    // only thing that showed `unavailable`, and it mounted solely on
+    // "/settings" — while a scenario can fail after navigating
+    // elsewhere, since "Open Settings" starts on "/". A message only a
+    // menu on "/settings" could show was invisible to a user who was,
+    // at the moment of failure, on "/". The banner moved to the app
+    // root for that reason and stays there for it.
     // This mounts the real HelpProvider tree — nothing about the
     // banner is stubbed — and checks the actual DOM, not just the
     // context's own `unavailable` field, after exactly that sequence.
@@ -159,7 +161,7 @@ describe("HelpProvider", () => {
     expect(banner!.textContent).toContain("This help step is currently unavailable.");
   });
 
-  it("Back to Help on the banner returns to /settings, reopens help, and clears the message", async () => {
+  it("Back to Help reopens the sheet where the user is, without navigating", async () => {
     mount("/settings");
     vi.mocked(runTour).mockRejectedValueOnce(new Error("chunk 404"));
 
@@ -180,7 +182,12 @@ describe("HelpProvider", () => {
       back!.click();
     });
 
-    expect(pathname).toBe("/settings");
+    // Stays on "/" — where the failed scenario left the user. This
+    // used to assert "/settings", because the menu lived in a Settings
+    // group and going back to help meant going to that screen. The
+    // sheet is app-root now, so navigating anywhere would be moving
+    // the user for nothing.
+    expect(pathname).toBe("/");
     expect(latest!.unavailable).toBeNull();
     expect(latest!.isOpen).toBe(true);
     expect(container!.querySelector('[data-testid="help-unavailable"]')).toBeNull();

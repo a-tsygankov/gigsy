@@ -129,16 +129,20 @@ export function HelpProvider({ children }: { children: ReactNode }) {
 
   const dismissUnavailable = useCallback(() => setUnavailable(null), []);
 
-  /** What "Back to Help" on the app-root banner does: the only place
-   *  help currently lives is the Settings screen (HelpSection), so
-   *  getting back to it after a scenario has sent the user elsewhere
-   *  means going there directly, then opening the menu fresh. This is
-   *  the one thing in this file that knows help's address — everything
-   *  else routes to a *scenario's* startRoute, never to help itself. */
+  /** What "Back to Help" on the app-root banner does.
+   *
+   *  Just reopens the sheet, wherever the user is standing. It used to
+   *  `navigate("/settings")` first, because the menu lived in a
+   *  Settings group and that was genuinely help's address. The sheet is
+   *  mounted at the app root now and the Settings group is gone, so
+   *  that navigation would move the user to a screen they did not ask
+   *  for in order to show them something already reachable where they
+   *  are. Nothing in this file knows help's address any more, which is
+   *  the better state: everything here routes to a *scenario's*
+   *  startRoute, never to help itself. */
   const backToHelp = useCallback(() => {
-    navigate("/settings");
     openHelp();
-  }, [navigate, openHelp]);
+  }, [openHelp]);
 
   const startScenario = useCallback(
     async (id: HelpScenarioId): Promise<void> => {
@@ -263,11 +267,10 @@ export function HelpProvider({ children }: { children: ReactNode }) {
           directly) so picking a topic also tears down any in-flight
           tour setup the same way the unavailable banner's paths do. */}
       {isOpen && <HelpSheet onClose={closeHelp} />}
-      {/* Not gated on `isOpen` or on which route this is — nothing in
-          this codebase currently renders a menu that `isOpen` controls,
-          and the whole reason this lives here rather than inside
-          HelpSection is that the scenario which failed may have
-          navigated the user somewhere else already. */}
+      {/* Not gated on `isOpen` or on which route this is: the scenario
+          that failed may have navigated the user somewhere else
+          already, and the message has to reach whichever screen they
+          are actually on. */}
       {unavailable !== null && (
         <HelpUnavailableBanner
           message={unavailable}

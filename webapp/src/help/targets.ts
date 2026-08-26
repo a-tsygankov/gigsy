@@ -29,7 +29,6 @@ const painted = (id: string): HelpTarget => ({ id, kind: "switch" });
  *  want to read. */
 export const HelpTarget = {
   SettingsLink: element("settings-link"),
-  SettingsHelp: element("settings-help"),
 
   SettingsNotifications: element("settings-notifications"),
   // A <Button>, not a Toggle, despite the name — Settings.tsx:108.
@@ -128,6 +127,15 @@ export const HelpTarget = {
   // gigs.amountPaidCents became server-derived from payment
   // allocations. What has arrived is recorded payment by payment on
   // the detail hub — see GigEdit.tsx's header.
+  // The "Part of" picker. Unconditional on the form — only its
+  // `disabled` state is conditional — so it resolves on `/gigs/new` as
+  // well as on a saved gig. Named for the control, not for the id
+  // `gig-parent`, which is a DIFFERENT thing one screen over: the
+  // read-only "Part of X" line on the detail hub. No target for that
+  // line, nor for `gig-children` beside it: at most one of the two ever
+  // renders for a given gig (GigDetail.tsx), both need a gig that is
+  // already linked, and no scenario walks one.
+  GigParentSelect: element("gig-parent-select"),
   GigNotes: element("gig-notes"),
   GigSave: element("gig-save"),
 
@@ -171,6 +179,36 @@ export const HelpTarget = {
   // `element` (checked against ServiceEdit.tsx, per this file's rule).
   ServiceCompleted: element("service-completed"),
   ServiceSave: element("service-save"),
+
+  // ── the Money tab (Money.tsx, money/Payments.tsx, money/PaymentFilters.tsx) ──
+  // Plural on purpose: the `Payment*` entries below are the payment
+  // FORM's fields, these are the list that leads to it — the same split
+  // `GigList`/`GigSearch` and `GigTitle`/`GigSave` already draw.
+  //
+  // `payment-filters` is mounted whenever the account owns any payment
+  // at all (`all.length > 0`, Payments.tsx) and `payment-list` only
+  // while a row survives the filter, so the two together separate "no
+  // payments" from "payments, all filtered out" — exactly what
+  // `gig-filters`/`gig-list` does for the gig screen.
+  //
+  // No `payment-clear` or `payment-count` entry, and for the reason
+  // `GigRate` is absent rather than the reason `GigPaid` is: both
+  // render only while a filter is actually narrowing the list
+  // (`isPaymentFiltered`), and `/payments` opens unfiltered because the
+  // filter state lives in the query string. A step aiming at either
+  // would wait out `waitForElement` every run.
+  //
+  // `money-segment` is a <nav> carrying the id itself (Segmented.tsx),
+  // not one of its buttons — the target is "the choice between
+  // Payments and Expenses", which is the nav, and pointing at either
+  // button would spotlight one option while naming both.
+  MoneySegment: element("money-segment"),
+  PaymentsFilters: element("payment-filters"),
+  PaymentsSearch: element("payment-search"),
+  PaymentsState: element("payment-state"),
+  PaymentsList: element("payment-list"),
+  // A Fab, so a <Link> — an element either way, like GigAdd.
+  PaymentsAdd: element("payment-add"),
 
   // ── the payment form (PaymentEdit.tsx) ──
   PaymentAmount: element("payment-amount"),
