@@ -668,6 +668,23 @@ describe("gig parent link", () => {
     expect((op?.payload as { parentGigId?: string }).parentGigId).toBe(G1);
   });
 
+  it("does not queue an outbox op for the cleared child", async () => {
+    // Guards against re-adding the wire trip. Rebuilding the child from
+    // this device's copy with a fresh modifiedAt wins LWW against
+    // another device's newer edit and loses it silently — and buys
+    // nothing, since the server's FK clears its side when the parent's
+    // delete drains.
+    const { store, db } = makeStore();
+    await store.putGig(G1, { status: "confirmed" });
+    await store.putGig(G2, { status: "lead", parentGigId: G1 });
+    await db.pendingOps.clear();
+
+    await store.removeGig(G1);
+
+    const ops = await db.pendingOps.toArray();
+    expect(ops.map((o) => o.entityId)).toEqual([G1]);
+  });
+
   it("clears a child's link locally when its parent is removed", async () => {
     // ON DELETE SET NULL is a SERVER behaviour. Dexie is a separate
     // store and deletes locally first, so without this the local child
@@ -739,16 +756,20 @@ In `webapp/src/lib/gig-input.ts`, add to `gigToInput`'s returned object:
 In `webapp/src/lib/local-store.ts`, in `removeGig`, before the existing `removeEntity` call:
 
 ```ts
-    // Mirrors the server's ON DELETE SET NULL (migration 0018). Dexie
-    // is an independent store and deletes locally first, so without
-    // this the child keeps a link to a gig that is already gone.
+    // Local mirror only, deliberately WITHOUT an outbox op. The server
+    // clears its own side when this delete drains — 0018's
+    // ON DELETE SET NULL, verified honoured against this D1 instance —
+    // and the same pull brings that null back down. Queuing an upsert
+    // here would rebuild the child from THIS device's copy with a fresh
+    // modifiedAt and win LWW against another device's newer edit,
+    // losing it silently. The user never asked to write the child.
     const children = await this.db.gigs.where("parentGigId").equals(id).toArray();
     for (const child of children) {
-      await this.putGig(child.id, { ...gigToInput(child), parentGigId: null });
+      await this.db.gigs.update(child.id, { parentGigId: null });
     }
 ```
 
-Going through `putGig` rather than writing Dexie directly is deliberate: the change has to reach the server too, and `putGig` is what queues the outbox op. Import `gigToInput` if it is not already imported.
+**Corrected after Task 3's review.** An earlier draft of this step routed the clear through `putGig` so it would queue an outbox op. That is wrong and was reverted: `putGig` rebuilds the child from this device's copy with a fresh `modifiedAt`, which wins last-writer-wins against another device's newer edit and loses it silently — from a write the user never asked for. The server clears its own side when the parent's delete drains (0018's FK action, verified honoured), that delete drains first anyway, and the same pull brings the null down. A plain Dexie write is correct, and the accompanying test asserts the child has **no** outbox op.
 
 - [ ] **Step 7: Run it and confirm it passes**
 

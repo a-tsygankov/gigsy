@@ -149,6 +149,31 @@ correct it. Offline, that could be days.
 This is the same shape as the server rule, enforced in a second place
 because the two stores are independent. It gets its own test.
 
+**The local clear must NOT queue an outbox op**, and an earlier draft of
+this spec said the opposite. Routing it through `putGig` rebuilds the
+child from *this device's* copy and stamps a fresh `modifiedAt`. The
+server applies any op whose `modifiedAt >= existing.modifiedAt` and
+replaces the whole record, so:
+
+> Phone edits the child at 10:00 and pushes. Laptop, last synced 09:00,
+> deletes the parent at 10:05. The laptop queues a full-record upsert
+> built from its 09:00 copy, stamped 10:05, wins last-writer-wins, and
+> the phone's edit is gone.
+
+Silent data loss from a write the user never asked for — the same class
+as the `durationMinutes` incident, and worse in that the stale base is
+the store's own copy.
+
+The trip also buys nothing. The server clears its side when the parent's
+delete drains (verified against this D1 instance), that delete drains
+*before* the child's op anyway, and the same pull brings the null back
+down. It only adds a failure mode: if the parent's delete is refused
+server-side the engine restores the parent, but the child's clear has
+already landed, so the link is lost while the parent returns.
+
+So: a plain Dexie write, and a test asserting the child has **no**
+outbox op — that test is the guard against someone re-adding the trip.
+
 ## UI
 
 `GigDetail` gains:
