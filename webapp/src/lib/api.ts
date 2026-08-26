@@ -341,8 +341,12 @@ export class ApiClient {
   }
 
   /** Create a dedicated "Gigsy" calendar and move future events to it.
-   * A 409 with `reconnect-required` means the grant only covers events
-   * and the user must consent to the broader scope. */
+   * A 409 with `reconnect-required` means the grant only covers events;
+   * the fix is consent for CALENDAR_APP_CREATED_SCOPE and a retry,
+   * which is what `CalendarSection` does. It is emphatically NOT
+   * "disconnect and reconnect" — that re-asks for `calendar.events`
+   * and fails identically, which is the circle this used to send
+   * people round. */
   createDedicatedCalendar(): Promise<{
     calendarId: string;
     removed: number;
@@ -356,7 +360,7 @@ export class ApiClient {
    *
    * Always resolves — a narrow grant is an answer, not an error. Act on
    * the reason: `insufficient-scope` is fixed by asking for consent
-   * again with CALENDAR_READONLY_SCOPE, `unavailable` means Google is
+   * again with CALENDAR_FREEBUSY_SCOPE, `unavailable` means Google is
    * having a moment and re-prompting would only produce a popup the
    * user did not expect and will decline.
    */

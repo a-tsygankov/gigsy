@@ -44,12 +44,17 @@ the app without granting it.
 - **Writing** (`calendar.events`): confirmed gigs with a date become
   events on the calendar you choose. Leads never do. If you delete a
   gig, Gigsy deletes its event.
-- **Reading** (`calendar.readonly`): only if you switch on "use my
-  Google Calendar" for the availability page. Gigsy reads **free/busy
-  ranges only**, through Google's `freebusy` API, which returns times
-  and never event titles, descriptions, locations or attendees. Those
-  ranges are used to compute your free time and are then discarded.
-  **They are never written to the database.**
+- **Reading** (`calendar.freebusy`): only if you switch on "use my
+  Google Calendar" for the availability page. This permission grants
+  your free/busy times and nothing else — it cannot show Gigsy event
+  titles, descriptions, locations or attendees, because Google does not
+  include them in what it returns. Those ranges are used to compute
+  your free time and are then discarded. **They are never written to
+  the database.**
+- **Making a calendar** (`calendar.app.created`): only if you ask for a
+  separate "Gigsy" calendar in Settings. It covers calendars this app
+  creates and the events on them — it grants no access to any other
+  calendar.
 
 Gigsy never modifies or deletes an event it did not create.
 

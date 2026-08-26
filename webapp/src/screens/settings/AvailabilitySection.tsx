@@ -25,7 +25,7 @@ import {
 } from "../../components/index.ts";
 import {
   CALENDAR_EVENTS_SCOPE,
-  CALENDAR_READONLY_SCOPE,
+  CALENDAR_FREEBUSY_SCOPE,
   requestCalendarCode,
 } from "../../lib/google-signin.ts";
 import {
@@ -78,7 +78,7 @@ export function AvailabilitySection() {
       if (googleClientId === "") return "unavailable" as const;
       const code = await requestCalendarCode(googleClientId, [
         CALENDAR_EVENTS_SCOPE,
-        CALENDAR_READONLY_SCOPE,
+        CALENDAR_FREEBUSY_SCOPE,
       ]);
       await data.connectCalendar(code);
 

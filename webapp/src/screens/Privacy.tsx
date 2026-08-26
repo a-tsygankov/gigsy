@@ -108,6 +108,14 @@ export function Privacy() {
             time and are then discarded — they are never written to the
             database.
           </p>
+          <p>
+            <strong className="font-medium text-slate-700">
+              Making a calendar.
+            </strong>{" "}
+            Only if you ask for a separate “Gigsy” calendar in Settings. That
+            permission covers calendars this app creates and the events on
+            them — it grants no access to any other calendar.
+          </p>
         </Section>
 
         <Section title="The shareable availability link">

@@ -8,7 +8,12 @@
  */
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useData } from "../../lib/app-context.tsx";
+import { useData, useServices } from "../../lib/app-context.tsx";
+import {
+  CALENDAR_APP_CREATED_SCOPE,
+  CALENDAR_EVENTS_SCOPE,
+  requestCalendarCode,
+} from "../../lib/google-signin.ts";
 import { Button, SettingGroup, SettingRow, Select, Toggle } from "../../components/index.ts";
 import { useSettings } from "./useSettings.ts";
 
@@ -26,6 +31,7 @@ const REMINDER_CHOICES = [
 export function CalendarSection() {
   const { settings, update, isSaving } = useSettings();
   const data = useData();
+  const { authApi } = useServices();
   const queryClient = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -43,9 +49,64 @@ export function CalendarSection() {
     onError: () => setNotice("Couldn't queue the resync. Try again."),
   });
 
+  const isInsufficientScope = (e: unknown): boolean =>
+    e instanceof Error && e.message.includes("reconnect-required");
+
+  /**
+   * Making the dedicated calendar, including consent if the grant is
+   * too narrow — the same shape `AvailabilitySection` uses for the
+   * freebusy grant, and for the same reason.
+   *
+   * `POST /calendars` is permitted by none of the scopes connecting
+   * asks for, so this feature could never succeed on a first attempt.
+   * The old handler caught that 409 and told the user to "disconnect
+   * and reconnect", but reconnecting re-requests `calendar.events`, so
+   * the next attempt failed identically and the advice was a circle.
+   *
+   * Asking for `calendar.app.created` is the actual fix, and it is
+   * asked for HERE rather than added to the connect flow because it is
+   * only needed by users who want a separate calendar — bundling it
+   * into connecting would show every user a broader consent screen for
+   * a feature most never touch.
+   */
   const dedicated = useMutation({
-    mutationFn: () => data.createDedicatedCalendar(),
-    onSuccess: (result) => {
+    mutationFn: async () => {
+      try {
+        return { outcome: "created" as const, result: await data.createDedicatedCalendar() };
+      } catch (e) {
+        if (!isInsufficientScope(e)) throw e;
+      }
+
+      const { googleClientId } = await authApi.getConfig();
+      if (googleClientId === "") return { outcome: "unavailable" as const };
+
+      const code = await requestCalendarCode(googleClientId, [
+        CALENDAR_EVENTS_SCOPE,
+        CALENDAR_APP_CREATED_SCOPE,
+      ]);
+      await data.connectCalendar(code);
+
+      // Verify rather than assume, for the reason AvailabilitySection
+      // gives: a consent screen can be dismissed with a partial grant,
+      // and a second `reconnect-required` means exactly that. Retried
+      // once and only once — a loop here is the bug this replaces.
+      try {
+        return { outcome: "created" as const, result: await data.createDedicatedCalendar() };
+      } catch (e) {
+        if (isInsufficientScope(e)) return { outcome: "declined" as const };
+        throw e;
+      }
+    },
+    onSuccess: (outcome) => {
+      if (outcome.outcome !== "created") {
+        setNotice(
+          outcome.outcome === "declined"
+            ? "Permission to create a calendar wasn't granted, so nothing changed. Your gigs still go to the calendar you're using now."
+            : "Couldn't reach Google just now. Nothing changed; try again in a moment.",
+        );
+        return;
+      }
+      const { result } = outcome;
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       setNotice(
         result.failed > 0
@@ -53,12 +114,7 @@ export function CalendarSection() {
           : `Created. Your gigs will appear on the new "Gigsy" calendar; ${result.removed} old event(s) were removed from the previous one.`,
       );
     },
-    onError: (e) =>
-      setNotice(
-        e instanceof Error && e.message.includes("reconnect-required")
-          ? "Google needs broader permission to create a calendar. Disconnect and reconnect, then try again."
-          : "Couldn't create the calendar.",
-      ),
+    onError: () => setNotice("Couldn't create the calendar."),
   });
 
   if (settings === undefined) return null;
