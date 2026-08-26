@@ -8,6 +8,15 @@
  * B has none, so B cannot later adopt A. No traversal, no recursive
  * query, no cycle detection. The one cycle it does NOT catch is a gig
  * naming itself, which is why rule 4 exists separately.
+ *
+ * Rules 5 and 6 are the same two rules read from BELOW, and both cover
+ * holes a review proved against a live D1: rule 3 stops a gig pointing
+ * AT a parented gig but let a gig that already had follow-ups acquire
+ * a parent (a two-level chain, through the picker's own offering), and
+ * rule 2 held when a link was made but not afterward, so moving a
+ * PARENT to another client falsified it in stored data via a write
+ * that named no parent at all. Every case below is asserted at both
+ * doors, on the message and not just the status.
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { env } from "cloudflare:test";
@@ -25,6 +34,7 @@ const OTHER_CLIENT = "cb000000-0000-4000-8000-000000000003"; // Bravo
 const NO_CLIENT_A = "cb000000-0000-4000-8000-000000000004";
 const NO_CLIENT_B = "cb000000-0000-4000-8000-000000000005";
 const FOREIGN = "cb000000-0000-4000-8000-000000000006";  // belongs to U2
+const SIBLING = "cb000000-0000-4000-8000-000000000007";  // Acme, no parent
 
 /**
  * One sync op, through POST /api/sync.
@@ -64,6 +74,7 @@ beforeAll(async () => {
     parentGigId: TOP,
   });
   await api(U1, "PUT", `/api/gigs/${OTHER_CLIENT}`, { clientId: BRAVO, status: "lead" });
+  await api(U1, "PUT", `/api/gigs/${SIBLING}`, { clientId: ACME, status: "lead" });
   await api(U1, "PUT", `/api/gigs/${NO_CLIENT_A}`, { status: "lead" });
   await api(U1, "PUT", `/api/gigs/${NO_CLIENT_B}`, { status: "lead" });
   await api(U2, "PUT", `/api/gigs/${FOREIGN}`, { status: "lead" });
@@ -141,6 +152,48 @@ describe("parent rules — CRUD route", () => {
       "parentGigId does not reference the same client",
     );
   });
+
+  // Rule 5. TOP already has CHILD, so TOP taking a parent of its own
+  // would store CHILD -> TOP -> SIBLING: the two-level chain rule 3
+  // was believed to prevent and does not, because rule 3 only ever
+  // looks at the parent a write NAMES.
+  it("refuses a parent for a gig that already has follow-ups", async () => {
+    const res = await api(U1, "PUT", `/api/gigs/${TOP}`, {
+      clientId: ACME,
+      status: "confirmed",
+      parentGigId: SIBLING,
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "a gig with follow-ups cannot have a parent of its own",
+    );
+  });
+
+  // Rule 6. This write names no parent at all, which is exactly why the
+  // old null-parent early return made it invisible — and it would have
+  // left CHILD (Acme) pointing at a gig that had moved to Bravo.
+  it("refuses moving a gig to another client while follow-ups point at it", async () => {
+    const res = await api(U1, "PUT", `/api/gigs/${TOP}`, {
+      clientId: BRAVO,
+      status: "confirmed",
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "clientId does not match the follow-ups of this gig",
+    );
+  });
+
+  // The other side of rule 6: a gig with follow-ups is still perfectly
+  // editable, so long as the edit does not strand them.
+  it("allows editing a gig with follow-ups when the client is unchanged", async () => {
+    const res = await api(U1, "PUT", `/api/gigs/${TOP}`, {
+      clientId: ACME,
+      status: "delivered",
+      location: "Rehearsal room",
+    });
+    expect(res.status).toBeLessThan(300);
+    expect(((await res.json()) as { status: string }).status).toBe("delivered");
+  });
 });
 
 describe("parent rules — sync door, byte-identical messages", () => {
@@ -186,11 +239,39 @@ describe("parent rules — sync door, byte-identical messages", () => {
     expect(r.error).toBe("a gig cannot be its own parent");
   });
 
+  it("refuses a parent for a gig that already has follow-ups", async () => {
+    const r = await syncGig(U1, TOP, {
+      clientId: ACME,
+      status: "confirmed",
+      parentGigId: SIBLING,
+    });
+    expect(r.status).toBe("error");
+    expect(r.error).toBe("a gig with follow-ups cannot have a parent of its own");
+  });
+
+  it("refuses moving a gig to another client while follow-ups point at it", async () => {
+    const r = await syncGig(U1, TOP, { clientId: BRAVO, status: "confirmed" });
+    expect(r.status).toBe("error");
+    expect(r.error).toBe("clientId does not match the follow-ups of this gig");
+  });
+
   it("accepts a legitimate link", async () => {
     const r = await syncGig(U1, `${S}5`, {
       clientId: ACME,
       status: "lead",
       parentGigId: TOP,
+    });
+    expect(r.status).not.toBe("error");
+  });
+
+  // Rule 2's both-null allowance, which the CRUD door covers at its own
+  // "allows two client-less gigs to link" and this door did not. NO_CLIENT_B
+  // is the client-less parent; both ends null must read as the same client
+  // here too, or the doors have drifted.
+  it("allows two client-less gigs to link", async () => {
+    const r = await syncGig(U1, `${S}6`, {
+      status: "lead",
+      parentGigId: NO_CLIENT_B,
     });
     expect(r.status).not.toBe("error");
   });
