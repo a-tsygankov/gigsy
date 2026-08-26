@@ -44,6 +44,21 @@ export default defineConfig({
       // fixture now asks for 60s inside this 90s, so a genuine
       // hydration failure reports itself rather than the test clock.
       timeout: 90_000,
+      // …and a matching budget for the assertions INSIDE that timeout.
+      //
+      // Raising the test timeout alone was an incomplete fix. Playwright's
+      // default `expect` timeout is 5s and nothing here overrode it, so
+      // every bare `toBeVisible()` in this project still had five seconds
+      // to survive the same two cold starts the 90s exists for —
+      // `reachability.spec.ts` alone has eleven. Reproduced locally: on
+      // the first run against a freshly started dev server it failed at
+      // `settings-help`, `Timeout: 5000ms`, then passed three times in a
+      // row once warm.
+      //
+      // 15s is well inside the 90s test timeout, so a genuine failure
+      // still reports itself as the assertion that failed rather than as
+      // the test clock running out.
+      expect: { timeout: 15_000 },
     },
   ],
 });

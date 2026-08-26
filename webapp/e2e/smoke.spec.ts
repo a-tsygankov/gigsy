@@ -37,7 +37,15 @@ test("login screen shows a sign-in path (button or config notice)", async ({
   // can't be on the OAuth client's authorized list (no wildcards).
   const unconfigured = page.getByTestId("login-unconfigured");
   const gisIframe = page.getByTestId("google-button-host").locator("iframe");
-  await expect(unconfigured.or(gisIframe)).toBeAttached();
+  // 20s, not the 5s default: the configured branch of this `or` is an
+  // iframe mounted by Google's own remote script
+  // (accounts.google.com/gsi/client). Everything else in this suite
+  // waits on localhost; this one waits on a third party over the
+  // network, and on a cold CI runner it does not always arrive inside
+  // five seconds. It failed exactly that way on all three attempts of
+  // one run and passed on a plain re-run, which is the signature of a
+  // budget that is too tight rather than a broken app.
+  await expect(unconfigured.or(gisIframe)).toBeAttached({ timeout: 20_000 });
 });
 
 test("tab bar is hidden while signed out", async ({ page }) => {
