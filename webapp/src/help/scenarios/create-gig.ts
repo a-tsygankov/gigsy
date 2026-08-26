@@ -38,6 +38,17 @@ import type { HelpScenario } from "../types.ts";
  * used to be the exception is on the hub now — so every target below
  * resolves on the empty form as well as on a saved one.
  *
+ * The "Part of" picker resolves here like the rest, with one thing
+ * about it that does not: it is `disabled` when the gig being edited
+ * already has follow-ups of its own, and a `gig-parent-blocked` line
+ * explains why (GigEdit.tsx's fifth rule). Neither state is reachable
+ * from `/gigs/new` — `hasChildren` asks which gigs point at THIS id and
+ * a gig that is not saved has none — so the picker is always enabled
+ * for this walk and there is no step for that line, on the same
+ * "targets a highlight-only walk can never resolve" grounds as
+ * `GigRate` below. `find-a-payment` and `record-work` cover the parts
+ * of a saved gig this form cannot.
+ *
  * One conditional IS on screen here: the form shows Offered ($) or Rate
  * ($ per hour) depending on `form.payType` (GigEdit.tsx). That still
  * isn't a second state for this scenario to branch on, because the form
@@ -81,6 +92,13 @@ export const createGig: HelpScenario = {
       title: "Client",
       description:
         "Who the work is for. Leaving it on \"No client\" is fine — the gig still saves — but a client is what groups this gig with the rest of their work in Reports, and what the list falls back to for a name.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigParentSelect,
+      title: "Part of",
+      description:
+        "For a job that came out of another one — a follow-up they booked off the back of it, or one engagement you are tracking as several separate jobs. It is grouping and nothing else: linked gigs keep their own status, their own money and their own expenses, and none of it is shared or inherited. The list only offers gigs belonging to the same client as the one picked above (or, with no client, other gigs with no client), and never one that is already part of something itself — links stay one level deep, so there are no chains to get lost in. Leave it on \"Not part of anything\" unless it earns its place.",
     },
     {
       action: "highlight",
