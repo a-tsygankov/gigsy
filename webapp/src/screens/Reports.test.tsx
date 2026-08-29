@@ -24,4 +24,12 @@ describe("invoiceHref", () => {
   it("escapes a client id rather than trusting it in a query string", () => {
     expect(invoiceHref("a b&c", 1, {})).toBe("/reports/invoice?client=a+b%26c&n=1");
   });
+
+  it("keeps a bound of 0, which a truthiness check would drop", () => {
+    expect(invoiceHref("c1", 1, { from: 0 })).toBe("/reports/invoice?client=c1&n=1&from=0");
+  });
+
+  it("carries a `to` bound on its own", () => {
+    expect(invoiceHref("c1", 1, { to: 200 })).toBe("/reports/invoice?client=c1&n=1&to=200");
+  });
 });

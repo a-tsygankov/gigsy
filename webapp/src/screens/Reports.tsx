@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useData, useSyncState } from "../lib/app-context.tsx";
@@ -128,6 +128,13 @@ export function Reports() {
   // against a second click allocating a second number while the first
   // write is still in flight.
   const [invoiceCreating, setInvoiceCreating] = useState(false);
+  // `useNavigate`'s returned function does not deactivate on unmount —
+  // react-router's `activeRef` is set in a layout effect on mount and
+  // never reset — so a `navigate` that resolves after the user has
+  // left this screen would still fire and drag them back. This ref is
+  // the guard: it's true only while Reports is mounted.
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
 
   const clients = useQuery({ queryKey: ["clients"], queryFn: () => data.listClients() });
 
@@ -186,16 +193,19 @@ export function Reports() {
   async function createInvoice() {
     if (clientId === "" || settings === undefined) return;
     setInvoiceCreating(true);
+    setInvoiceError(false);
     try {
-      // Loaded here rather than from a query: this screen keeps no gig,
-      // service or expense query. `exportIncome` and `exportExpenses`
-      // each read the local ledger on demand, and this follows them, so
-      // the invoice sees exactly what the CSVs would.
-      const [gigList, serviceList, expenseList, clientList] = await Promise.all([
+      // Loaded here rather than from a query: gigs, services and
+      // expenses follow `exportIncome`/`exportExpenses`, which each
+      // read the local ledger on demand — this does too, so the
+      // invoice sees exactly what the CSVs would. The client NAME
+      // comes from the `clients` query above instead, since the filter
+      // already holds it; re-fetching the same list here would just
+      // duplicate that query's cache.
+      const [gigList, serviceList, expenseList] = await Promise.all([
         data.listGigs(),
         data.listServices(),
         data.listExpenses(),
-        data.listClients(),
       ]);
       const next = settings.invoiceNextNumber;
       const doc = buildInvoice({
@@ -203,7 +213,7 @@ export function Reports() {
         services: serviceList,
         expenses: expenseList,
         clientId,
-        clientName: clientList.find((c) => c.id === clientId)?.name ?? "",
+        clientName: clients.data?.find((c) => c.id === clientId)?.name ?? "",
         filters,
         business: {
           name: settings.businessName,
@@ -246,7 +256,9 @@ export function Reports() {
         setInvoiceError(true);
         return;
       }
-      navigate(invoiceHref(clientId, next, filters));
+      // Only navigate if this screen is still the one the user is
+      // looking at — see the `alive` ref above.
+      if (alive.current) navigate(invoiceHref(clientId, next, filters));
     } finally {
       setInvoiceCreating(false);
     }
@@ -304,6 +316,7 @@ export function Reports() {
             <Select
               data-testid="report-client"
               value={clientId}
+              disabled={invoiceCreating}
               onChange={(e) => {
                 setClientId(e.target.value);
                 setInvoiceEmpty(false);
