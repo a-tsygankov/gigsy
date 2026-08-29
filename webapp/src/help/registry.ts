@@ -7,6 +7,7 @@ import { captureReceipt } from "./scenarios/capture-receipt.ts";
 import { connectCalendar } from "./scenarios/connect-calendar.ts";
 import { createClient } from "./scenarios/create-client.ts";
 import { createGig } from "./scenarios/create-gig.ts";
+import { createInvoice } from "./scenarios/create-invoice.ts";
 import { setUpEmailCapture } from "./scenarios/email-capture.ts";
 import { findAGig } from "./scenarios/find-a-gig.ts";
 import { findAPayment } from "./scenarios/find-a-payment.ts";
@@ -36,6 +37,7 @@ export const helpScenarios: HelpScenario[] = [
   // this section should not contradict the screen it describes.
   createClient,
   findAPayment,
+  createInvoice,
   addExpense,
   // "Capture": the camera first, the email address second. The photo is
   // the route anyone can use immediately; forwarding needs a deployment
