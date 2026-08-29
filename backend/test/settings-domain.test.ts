@@ -63,6 +63,13 @@ describe("parseSettings", () => {
       // Off until the user knowingly grants the wider scope. Reading
       // someone's calendar is not a default.
       availabilityUseCalendar: false,
+      businessName: null,
+      businessAddress: null,
+      businessContact: null,
+      businessTaxId: null,
+      businessPaymentDetails: null,
+      invoiceNextNumber: 1,
+      invoicePaymentTermsDays: 14,
     });
   });
 
@@ -108,6 +115,20 @@ describe("parseSettings", () => {
 
     expect(settings.currency).toBe("GBP");
     expect(settings).not.toHaveProperty("retiredSetting");
+  });
+
+  it("bounds the invoice fields a user can type into", () => {
+    // These print onto a document that leaves the building, and the
+    // counter feeds a number that must never repeat. A string long
+    // enough to break the layout, or a zero counter, is a client bug
+    // the server should refuse rather than store.
+    expect(SettingsPatchSchema.safeParse({ invoiceNextNumber: 0 }).success).toBe(false);
+    expect(SettingsPatchSchema.safeParse({ invoiceNextNumber: 1 }).success).toBe(true);
+    expect(SettingsPatchSchema.safeParse({ invoicePaymentTermsDays: 0 }).success).toBe(false);
+    expect(SettingsPatchSchema.safeParse({ invoicePaymentTermsDays: 14 }).success).toBe(true);
+    expect(SettingsPatchSchema.safeParse({ businessName: "x".repeat(121) }).success).toBe(false);
+    expect(SettingsPatchSchema.safeParse({ businessName: "Tsygankov Ltd" }).success).toBe(true);
+    expect(SettingsPatchSchema.safeParse({ businessAddress: null }).success).toBe(true);
   });
 });
 

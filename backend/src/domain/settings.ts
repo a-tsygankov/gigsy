@@ -174,6 +174,24 @@ export const SettingsSchema = z.object({
    * on Gigsy bookings alone, and the page says so.
    */
   availabilityUseCalendar: z.boolean().default(false),
+
+  // --- Invoicing (invoice-pdf spec, 2026-08-28) ---
+  // Identity printed on a document that leaves the building, so every
+  // one of these is bounded rather than merely typed: an unbounded
+  // string here is a layout break on somebody else's desk, not just a
+  // large row.
+  businessName: z.string().min(1).max(120).nullable().default(null),
+  businessAddress: z.string().min(1).max(400).nullable().default(null),
+  businessContact: z.string().min(1).max(200).nullable().default(null),
+  businessTaxId: z.string().min(1).max(60).nullable().default(null),
+  businessPaymentDetails: z.string().min(1).max(400).nullable().default(null),
+  /** The number the NEXT invoice will carry. Allocated and incremented
+   *  by the client when a document is opened, so gaps are ordinary —
+   *  an abandoned invoice burns one. Repeats are not ordinary, which is
+   *  why this is a stored counter and not derived from a count. */
+  invoiceNextNumber: z.number().int().min(1).default(1),
+  /** Days from issue to due, printed on the document. */
+  invoicePaymentTermsDays: z.number().int().min(1).max(365).default(14),
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;
