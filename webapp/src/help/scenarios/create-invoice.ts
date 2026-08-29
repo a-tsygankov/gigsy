@@ -25,12 +25,26 @@ import type { HelpScenario } from "../types.ts";
  * CI always takes `invoice-needs-client`. `help-runner.ts` performs
  * highlight steps without choosing anything, and a `select` step cannot
  * name a client id statically — they are per-account UUIDs. So the
- * navigate step, `invoice-document`, `invoice-total` and
- * `invoice-print` are PROSE in CI: rename one of those test ids and the
- * suite stays green. That is docs/help/README.md §6's category, and it
- * is recorded there too. `expectedCiBranches` is pinned so that the day
- * CI starts taking the other branch, the assertion fails and someone
- * looks at why.
+ * navigate step, `invoice-document` and `invoice-print` are PROSE in
+ * CI: rename one of those test ids and the suite stays green. That is
+ * docs/help/README.md §6's category, and it is recorded there too.
+ * `expectedCiBranches` is pinned so that the day CI starts taking the
+ * other branch, the assertion fails and someone looks at why.
+ *
+ * ── Why there is no step for the total ──
+ *
+ * `invoice-total` (Invoice.tsx) is absent whenever the document is
+ * empty — not just when the client has no unpaid work at all, but also
+ * when their only completed work in the period is unpriced. That
+ * second case is real and reachable from this very branch: it does not
+ * fail the button-side check in Reports.tsx (which only refuses to
+ * navigate when lines, expenses AND unpriced gigs are all empty), so
+ * it opens exactly this document with no total to spotlight. A step
+ * aiming at `invoice-total` would end that person's tour with "This
+ * help step is currently unavailable" — CI would never see it, because
+ * CI never reaches this branch at all. So the document step below
+ * carries what the total means as well as what the lines are, and
+ * there is no separate `invoice-total` target in targets.ts.
  */
 export const createInvoice: HelpScenario = {
   id: "create-invoice",
@@ -91,14 +105,7 @@ export const createInvoice: HelpScenario = {
               target: HelpTarget.InvoiceDocument,
               title: "What the client will see",
               description:
-                "Your business details at the top, theirs beneath, then a line for every unpaid gig — each billed for what is still owed on it, not the whole fee — with any extra services under their gig and reimbursable expenses after the work. Your payment details go at the bottom. Anything blank up there comes from Settings, under Business details.",
-            },
-            {
-              action: "highlight",
-              target: HelpTarget.InvoiceTotal,
-              title: "What they owe",
-              description:
-                "The sum of everything above it, which is exactly what this client still owes you for the period — a part-paid gig contributes only its remainder, so this figure never asks for money you have already had.",
+                "Your business details at the top, the client's beneath, then a line for every unpaid gig — each billed for what is still owed on it, not the whole fee — with any extra services under their gig and reimbursable expenses after the work. The total at the bottom is exactly what this client still owes for the period, so a part-paid gig contributes only its remainder and you never ask twice for money you have already had. Anything blank up there comes from Settings, under Business details.",
             },
             {
               action: "highlight",

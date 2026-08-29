@@ -280,8 +280,12 @@ export const HelpTarget = {
   // loading, which is what `no-gigs-yet` was fixed for.
   InvoiceNeedsClient: element("invoice-needs-client"),
   InvoiceCreate: element("invoice-create"),
+  // No `InvoiceTotal` entry: invoice-total (Invoice.tsx) is absent
+  // whenever the document is empty, including the real case of a
+  // client whose only completed work in the period is unpriced — see
+  // scenarios/create-invoice.ts's header for why that rules out a step
+  // pointing at it.
   InvoiceDocument: element("invoice-document"),
-  InvoiceTotal: element("invoice-total"),
   InvoicePrint: element("invoice-print"),
 } as const;
 
