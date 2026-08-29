@@ -14,8 +14,10 @@ describe("invoiceHref", () => {
   });
 
   it("omits bounds that are not set, rather than sending empty ones", () => {
-    // `?from=` would parse to NaN on the other side and silently drop
-    // every dated gig.
+    // `?from=` would parse to 0 on the other side (`Number("") === 0`,
+    // not `NaN`) — a real, silently-wrong bound rather than an absent
+    // one, which for `to=0` empties the invoice outright since every
+    // real gig postdates epoch 0.
     expect(invoiceHref("c1", 1, 1000, { from: 100 })).toBe(
       "/reports/invoice?client=c1&n=1&issued=1000&from=100",
     );
