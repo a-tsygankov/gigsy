@@ -267,6 +267,26 @@ export const HelpTarget = {
   // `className="hidden"`. It cannot be spotlighted, and driving it would
   // mean a help scenario uploading a file — see scenarios/capture.ts.
   CaptureStart: element("capture-start"),
+
+  // ── the report filters (Reports.tsx) ──
+  ReportRange: element("report-range"),
+  ReportClient: element("report-client"),
+
+  // ── invoicing (Reports.tsx, Invoice.tsx) ──
+  // `invoice-needs-client` is the hint that replaces the button while
+  // the client filter is on "All clients". A branch reads IT rather
+  // than the button's disabled state, because a help condition must
+  // read something PRESENT — an absence is also true while a screen is
+  // loading, which is what `no-gigs-yet` was fixed for.
+  InvoiceNeedsClient: element("invoice-needs-client"),
+  InvoiceCreate: element("invoice-create"),
+  // No `InvoiceTotal` entry: invoice-total (Invoice.tsx) is absent
+  // whenever the document is empty, including the real case of a
+  // client whose only completed work in the period is unpriced — see
+  // scenarios/create-invoice.ts's header for why that rules out a step
+  // pointing at it.
+  InvoiceDocument: element("invoice-document"),
+  InvoicePrint: element("invoice-print"),
 } as const;
 
 export type WeekdayIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6;

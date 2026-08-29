@@ -52,6 +52,11 @@ export function useSettings() {
     isLoading: query.isLoading,
     loadError: query.error,
     update: (patch: SettingsPatch) => mutation.mutate(patch),
+    /** Like `update`, but awaitable and rejecting. For the one caller
+     *  that must not proceed unless the write actually landed: the
+     *  invoice number is printed on a document, so a rolled-back
+     *  counter would be reused. */
+    updateAsync: (patch: SettingsPatch) => mutation.mutateAsync(patch),
     isSaving: mutation.isPending,
     saveError: mutation.error,
   };

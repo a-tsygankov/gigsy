@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { useData, useSyncState } from "../lib/app-context.tsx";
 import type { ReportFilters } from "../lib/types.ts";
 import { formatMoney } from "../lib/format.ts";
 import { toCsv, downloadCsv } from "../lib/csv.ts";
+import { buildInvoice, formatInvoiceNumber } from "../lib/invoice.ts";
 import {
   EXPENSE_HEADERS,
   INCOME_HEADERS,
@@ -25,6 +27,7 @@ import {
   Select,
   Tile,
 } from "../components/index.ts";
+import { useSettings } from "./settings/useSettings.ts";
 
 /** Preset ranges. Date pickers are the slowest control on a phone, so
  * the common tax windows are one tap; "custom" reveals the inputs. */
@@ -67,6 +70,30 @@ function dayBound(value: string, edge: "start" | "end"): number | undefined {
     : new Date(y, mo, d, 23, 59, 59, 999).getTime();
 }
 
+/** Where the Create invoice button goes. Exported for its own test —
+ *  a wrong query string here is a silently empty invoice, not a crash. */
+export function invoiceHref(
+  clientId: string,
+  number: number,
+  issuedAt: number,
+  filters: { from?: number; to?: number },
+): string {
+  const params = new URLSearchParams({
+    client: clientId,
+    n: String(number),
+    // The issue date belongs in the URL, not to the page view.
+    // Everything else about this document is fixed by the link, and the
+    // number certainly is — so without this, reopening the same link
+    // tomorrow prints INV-0007 with a different issue AND due date than
+    // the INV-0007 already on somebody's desk. Nothing is stored, so
+    // the URL is the document's only identity.
+    issued: String(issuedAt),
+  });
+  if (filters.from !== undefined) params.set("from", String(filters.from));
+  if (filters.to !== undefined) params.set("to", String(filters.to));
+  return `/reports/invoice?${params.toString()}`;
+}
+
 function MoneyRow({ label, sub, value, tone }: {
   label: string;
   sub: string;
@@ -97,11 +124,28 @@ export function Reports() {
   const data = useData();
   const sync = useSyncState();
   const offline = sync !== null && !sync.online;
+  const navigate = useNavigate();
+  const { settings, updateAsync } = useSettings();
 
   const [rangeKey, setRangeKey] = useState<RangeKey>("ytd");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [clientId, setClientId] = useState("");
+  const [invoiceEmpty, setInvoiceEmpty] = useState(false);
+  const [invoiceError, setInvoiceError] = useState(false);
+  // Create invoice awaits a network round trip (the number allocation)
+  // before navigating, so the button needs to visibly do something on a
+  // slow connection instead of looking dead — and this also guards
+  // against a second click allocating a second number while the first
+  // write is still in flight.
+  const [invoiceCreating, setInvoiceCreating] = useState(false);
+  // `useNavigate`'s returned function does not deactivate on unmount —
+  // react-router's `activeRef` is set in a layout effect on mount and
+  // never reset — so a `navigate` that resolves after the user has
+  // left this screen would still fire and drag them back. This ref is
+  // the guard: it's true only while Reports is mounted.
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
 
   const clients = useQuery({ queryKey: ["clients"], queryFn: () => data.listClients() });
 
@@ -147,6 +191,90 @@ export function Reports() {
       `gigsy-expenses-${stamp()}.csv`,
       toCsv(EXPENSE_HEADERS, expenseRows(expenses, gigs, clientList, filters)),
     );
+  }
+
+  /** Allocate a number and open the document.
+   *
+   *  Allocating on the click, not in an effect on the invoice route:
+   *  StrictMode double-invokes effects in development, so an allocating
+   *  effect burns two numbers per open. A handler runs once.
+   *
+   *  Nothing is allocated for an invoice with no lines — the counter is
+   *  only spent on a document that exists. */
+  async function createInvoice() {
+    if (clientId === "" || settings === undefined) return;
+    setInvoiceCreating(true);
+    setInvoiceError(false);
+    try {
+      // Loaded here rather than from a query: gigs, services and
+      // expenses follow `exportIncome`/`exportExpenses`, which each
+      // read the local ledger on demand — this does too, so the
+      // invoice sees exactly what the CSVs would. The client NAME
+      // comes from the `clients` query above instead, since the filter
+      // already holds it; re-fetching the same list here would just
+      // duplicate that query's cache.
+      const [gigList, serviceList, expenseList] = await Promise.all([
+        data.listGigs(),
+        data.listServices(),
+        data.listExpenses(),
+      ]);
+      const next = settings.invoiceNextNumber;
+      // Captured once, here, and carried in the URL — see `invoiceHref`.
+      const issuedAt = Date.now();
+      const doc = buildInvoice({
+        gigs: gigList,
+        services: serviceList,
+        expenses: expenseList,
+        clientId,
+        clientName: clients.data?.find((c) => c.id === clientId)?.name ?? "",
+        filters,
+        business: {
+          name: settings.businessName,
+          address: settings.businessAddress,
+          contact: settings.businessContact,
+          taxId: settings.businessTaxId,
+          paymentDetails: settings.businessPaymentDetails,
+        },
+        number: formatInvoiceNumber(next),
+        issuedAt,
+        termsDays: settings.invoicePaymentTermsDays,
+      });
+      // "Nothing to bill" and "nothing we could price" are different
+      // answers, and only the first should refuse to open a document. A
+      // client whose only qualifying work is unpriced still deserves the
+      // page that tells them so — refusing here would hide the warning
+      // behind an empty state that says the opposite.
+      if (
+        doc.lines.length === 0 &&
+        doc.expenses.length === 0 &&
+        doc.unpricedGigs.length === 0
+      ) {
+        setInvoiceEmpty(true);
+        return;
+      }
+      setInvoiceEmpty(false);
+      // Await the write, and do not open the document if it failed.
+      //
+      // `updateSettings` is NOT in the offline outbox — data-service.ts
+      // forwards it straight to the API — while the invoice itself builds
+      // from the local ledger and would render happily offline. Fire and
+      // forget would therefore print a number, have the PATCH reject, and
+      // let `useSettings`'s `onError` roll the counter back, so the NEXT
+      // invoice reuses a number already on somebody's desk. Gaps in a
+      // sequence are ordinary; repeats are the one thing this counter
+      // exists to prevent.
+      try {
+        await updateAsync({ invoiceNextNumber: next + 1 });
+      } catch {
+        setInvoiceError(true);
+        return;
+      }
+      // Only navigate if this screen is still the one the user is
+      // looking at — see the `alive` ref above.
+      if (alive.current) navigate(invoiceHref(clientId, next, issuedAt, filters));
+    } finally {
+      setInvoiceCreating(false);
+    }
   }
 
   function exportSummary() {
@@ -201,7 +329,12 @@ export function Reports() {
             <Select
               data-testid="report-client"
               value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
+              disabled={invoiceCreating}
+              onChange={(e) => {
+                setClientId(e.target.value);
+                setInvoiceEmpty(false);
+                setInvoiceError(false);
+              }}
             >
               <option value="">All clients</option>
               {clients.data?.map((c) => (
@@ -304,6 +437,40 @@ export function Reports() {
             </section>
           </>
         )}
+
+        <section data-testid="report-invoice">
+          <SectionHeading>Invoice</SectionHeading>
+          {clientId === "" ? (
+            <p className="text-sm text-slate-600" data-testid="invoice-needs-client">
+              An invoice is addressed to one client. Choose one above and it will
+              cover their unpaid work in the period selected.
+            </p>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                block
+                data-testid="invoice-create"
+                disabled={settings === undefined || invoiceCreating}
+                onClick={() => void createInvoice()}
+              >
+                {invoiceCreating ? "Creating…" : "Create invoice"}
+              </Button>
+              {invoiceEmpty && (
+                <p className="mt-2 text-sm text-slate-600" data-testid="invoice-empty">
+                  Nothing to invoice — this client has no unpaid work in the period
+                  selected.
+                </p>
+              )}
+              {invoiceError && (
+                <p className="mt-2 text-sm text-red-600" data-testid="invoice-error">
+                  Couldn't reserve an invoice number — you may be offline. The
+                  document wasn't created, so nothing has been used up.
+                </p>
+              )}
+            </>
+          )}
+        </section>
 
         <section data-testid="report-exports">
           <SectionHeading>Export</SectionHeading>

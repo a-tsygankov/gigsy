@@ -51,6 +51,18 @@ export interface Settings {
   /** Read the user's Google Calendar too. Off unless they granted the
    *  wider scope knowingly; the page says which basis it used. */
   availabilityUseCalendar: boolean;
+
+  // --- Invoicing ---
+  // Mirrors backend/src/domain/settings.ts. The server bounds these;
+  // this side only needs their shape.
+  businessName: string | null;
+  businessAddress: string | null;
+  businessContact: string | null;
+  businessTaxId: string | null;
+  businessPaymentDetails: string | null;
+  /** The number the NEXT invoice will carry. */
+  invoiceNextNumber: number;
+  invoicePaymentTermsDays: number;
 }
 
 export type SettingsPatch = Partial<Settings>;

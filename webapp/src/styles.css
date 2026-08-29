@@ -17,6 +17,7 @@
  * should win. */
 @import "./styles/tokens/shadcn.css";
 @import "./styles/help.css";
+@import "./styles/print.css";
 
 @tailwind base;
 @tailwind components;

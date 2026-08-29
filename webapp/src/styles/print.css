@@ -1,0 +1,66 @@
+/*
+ * What the browser prints.
+ *
+ * The invoice PDF is the browser's own, so this file IS the export
+ * format. Everything that is app rather than document has to go: the
+ * header, the tab bar, the Print button that started the print, and
+ * any app-root overlay that can be showing regardless of route.
+ *
+ * Scoped to @media print, so it costs nothing at runtime and cannot
+ * affect the screen.
+ */
+@media print {
+  /* App chrome. Each of these is a fixture of every screen; on paper
+     they are furniture around a document nobody asked to print.
+     `header` by element rather than by test id: AppHeader.tsx (line 29)
+     carries none, and adding one purely so a stylesheet can find it
+     would be a test hook masquerading as markup. `tab-bar` is
+     TabBar.tsx's own test id. */
+  header,
+  [data-testid="tab-bar"],
+  [data-testid="invoice-print"] {
+    display: none !important;
+  }
+
+  /* App-root overlays: UpdateBar, HelpSheet, HelpUnavailableBanner and
+     HiddenConsole are all mounted above <Routes> in App.tsx (or, for
+     the console, in ConsoleProvider which wraps it), so none of them
+     is gated on the current route — every one of them can be showing
+     while the Invoice screen is open, not just while browsing it.
+     window.print() can also be triggered by Ctrl/Cmd+P rather than the
+     page's own button, so a document printed with one of these open
+     must not carry a floating update prompt, a help sheet, a failure
+     banner, or a debug console over or under it. */
+  [data-testid="update-bar"],
+  [data-testid="help-sheet"],
+  [data-testid="help-unavailable"],
+  [data-testid="hidden-console"] {
+    display: none !important;
+  }
+
+  /* The document should own the page: no app background, no rounded
+     card edges, no shadow — all of which print as grey boxes. */
+  body {
+    background: #fff !important;
+  }
+
+  /* Card.tsx (webapp/src/components/Card.tsx) builds every card's
+     className from literal Tailwind utility strings — "rounded-xl"
+     and, outside `dense`, "shadow-sm" — so these attribute selectors
+     match the class names actually rendered inside the document. */
+  [data-testid="invoice-document"] [class*="rounded"],
+  [data-testid="invoice-document"] [class*="shadow"] {
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* A line item split across a page break is unreadable on the desk of
+     whoever has to check it. */
+  [data-testid="invoice-lines"] tr {
+    break-inside: avoid;
+  }
+
+  @page {
+    margin: 16mm;
+  }
+}

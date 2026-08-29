@@ -13,6 +13,7 @@ import { AppHeader, Button, Card, SectionHeading } from "../components/index.ts"
 import { AppearanceSection } from "./settings/AppearanceSection.tsx";
 import { AvailabilitySection } from "./settings/AvailabilitySection.tsx";
 import { AvailabilityLinkSection } from "./settings/AvailabilityLinkSection.tsx";
+import { BusinessSection } from "./settings/BusinessSection.tsx";
 import { CalendarSection } from "./settings/CalendarSection.tsx";
 import { CaptureSection } from "./settings/CaptureSection.tsx";
 import { GigDefaultsSection } from "./settings/GigDefaultsSection.tsx";
@@ -217,6 +218,7 @@ export function Settings() {
           <>
             <CalendarSection />
             <GigDefaultsSection />
+            <BusinessSection />
             <NudgeSection />
           </>
         )}
