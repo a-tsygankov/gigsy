@@ -131,6 +131,18 @@ describe("buildInvoice — which gigs become lines", () => {
   });
 });
 
+describe("buildInvoice — line descriptions", () => {
+  it("derives a titleless gig's description from its notes, not a blank line", () => {
+    // gigDisplayTitle (gig-title.ts) falls back title → first non-blank
+    // line of notes → client name. Checked against its real behaviour,
+    // not assumed: this asserts the notes fallback specifically.
+    const doc = build({
+      gigs: [gig({ title: null, notes: "Tasting menu prep\nExtra detail below" })],
+    });
+    expect(doc.lines[0]?.description).toBe("Tasting menu prep");
+  });
+});
+
 describe("buildInvoice — services", () => {
   it("bills a service's own remainder under its gig", () => {
     const doc = build({ services: [service({ amountPaidCents: 1000 })] });
@@ -175,13 +187,31 @@ describe("buildInvoice — reimbursable expenses", () => {
     expect(build({ expenses: [expense({ gigId: null })] }).expenses).toEqual([]);
   });
 
-  it("dates an expense by its gig, falling back to when it was recorded", () => {
+  it("dates an expense by its gig when the gig has a date, not by when it was recorded", () => {
+    // The filter window brackets the gig's date but not the expense's
+    // own `createdAt` (90 days later) — the expense is included, and
+    // dated JAN, only because dating prefers the gig's date.
     const doc = build({
       gigs: [gig({ dateTime: JAN })],
       expenses: [expense({ createdAt: JAN + 90 * DAY })],
       filters: { from: JAN - DAY, to: JAN + DAY },
     });
     expect(doc.expenses).toHaveLength(1);
+    expect(doc.expenses[0]?.date).toBe(JAN);
+  });
+
+  it("falls back to when the expense was recorded, when its gig has no date", () => {
+    // The filter window brackets `createdAt` but not JAN (where the
+    // gig would sit if it had a date) — the expense is included only
+    // because a dateless gig makes dating fall back to `createdAt`.
+    const recordedAt = JAN + 5 * DAY;
+    const doc = build({
+      gigs: [gig({ dateTime: null })],
+      expenses: [expense({ createdAt: recordedAt })],
+      filters: { from: JAN + 4 * DAY, to: JAN + 6 * DAY },
+    });
+    expect(doc.expenses).toHaveLength(1);
+    expect(doc.expenses[0]?.date).toBe(recordedAt);
   });
 
   it("bills a reimbursable expense even when its gig is settled", () => {

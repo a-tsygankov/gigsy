@@ -13,6 +13,7 @@
  */
 import { inRange } from "./report-export.ts";
 import { outstandingCents } from "./gig-pay.ts";
+import { gigDisplayTitle } from "./gig-title.ts";
 import type { Expense, Gig, ReportFilters, Service } from "./types.ts";
 
 export interface BusinessDetails {
@@ -95,7 +96,12 @@ export function buildInvoice(input: BuildInvoiceInput): InvoiceDocument {
       // gig through when there are no bounds at all — and then there is
       // nothing better to date the line by than when it was created.
       date: g.dateTime ?? g.createdAt,
-      description: g.title ?? "",
+      // Not `g.title` directly: a gig commonly has no title of its own
+      // (gig-title.ts), and a blank line item on a bill a client
+      // receives is worse than a wrong one — the reader cannot tell
+      // what they are being charged for. `gigDisplayTitle` falls back
+      // to the gig's notes, then to the client's own name.
+      description: gigDisplayTitle(g, clientName),
       amountCents: outstandingCents(g) ?? 0,
     });
     // A service whose gig is not on the invoice is skipped even when
@@ -131,6 +137,9 @@ export function buildInvoice(input: BuildInvoiceInput): InvoiceDocument {
       const gig = gigById.get(e.gigId!);
       return {
         date: gig?.dateTime ?? e.createdAt,
+        // "Expense", not expenseRows' "Uncategorized" — deliberately
+        // different wording, because the audience is: a client reading
+        // a bill, not a bookkeeper reading a spreadsheet.
         description: e.category ?? "Expense",
         amountCents: e.amountCents,
       };
