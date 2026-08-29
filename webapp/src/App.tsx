@@ -14,6 +14,7 @@ import { Money } from "./screens/Money.tsx";
 import { Payments } from "./screens/money/Payments.tsx";
 import { Expenses } from "./screens/Expenses.tsx";
 import { Reports } from "./screens/Reports.tsx";
+import { Invoice } from "./screens/Invoice.tsx";
 import { Settings } from "./screens/Settings.tsx";
 import { ExpenseEdit } from "./screens/ExpenseEdit.tsx";
 import { ServiceEdit } from "./screens/ServiceEdit.tsx";
@@ -76,6 +77,10 @@ export function App() {
             </Route>
             <Route path="/expenses/:id" element={<ExpenseEdit />} />
             <Route path="/reports" element={<Reports />} />
+            {/* A document, not a screen — see Invoice.tsx and
+                styles/print.css. Its inputs are in the query string so
+                it is refreshable and a legal `navigate` destination. */}
+            <Route path="/reports/invoice" element={<Invoice />} />
             <Route path="/settings" element={<Settings />} />
           </Route>
         </Routes>
