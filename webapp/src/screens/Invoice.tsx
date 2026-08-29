@@ -28,6 +28,7 @@ import { AppHeader, Button, Card, ListSkeleton } from "../components/index.ts";
 export interface InvoiceParams {
   clientId: string;
   number: number;
+  issuedAt: number;
   filters: ReportFilters;
 }
 
@@ -41,13 +42,20 @@ export function invoiceParams(search: URLSearchParams): InvoiceParams | null {
   const n = Number(search.get("n"));
   if (!Number.isInteger(n) || n < 1) return null;
 
+  // As strict as the number check above: a document printing "Invalid
+  // Date" is worse than a link that admits it is broken, and this is
+  // the field that fixes the issue date to the link — see the comment
+  // on `issuedAt` below.
+  const issuedAt = Number(search.get("issued"));
+  if (!Number.isInteger(issuedAt) || issuedAt <= 0) return null;
+
   const filters: ReportFilters = {};
   const from = Number(search.get("from"));
   const to = Number(search.get("to"));
   if (Number.isFinite(from) && search.get("from") !== null) filters.from = from;
   if (Number.isFinite(to) && search.get("to") !== null) filters.to = to;
 
-  return { clientId, number: n, filters };
+  return { clientId, number: n, issuedAt, filters };
 }
 
 /** The sentence above the list of gigs that could not be priced.
@@ -71,20 +79,6 @@ export function Invoice() {
   const services = useQuery({ queryKey: ["services"], queryFn: () => api.listServices() });
   const expenses = useQuery({ queryKey: ["expenses"], queryFn: () => api.listExpenses() });
   const clients = useQuery({ queryKey: ["clients"], queryFn: () => api.listClients() });
-
-  // Captured once per mount, not read fresh inside the memo below: the
-  // memo's own deps don't include time, so if `Date.now()` were called
-  // there directly it would still re-run — with a newer timestamp —
-  // every time a query resolves (gigs, then settings, then clients each
-  // land separately), shifting the printed issue date mid-session
-  // before anyone even prints. Stabilizing it here means one page view
-  // prints one issue date no matter how the queries interleave. It does
-  // NOT make the link itself replayable — the same URL opened tomorrow
-  // still stamps tomorrow's date, because the issue date is not part of
-  // the URL. Making this screen a pure function of its link end to end
-  // would need an `issued` query param threaded from Task 4's
-  // allocation step, which is out of scope here.
-  const issuedAt = useMemo(() => Date.now(), []);
 
   // Every field `buildInvoice` reads defaults harmlessly when a query
   // hasn't resolved yet (`gigs.data ?? []`, an empty client name), so
@@ -122,10 +116,16 @@ export function Invoice() {
         paymentDetails: settings.businessPaymentDetails,
       },
       number: formatInvoiceNumber(params.number),
-      issuedAt,
+      // From the URL, never `Date.now()`: the number, the issue date
+      // and the due date are all fixed by the link, and nothing about
+      // this invoice is stored — so the URL is its only identity.
+      // Reading the clock here would mean reopening the same link
+      // tomorrow prints the same number with a different issue and due
+      // date than the copy already on somebody's desk.
+      issuedAt: params.issuedAt,
       termsDays: settings.invoicePaymentTermsDays,
     });
-  }, [params, loading, settings, gigs.data, services.data, expenses.data, clients.data, issuedAt]);
+  }, [params, loading, settings, gigs.data, services.data, expenses.data, clients.data]);
 
   if (params === null) {
     return (

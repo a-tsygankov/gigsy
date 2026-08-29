@@ -75,9 +75,20 @@ function dayBound(value: string, edge: "start" | "end"): number | undefined {
 export function invoiceHref(
   clientId: string,
   number: number,
+  issuedAt: number,
   filters: { from?: number; to?: number },
 ): string {
-  const params = new URLSearchParams({ client: clientId, n: String(number) });
+  const params = new URLSearchParams({
+    client: clientId,
+    n: String(number),
+    // The issue date belongs in the URL, not to the page view.
+    // Everything else about this document is fixed by the link, and the
+    // number certainly is — so without this, reopening the same link
+    // tomorrow prints INV-0007 with a different issue AND due date than
+    // the INV-0007 already on somebody's desk. Nothing is stored, so
+    // the URL is the document's only identity.
+    issued: String(issuedAt),
+  });
   if (filters.from !== undefined) params.set("from", String(filters.from));
   if (filters.to !== undefined) params.set("to", String(filters.to));
   return `/reports/invoice?${params.toString()}`;
@@ -208,6 +219,8 @@ export function Reports() {
         data.listExpenses(),
       ]);
       const next = settings.invoiceNextNumber;
+      // Captured once, here, and carried in the URL — see `invoiceHref`.
+      const issuedAt = Date.now();
       const doc = buildInvoice({
         gigs: gigList,
         services: serviceList,
@@ -223,7 +236,7 @@ export function Reports() {
           paymentDetails: settings.businessPaymentDetails,
         },
         number: formatInvoiceNumber(next),
-        issuedAt: Date.now(),
+        issuedAt,
         termsDays: settings.invoicePaymentTermsDays,
       });
       // "Nothing to bill" and "nothing we could price" are different
@@ -258,7 +271,7 @@ export function Reports() {
       }
       // Only navigate if this screen is still the one the user is
       // looking at — see the `alive` ref above.
-      if (alive.current) navigate(invoiceHref(clientId, next, filters));
+      if (alive.current) navigate(invoiceHref(clientId, next, issuedAt, filters));
     } finally {
       setInvoiceCreating(false);
     }

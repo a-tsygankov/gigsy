@@ -3,18 +3,22 @@ import { describe, expect, it } from "vitest";
 import { invoiceParams, unpricedNotice } from "./Invoice.tsx";
 
 describe("invoiceParams", () => {
-  it("reads the client, the number and the bounds", () => {
-    expect(invoiceParams(new URLSearchParams("client=c1&n=7&from=100&to=200"))).toEqual({
+  it("reads the client, the number, the issue date and the bounds", () => {
+    expect(
+      invoiceParams(new URLSearchParams("client=c1&n=7&issued=1000&from=100&to=200")),
+    ).toEqual({
       clientId: "c1",
       number: 7,
+      issuedAt: 1000,
       filters: { from: 100, to: 200 },
     });
   });
 
   it("leaves bounds out when they are absent", () => {
-    expect(invoiceParams(new URLSearchParams("client=c1&n=7"))).toEqual({
+    expect(invoiceParams(new URLSearchParams("client=c1&n=7&issued=1000"))).toEqual({
       clientId: "c1",
       number: 7,
+      issuedAt: 1000,
       filters: {},
     });
   });
@@ -37,21 +41,33 @@ describe("invoiceParams", () => {
   });
 
   it("refuses a missing client rather than inventing one", () => {
-    expect(invoiceParams(new URLSearchParams("n=7"))).toBeNull();
+    expect(invoiceParams(new URLSearchParams("n=7&issued=1000"))).toBeNull();
   });
 
   it("refuses a number that is not a positive integer", () => {
     // A hand-edited URL must not print "INV-NaN" on a document that
     // gets sent to somebody.
-    expect(invoiceParams(new URLSearchParams("client=c1&n=x"))).toBeNull();
-    expect(invoiceParams(new URLSearchParams("client=c1&n=0"))).toBeNull();
-    expect(invoiceParams(new URLSearchParams("client=c1"))).toBeNull();
+    expect(invoiceParams(new URLSearchParams("client=c1&n=x&issued=1000"))).toBeNull();
+    expect(invoiceParams(new URLSearchParams("client=c1&n=0&issued=1000"))).toBeNull();
+    expect(invoiceParams(new URLSearchParams("client=c1&issued=1000"))).toBeNull();
+  });
+
+  it("refuses an issue date that is not a positive integer", () => {
+    // Same reasoning as the number check: a document printing "Invalid
+    // Date" is worse than a link that admits it is broken. The issue
+    // date fixes the document to the link (Task 4 stamps it once, at
+    // allocation), so a missing or nonsense one is refused the same way.
+    expect(invoiceParams(new URLSearchParams("client=c1&n=1"))).toBeNull();
+    expect(invoiceParams(new URLSearchParams("client=c1&n=1&issued=x"))).toBeNull();
+    expect(invoiceParams(new URLSearchParams("client=c1&n=1&issued=0"))).toBeNull();
+    expect(invoiceParams(new URLSearchParams("client=c1&n=1&issued=-5"))).toBeNull();
   });
 
   it("ignores a bound that is not a number", () => {
-    expect(invoiceParams(new URLSearchParams("client=c1&n=1&from=x"))).toEqual({
+    expect(invoiceParams(new URLSearchParams("client=c1&n=1&issued=1000&from=x"))).toEqual({
       clientId: "c1",
       number: 1,
+      issuedAt: 1000,
       filters: {},
     });
   });
