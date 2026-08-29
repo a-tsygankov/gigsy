@@ -221,8 +221,16 @@ Rename `push-toggle` (only reachable via `configure-notifications`'
 `set-up-email-capture`'s `capture-configured` branch) and `help:test`
 stays green: the guarding `target-visible` condition simply stops
 holding, the declared branch runs as usual, and nothing notices. Those
-targets are prose. If you touch a testid, grep `src/help/` for it
-yourself.
+targets are prose. `create-invoice` is the sharpest version of this: it
+needs a client selected, and the runner cannot select one — a `select`
+step names an option by value, and client ids are per-account UUIDs, not
+a missing environment variable a future deploy might set. So
+`expectedCiBranches` pins `invoice-needs-client` for good, and the
+navigate step onto `/reports/invoice`, plus `invoice-document` and
+`invoice-print` on the far side of it, are permanently prose — not
+merely prose until someone configures the environment differently, the
+way `push-toggle` and `capture-address-value` are. If you touch a
+testid, grep `src/help/` for it yourself.
 
 **What a step actually does.** `performAction` clicks and moves on; it
 asserts nothing about the result. `open-settings` clicks `settings-link`
