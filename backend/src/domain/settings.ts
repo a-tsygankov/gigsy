@@ -175,21 +175,27 @@ export const SettingsSchema = z.object({
    */
   availabilityUseCalendar: z.boolean().default(false),
 
-  // --- Invoicing (invoice-pdf spec, 2026-08-28) ---
-  // Identity printed on a document that leaves the building, so every
-  // one of these is bounded rather than merely typed: an unbounded
-  // string here is a layout break on somebody else's desk, not just a
-  // large row.
+  // --- Invoicing ---
+  // docs/superpowers/specs/2026-08-28-invoice-pdf-design.md
+  // Unbounded user text going into a JSON blob that every settings read
+  // parses, same as the rest of this file — bounded here for the same
+  // reason `availabilityDisplayName` and `gigListClientId` are above.
   businessName: z.string().min(1).max(120).nullable().default(null),
   businessAddress: z.string().min(1).max(400).nullable().default(null),
   businessContact: z.string().min(1).max(200).nullable().default(null),
-  businessTaxId: z.string().min(1).max(60).nullable().default(null),
-  businessPaymentDetails: z.string().min(1).max(400).nullable().default(null),
-  /** The number the NEXT invoice will carry. Allocated and incremented
-   *  by the client when a document is opened, so gaps are ordinary —
-   *  an abandoned invoice burns one. Repeats are not ordinary, which is
-   *  why this is a stored counter and not derived from a count. */
-  invoiceNextNumber: z.number().int().min(1).default(1),
+  businessTaxId: z.string().min(1).max(120).nullable().default(null),
+  businessPaymentDetails: z.string().min(1).max(600).nullable().default(null),
+  /** The number the NEXT invoice will carry. The client reads it,
+   *  prints it, and writes back n+1; the PATCH is an absolute set, not
+   *  an atomic increment, so this is monotonic only under one writer at
+   *  a time. Gaps are ordinary — an abandoned invoice burns one.
+   *  Repeats are possible: two devices allocating from the same cached
+   *  value, or a failed write rolling the counter back after the
+   *  document was printed. That is why this is editable in Settings —
+   *  the number is on the document, so the user can see it and correct
+   *  it. A server-side allocator is the fix if this ever stops being
+   *  one person's account. */
+  invoiceNextNumber: z.number().int().min(1).max(9_999_999).default(1),
   /** Days from issue to due, printed on the document. */
   invoicePaymentTermsDays: z.number().int().min(1).max(365).default(14),
 });
