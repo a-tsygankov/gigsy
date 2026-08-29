@@ -61,6 +61,16 @@ function type(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
 const blur = (el: HTMLElement) =>
   act(() => el.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
 
+const ALL_FIELD_IDS = [
+  "business-name",
+  "business-address",
+  "business-contact",
+  "business-taxid",
+  "business-payment",
+  "invoice-next-number",
+  "invoice-terms-days",
+];
+
 describe("BusinessSection", () => {
   it("renders nothing until settings have loaded", () => {
     settings = undefined;
@@ -75,9 +85,10 @@ describe("BusinessSection", () => {
   });
 
   it("patches a text field on blur, not on every keystroke", () => {
-    // A settings PATCH per character would queue a write per letter of
-    // an address. The rest of Settings uses selects and toggles, which
-    // have no such problem; free text is the first field here that does.
+    // Committing on change would queue a settings PATCH per character
+    // of an address; this and AvailabilitySection's name field are the
+    // only free-text controls on the screen, and both commit on blur
+    // for that reason.
     render();
     const name = field("business-name")!;
     type(name, "New Name");
@@ -94,5 +105,52 @@ describe("BusinessSection", () => {
     type(name, "");
     blur(name);
     expect(update).toHaveBeenCalledWith({ businessName: null });
+  });
+
+  it("does not write anything when a field is blurred untouched", () => {
+    // Tabbing through the whole section without editing anything used
+    // to fire one PATCH per field. Blurring every field here, with no
+    // typing in between, must produce zero writes.
+    render();
+    for (const id of ALL_FIELD_IDS) blur(field(id)!);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  describe("invoice-next-number", () => {
+    it("resets an emptied box without writing", () => {
+      render();
+      const box = field("invoice-next-number")!;
+      type(box, "");
+      blur(box);
+      expect(update).not.toHaveBeenCalled();
+      expect(box.value).toBe("7");
+    });
+
+    it("rejects an out-of-range value without writing", () => {
+      render();
+      const box = field("invoice-next-number")!;
+      type(box, "99999999");
+      blur(box);
+      expect(update).not.toHaveBeenCalled();
+      expect(box.value).toBe("7");
+    });
+
+    it("commits a valid value as a number, not the drafted string", () => {
+      render();
+      const box = field("invoice-next-number")!;
+      type(box, "12");
+      blur(box);
+      expect(update).toHaveBeenCalledWith({ invoiceNextNumber: 12 });
+    });
+  });
+
+  describe("invoice-terms-days", () => {
+    it("commits a valid value as a number", () => {
+      render();
+      const box = field("invoice-terms-days")!;
+      type(box, "30");
+      blur(box);
+      expect(update).toHaveBeenCalledWith({ invoicePaymentTermsDays: 30 });
+    });
   });
 });
