@@ -131,6 +131,36 @@ describe("buildInvoice — which gigs become lines", () => {
   });
 });
 
+describe("buildInvoice — unpriced gigs", () => {
+  // An hourly gig with no rate (and no server-derived expectedCents
+  // yet) has an UNKNOWN expected value, not a zero one — gig-pay.ts's
+  // outstandingCents returns null for it, not 0. Billing $0.00 would
+  // under-bill silently; buildInvoice instead leaves it off `lines`
+  // and reports it separately so nothing is quietly dropped.
+  const unpriced = () =>
+    gig({ payType: "hourly", amountOfferedCents: null, hourlyRateCents: null, expectedCents: null });
+
+  it("surfaces an unpriced gig separately, not as a billed line", () => {
+    const doc = build({ gigs: [unpriced()] });
+    expect(doc.lines).toEqual([]);
+    expect(doc.unpricedGigs).toEqual([{ id: "g1", description: "Tasting" }]);
+    expect(doc.totalCents).toBe(0);
+  });
+
+  it("leaves a settled gig out of unpricedGigs too", () => {
+    const doc = build({ gigs: [gig({ amountPaidCents: 10000 })] });
+    expect(doc.lines).toEqual([]);
+    expect(doc.unpricedGigs).toEqual([]);
+  });
+
+  it("does not bill a service under an unpriced gig either", () => {
+    const doc = build({ gigs: [unpriced()], services: [service({})] });
+    expect(doc.lines).toEqual([]);
+    expect(doc.unpricedGigs).toHaveLength(1);
+    expect(doc.totalCents).toBe(0);
+  });
+});
+
 describe("buildInvoice — line descriptions", () => {
   it("derives a titleless gig's description from its notes, not a blank line", () => {
     // gigDisplayTitle (gig-title.ts) falls back title → first non-blank
@@ -246,6 +276,23 @@ describe("buildInvoice — the document", () => {
       ],
     });
     expect(doc.lines.map((l) => l.description)).toEqual(["Earlier", "Later"]);
+  });
+
+  it("keeps lines in non-decreasing date order even with a dateless gig mixed in", () => {
+    // No filter bounds, so the dateless gig survives `inRange` and
+    // dates by `createdAt` (August) — it must sort after a dated gig
+    // from January, not before it as an epoch-0 sort key would put it.
+    const doc = build({
+      gigs: [
+        gig({ id: "dateless", dateTime: null, title: "No date", createdAt: JAN + 200 * DAY }),
+        gig({ id: "dated", dateTime: JAN, title: "Dated" }),
+      ],
+    });
+    expect(doc.lines.map((l) => l.description)).toEqual(["Dated", "No date"]);
+    const dates = doc.lines.map((l) => l.date);
+    for (let i = 1; i < dates.length; i++) {
+      expect(dates[i]).toBeGreaterThanOrEqual(dates[i - 1]!);
+    }
   });
 });
 
