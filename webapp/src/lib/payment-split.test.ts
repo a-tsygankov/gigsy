@@ -25,6 +25,7 @@ function gig(id: string, clientId: string | null): Gig {
     id,
     clientId,
     parentGigId: null,
+    batchId: null,
     title: id,
     status: "confirmed",
     location: null,

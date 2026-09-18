@@ -64,6 +64,7 @@ export function gigToInput(gig: Gig): FullGigInput {
   return {
     clientId: gig.clientId,
     parentGigId: gig.parentGigId,
+    batchId: gig.batchId,
     title: gig.title,
     status: gig.status,
     location: gig.location,

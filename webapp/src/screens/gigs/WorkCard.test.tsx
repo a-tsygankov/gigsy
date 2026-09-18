@@ -25,6 +25,7 @@ const GIG: Gig = {
   id: "g1",
   clientId: null,
   parentGigId: null,
+  batchId: null,
   title: null,
   status: "confirmed",
   location: null,

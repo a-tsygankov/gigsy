@@ -24,6 +24,9 @@ export type GigRecord = typeof gigs.$inferSelect;
 export interface GigData {
   clientId: string | null;
   parentGigId: string | null;
+  /** Correlation id for gigs created together (migration 0019). Never
+   *  interpreted here — stored as given, on both doors. */
+  batchId: string | null;
   title: string | null;
   status: GigStatus;
   location: string | null;

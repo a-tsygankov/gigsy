@@ -83,6 +83,12 @@ export class LocalStore {
       id,
       clientId: input.clientId ?? null,
       parentGigId: input.parentGigId ?? null,
+      // Carried, never minted, here: lib/gig-batch.ts decides whether a
+      // gig is one of several and hands the shared id in through the
+      // input. An edit through `commitGigPatch` re-sends the stored one
+      // via `gigToInput`, so the link survives a save from a form that
+      // has no control for it.
+      batchId: input.batchId ?? null,
       title: input.title ?? null,
       status: input.status ?? "lead",
       location: input.location ?? null,
@@ -138,6 +144,7 @@ export class LocalStore {
     const payload: OutboxPayload<GigInput> = {
       clientId: record.clientId,
       parentGigId: record.parentGigId,
+      batchId: record.batchId,
       title: record.title,
       status: record.status,
       location: record.location,

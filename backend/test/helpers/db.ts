@@ -18,6 +18,7 @@ import gigStatusCancelledSql from "../../migrations/0015_gig_status_cancelled.sq
 import paymentAllocationsSql from "../../migrations/0016_payment_allocations.sql?raw";
 import gigStatusDeliveredSql from "../../migrations/0017_gig_status_delivered.sql?raw";
 import gigParentSql from "../../migrations/0018_gig_parent.sql?raw";
+import gigBatchSql from "../../migrations/0019_gig_batch.sql?raw";
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
@@ -95,9 +96,21 @@ export const MIGRATIONS_BEFORE_GIG_PARENT = [
 
 export const GIG_PARENT_MIGRATION = gigParentSql;
 
-const MIGRATIONS = [
+// Split again at 0019. Like 0018 it backfills nothing, so no test
+// needs the pre-state for a backfill; the split is kept because every
+// migration since 0014 has been reachable by this name shape, and a
+// test that one day needs "the schema just before batch_id" — say, to
+// prove a rerun stops at the ALTER — finds it where it found the rest.
+export const MIGRATIONS_BEFORE_GIG_BATCH = [
   ...MIGRATIONS_BEFORE_GIG_PARENT,
   GIG_PARENT_MIGRATION,
+];
+
+export const GIG_BATCH_MIGRATION = gigBatchSql;
+
+const MIGRATIONS = [
+  ...MIGRATIONS_BEFORE_GIG_BATCH,
+  GIG_BATCH_MIGRATION,
 ];
 
 /**

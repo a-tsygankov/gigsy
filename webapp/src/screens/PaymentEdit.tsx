@@ -26,6 +26,7 @@ import {
   Button,
   DateTimeField,
   Field,
+  FilePicker,
   Input,
   SectionHeading,
   Select,
@@ -577,20 +578,21 @@ export function PaymentEdit() {
                   className="mb-2 max-h-64 w-full rounded-xl border border-slate-200 object-contain"
                 />
               )}
-              <input
+              {/* The design-system chooser this control became
+                  (components/FilePicker.tsx) — Capture uses the same
+                  one. The ref is for the reset in `save`'s onSuccess:
+                  once the queue owns the bytes, the browser's "chosen
+                  file" text must stop naming them. */}
+              <FilePicker
                 ref={fileInput}
-                type="file"
-                data-testid="payment-confirmation-file"
+                testId="payment-confirmation-file"
                 accept="image/*,.eml,.pdf"
-                className="block w-full text-xs text-slate-500 file:mr-3 file:rounded-xl
-                           file:border-0 file:bg-emerald-600 file:px-3 file:py-2
-                           file:text-xs file:font-semibold file:text-on-accent
-                           hover:file:bg-emerald-700"
-                onChange={(e) => {
+                label="Confirmation photo or mail"
+                onFile={(chosen) => {
                   // Held, not sent. Nothing leaves this screen until
                   // Save, because until then there may be no payment for
                   // the bytes to belong to.
-                  setFile(e.target.files?.[0] ?? null);
+                  setFile(chosen);
                   setPhotoNotice(null);
                 }}
               />

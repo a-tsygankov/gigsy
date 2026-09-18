@@ -6,6 +6,7 @@ const GIG: Gig = {
   id: "g1",
   clientId: "c1",
   parentGigId: "g0",
+  batchId: null,
   title: "Costco tasting",
   status: "confirmed",
   location: "Costco on 5th",
@@ -31,6 +32,7 @@ describe("gigToInput", () => {
     expect(gigToInput(GIG)).toEqual({
       clientId: "c1",
       parentGigId: "g0",
+      batchId: null,
       title: "Costco tasting",
       status: "confirmed",
       location: "Costco on 5th",
@@ -86,6 +88,7 @@ describe("gigToInput", () => {
     expect(patched).toEqual({
       clientId: "c1",
       parentGigId: "g0",
+      batchId: null,
       title: "Costco tasting",
       status: "confirmed",
       location: "Costco on 5th",

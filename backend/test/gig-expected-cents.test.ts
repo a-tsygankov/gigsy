@@ -34,6 +34,7 @@ function gigDataFrom(pay: PayableGig): GigData {
   return {
     clientId: null,
     parentGigId: null,
+    batchId: null,
     title: null,
     status: "lead",
     location: null,

@@ -198,6 +198,7 @@ export async function applySyncOps(
               {
                 clientId: parsed.data.clientId ?? null,
                 parentGigId: parsed.data.parentGigId ?? null,
+                batchId: parsed.data.batchId ?? null,
                 title: parsed.data.title ?? null,
                 status: parsed.data.status,
                 location: parsed.data.location ?? null,

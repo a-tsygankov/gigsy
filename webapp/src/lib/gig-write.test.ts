@@ -7,6 +7,7 @@ const STORED: Gig = {
   id: "g1",
   clientId: "c1",
   parentGigId: "g0",
+  batchId: null,
   title: "Costco tasting",
   status: "confirmed",
   location: "Costco on 5th",
@@ -98,6 +99,7 @@ describe("commitGigPatch", () => {
     expect(payloadOf(putGig)).toEqual({
       clientId: "c1",
       parentGigId: "g0",
+      batchId: null,
       title: "Costco tasting",
       status: "completed",
       location: "Costco on 5th",

@@ -136,6 +136,15 @@ export const HelpTarget = {
   // renders for a given gig (GigDetail.tsx), both need a gig that is
   // already linked, and no scenario walks one.
   GigParentSelect: element("gig-parent-select"),
+  // The "+ Add another date" button under the "Also on" rows
+  // (components/ExtraDatesField.tsx). Rendered on `/gigs/new` only —
+  // batches are made at creation, and the edit form has no rows — which
+  // is fine for `create-gig`, whose startRoute is `/gigs/new`. The rows
+  // themselves (`gig-extra-dates-0`, …) exist only after this is
+  // pressed, so they have no targets: a highlight-only walk never
+  // presses it (create-gig.ts's header), and a step aiming at a row
+  // would wait out `waitForElement` every run.
+  GigExtraDatesAdd: element("gig-extra-dates-add"),
   GigNotes: element("gig-notes"),
   GigSave: element("gig-save"),
 
@@ -262,10 +271,21 @@ export const HelpTarget = {
   CalendarAction: element("calendar-action"),
   CalendarDisconnect: element("calendar-disconnect"),
 
-  // ── photo capture (Capture.tsx) ──
-  // NOT `capture-input`: that is the `type="file"` input, and it carries
-  // `className="hidden"`. It cannot be spotlighted, and driving it would
-  // mean a help scenario uploading a file — see scenarios/capture.ts.
+  // ── capture (Capture.tsx) ──
+  // `capture-input` is the VISIBLE native file chooser now (a
+  // `FilePicker`, components/FilePicker.tsx) — the control that opens
+  // the OS "camera / library / files" sheet — so it is spotlightable
+  // and a `highlight` step on it is fine. What it still is not is
+  // something a scenario may drive: an `input` step against it would
+  // mean the help runner uploading a file and the app creating a draft
+  // (a record), and `performAction`'s `fill()` cannot set a file input
+  // anyway. See scenarios/capture-receipt.ts.
+  //
+  // NOT `capture-camera-input`: that is the hidden
+  // `capture="environment"` input behind the "Take a photo" button. It
+  // carries `className="hidden"` and cannot be spotlighted;
+  // `capture-start` is the button a person taps for it.
+  CaptureFile: element("capture-input"),
   CaptureStart: element("capture-start"),
 
   // ── the report filters (Reports.tsx) ──

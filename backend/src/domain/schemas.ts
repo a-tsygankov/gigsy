@@ -47,6 +47,13 @@ export const GigInput = z
      *  ask the database whether the parent exists, belongs to the same
      *  client, or already has a parent of its own. */
     parentGigId: entityId.nullish(),
+    /** The batch this gig was created in — several dates from one
+     *  capture or one manual form, one client-generated UUID shared by
+     *  every sibling (webapp lib/gig-batch.ts mints it). Null for a gig
+     *  created alone. Grouping only, like parentGigId, and unlike it
+     *  there is no invariant to keep: the id names nothing the server
+     *  could look up, so the server stores exactly what it is given. */
+    batchId: entityId.nullish(),
     title: z.string().max(200).nullish(),
     status: z.enum(GIG_STATUSES).default("lead"),
     location: z.string().max(500).nullish(),

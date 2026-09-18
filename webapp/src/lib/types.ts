@@ -19,6 +19,15 @@ export interface Gig {
    *  Grouping only: nothing is shared or inherited. Null for a gig that
    *  is part of nothing, which is most of them. */
   parentGigId: string | null;
+  /** Correlation id shared by gigs created together — one form or one
+   *  captured booking sheet that named several dates
+   *  (docs/superpowers/specs/2026-09-18-gig-batches-design.md). Null
+   *  for a gig created alone: a batch of one is not a batch. Grouping
+   *  only, exactly like `parentGigId` — nothing is shared or inherited
+   *  after creation, and each sibling keeps its own status, money and
+   *  work log. Minted on the device by lib/gig-batch.ts; the server
+   *  stores what it is given. */
+  batchId: string | null;
   /** Optional name; the UI falls back to the first line of notes. */
   title: string | null;
   status: GigStatus;
@@ -66,6 +75,7 @@ export interface Gig {
 export interface GigInput {
   clientId?: string | null;
   parentGigId?: string | null;
+  batchId?: string | null;
   title?: string | null;
   status?: GigStatus;
   location?: string | null;
@@ -275,6 +285,13 @@ export interface DraftExtracted {
   // Doubles as a payment's received date — see extraction.ts's comment
   // on the same field for why there is no separate paidAtMs.
   dateTimeMs?: number | null;
+  /** Every date the document names, in the order it names them —
+   *  mirrors extraction.ts's `dateTimesMs`. `dateTimeMs` above stays
+   *  as the FIRST of these so drafts extracted before this field
+   *  existed (and the stub provider) still read; the review screen
+   *  seeds one gig per entry here and falls back to `dateTimeMs` when
+   *  this is absent or empty. */
+  dateTimesMs?: number[] | null;
   amountOfferedCents?: number | null;
   amountCents?: number | null;
   category?: string | null;

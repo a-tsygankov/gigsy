@@ -4,10 +4,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData, useSyncState } from "../lib/app-context.tsx";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { msToLocalInput, localInputToMs } from "../lib/datetime.ts";
+import { collectGigDates } from "../lib/gig-dates.ts";
+import { createGigBatch } from "../lib/gig-batch.ts";
 import {
   AppHeader,
   Button,
   DateTimeField,
+  ExtraDatesField,
   Field,
   Input,
   Select,
@@ -28,6 +31,15 @@ const KIND_ROUTE: Record<DraftKind, (id: string) => string> = {
   gig: (id) => `/gigs/${id}`,
   expense: (id) => `/expenses/${id}`,
   payment: (id) => `/payments/${id}`,
+};
+// Where to go when a confirm made MORE than one record, which only a
+// gig can (a booking sheet naming several dates — lib/gig-batch.ts).
+// There is no single "the record" to open then, so the list it is. The
+// other two rows exist so the table stays total; nothing reaches them.
+const KIND_LIST_ROUTE: Record<DraftKind, string> = {
+  gig: "/gigs",
+  expense: "/expenses",
+  payment: "/payments",
 };
 const KIND_QUERY_KEY: Record<DraftKind, string> = {
   gig: "gigs",
@@ -70,6 +82,10 @@ export function DraftReview() {
   const [clientName, setClientName] = useState("");
   const [location, setLocation] = useState("");
   const [dateTime, setDateTime] = useState("");
+  /** The "Also on" rows under the gig date — seeded from every date
+   *  the document named beyond the first, and editable like the rest.
+   *  Gig kind only; an expense or a payment is one record. */
+  const [extraDates, setExtraDates] = useState<string[]>([]);
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("");
   const [notes, setNotes] = useState("");
@@ -86,8 +102,18 @@ export function DraftReview() {
     );
     setClientName(extracted.clientName ?? "");
     setLocation(extracted.location ?? "");
-    // A payment reuses dateTimeMs as its received-on date (extraction.ts).
-    setDateTime(msToLocalInput(extracted.dateTimeMs ?? null));
+    // Every date the document named (extraction.ts's `dateTimesMs`), or
+    // the one it named before that field existed — `dateTimeMs` is the
+    // first of them either way, so an older draft and the stub read the
+    // same. The first goes to the primary box and the rest become "Also
+    // on" rows; a payment reuses that first one as its received-on date
+    // (extraction.ts) and never sees the rows.
+    const dates =
+      extracted.dateTimesMs != null && extracted.dateTimesMs.length > 0
+        ? extracted.dateTimesMs
+        : [extracted.dateTimeMs ?? null];
+    setDateTime(msToLocalInput(dates[0] ?? null));
+    setExtraDates(dates.slice(1).map(msToLocalInput));
     const cents =
       extracted.kind === "expense" || extracted.kind === "payment"
         ? extracted.amountCents
@@ -129,7 +155,11 @@ export function DraftReview() {
       // comment above for why this is a table for routing/invalidation
       // but a branch for the commit itself: the three record shapes
       // don't share fields, so there is nothing generic to hoist here).
-      const commitHandlers: Record<DraftKind, () => Promise<{ createdId: string }>> = {
+      // `createdIds` is a list because a gig draft can name several
+      // dates and confirm creates one gig per date; an expense or a
+      // payment is always exactly one, and says so with a one-item list
+      // rather than a second return shape for `onSuccess` to branch on.
+      const commitHandlers: Record<DraftKind, () => Promise<{ createdIds: string[] }>> = {
         gig: async () => {
           // Resolve the client: matched → link it; otherwise a typed
           // name becomes a new client stub (the handoff's confirm-flow).
@@ -140,18 +170,29 @@ export function DraftReview() {
             });
             clientId = stub.id;
           }
-          const createdId = crypto.randomUUID();
-          await data.putGig(createdId, {
-            clientId,
-            status: "lead",
-            location: location.trim() === "" ? null : location.trim(),
-            dateTime: localInputToMs(dateTime),
-            amountOfferedCents: cents,
-            notes: notes.trim() === "" ? null : notes.trim(),
-            source: draft.data?.source === "email" ? "email" : "photo",
-          });
+          // The primary date plus the "Also on" rows: one gig per date,
+          // sharing a batchId when there is more than one
+          // (lib/gig-batch.ts). Refused the same way a bad amount is —
+          // thrown, shown by `onError` — before anything is written.
+          const dates = collectGigDates(dateTime, extraDates);
+          if (!dates.ok) throw new Error(dates.message);
+          const created = await createGigBatch(
+            data,
+            {
+              clientId,
+              status: "lead",
+              location: location.trim() === "" ? null : location.trim(),
+              amountOfferedCents: cents,
+              notes: notes.trim() === "" ? null : notes.trim(),
+              source: draft.data?.source === "email" ? "email" : "photo",
+            },
+            dates.dateTimes,
+          );
+          // Once, after all of them: the draft is closed only when every
+          // gig it named exists locally, so a failure part-way leaves it
+          // pending and reviewable rather than confirmed and short.
           await data.setDraftStatus(id, "confirmed");
-          return { createdId };
+          return { createdIds: created.map((gig) => gig.id) };
         },
         expense: async () => {
           if (cents === null) throw new Error("An expense needs an amount.");
@@ -162,7 +203,7 @@ export function DraftReview() {
             notes: notes.trim() === "" ? null : notes.trim(),
           });
           await data.setDraftStatus(id, "confirmed");
-          return { createdId };
+          return { createdIds: [createdId] };
         },
         payment: async () => {
           if (cents === null) throw new Error("A payment needs an amount.");
@@ -200,15 +241,20 @@ export function DraftReview() {
               // PaymentEdit, the same way any payment gets one.
             }
           }
-          return { createdId };
+          return { createdIds: [createdId] };
         },
       };
       return commitHandlers[kind]();
     },
-    onSuccess: async ({ createdId }) => {
+    onSuccess: async ({ createdIds }) => {
       await queryClient.invalidateQueries({ queryKey: ["drafts"] });
       await queryClient.invalidateQueries({ queryKey: [KIND_QUERY_KEY[kind]] });
-      navigate(KIND_ROUTE[kind](createdId), { replace: true });
+      // One record: open it. Several: the list, because there is no
+      // single one to open and opening the first would hide the rest.
+      const only = createdIds.length === 1 ? createdIds[0] : undefined;
+      navigate(only !== undefined ? KIND_ROUTE[kind](only) : KIND_LIST_ROUTE[kind], {
+        replace: true,
+      });
     },
     onError: (e) => setError(e instanceof Error ? e.message : "Confirm failed."),
   });
@@ -317,6 +363,15 @@ export function DraftReview() {
                     onChange={setDateTime}
                   />
                 </Field>
+                {/* The other dates the sheet named, one gig each on
+                    Confirm — and rows the person can add or remove, since
+                    what was extracted is evidence to check, not a verdict.
+                    Gig kind only: an expense or a payment is one record. */}
+                <ExtraDatesField
+                  testId="draft-extra-dates"
+                  values={extraDates}
+                  onChange={setExtraDates}
+                />
                 <Field label="Offered ($)">
                   <Input
                     inputMode="decimal"
@@ -389,6 +444,7 @@ export function DraftReview() {
             <div className="flex gap-3 pt-2">
               <Button
                 className="flex-1"
+                data-testid="draft-confirm"
                 disabled={confirm.isPending || offline}
                 onClick={() => {
                   setError(null);

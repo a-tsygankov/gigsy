@@ -8,9 +8,10 @@ import {
   providerFromEnv,
 } from "../src/capture/providers.ts";
 import type { Bindings } from "../src/env.ts";
-import type {
-  ExtractedDataT,
-  ExtractionProvider,
+import {
+  parseExtractionText,
+  type ExtractedDataT,
+  type ExtractionProvider,
 } from "../src/capture/extraction.ts";
 
 const IMAGE_INPUT = {
@@ -324,5 +325,114 @@ describe("FallbackProvider", () => {
     ]).extract(IMAGE_INPUT);
 
     expect(result).toBeNull();
+  });
+});
+
+// dateTimesMs (gig batches, 2026-09-18): every date a booking sheet
+// names, so the review screen can seed one row per shift. It is a
+// separate field rather than a change to dateTimeMs so that a draft
+// stored before it existed — and the stub, whose exact output the e2e
+// suite depends on — still parses; the third case is that promise.
+describe("parseExtractionText dateTimesMs", () => {
+  it("parses several entries in document order", () => {
+    const result = parseExtractionText(
+      JSON.stringify({
+        ...EXTRACTION,
+        dateTimeMs: 1_700_000_000_000,
+        dateTimesMs: [1_700_000_000_000, 1_700_086_400_000, 1_700_172_800_000],
+      }),
+    );
+    expect(result?.dateTimesMs).toEqual([
+      1_700_000_000_000, 1_700_086_400_000, 1_700_172_800_000,
+    ]);
+    expect(result?.dateTimeMs).toBe(1_700_000_000_000);
+  });
+
+  // A model that answers with an ISO string or a fractional number in
+  // the list has not followed the prompt, and the whole reply is
+  // refused rather than the one entry dropped: a partial list of
+  // dates would create fewer gigs than the document names, silently.
+  it("refuses a reply whose list holds a non-integer", () => {
+    expect(
+      parseExtractionText(
+        JSON.stringify({ ...EXTRACTION, dateTimesMs: [1_700_000_000_000, 1.5] }),
+      ),
+    ).toBeNull();
+    expect(
+      parseExtractionText(
+        JSON.stringify({ ...EXTRACTION, dateTimesMs: ["2026-09-18"] }),
+      ),
+    ).toBeNull();
+  });
+
+  it("still parses a reply without the field", () => {
+    const result = parseExtractionText(JSON.stringify(EXTRACTION));
+    expect(result?.kind).toBe("gig");
+    expect(result?.dateTimesMs ?? null).toBeNull();
+  });
+});
+
+// PDF as a capture input (gig batches, 2026-09-18). Each provider
+// encodes a PDF its own way — Anthropic wants a `document` block where
+// an image is an `image` block — which is exactly the provider-specific
+// knowledge attachments.ts keeps out of email capture. Here it stays
+// inside the provider, so the capture route hands over a mime type and
+// bytes the same as ever.
+describe("AnthropicProvider with a PDF", () => {
+  const PDF_INPUT = {
+    media: [{ mimeType: "application/pdf", dataBase64: "JVBERi0=" }],
+  };
+
+  function capture(): { fetchFn: typeof fetch; body: () => string } {
+    let seenBody = "";
+    const fetchFn = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      seenBody = String(init?.body);
+      return jsonResponse({
+        content: [{ type: "text", text: JSON.stringify(EXTRACTION) }],
+      });
+    }) as typeof fetch;
+    return { fetchFn, body: () => seenBody };
+  }
+
+  type Block = {
+    type: string;
+    source?: { type: string; media_type: string; data: string };
+  };
+  const blocksOf = (body: string): Block[] =>
+    (JSON.parse(body) as { messages: { content: Block[] }[] }).messages[0]!.content;
+
+  it("sends a PDF as a document block", async () => {
+    const { fetchFn, body } = capture();
+    await new AnthropicProvider("claude-x", "k", fetchFn).extract(PDF_INPUT);
+
+    const blocks = blocksOf(body());
+    expect(blocks.filter((b) => b.type === "image")).toHaveLength(0);
+    const doc = blocks.find((b) => b.type === "document");
+    expect(doc?.source).toEqual({
+      type: "base64",
+      media_type: "application/pdf",
+      data: "JVBERi0=",
+    });
+  });
+
+  it("still sends an image as an image block", async () => {
+    const { fetchFn, body } = capture();
+    await new AnthropicProvider("claude-x", "k", fetchFn).extract(IMAGE_INPUT);
+
+    const blocks = blocksOf(body());
+    expect(blocks.filter((b) => b.type === "document")).toHaveLength(0);
+    expect(blocks.find((b) => b.type === "image")?.source?.media_type).toBe(
+      "image/png",
+    );
+  });
+
+  it("keeps a PDF and an image side by side, each in its own block", async () => {
+    const { fetchFn, body } = capture();
+    await new AnthropicProvider("claude-x", "k", fetchFn).extract({
+      media: [...PDF_INPUT.media, ...IMAGE_INPUT.media],
+    });
+
+    const types = blocksOf(body()).map((b) => b.type);
+    expect(types).toEqual(["document", "image", "text"]);
   });
 });
