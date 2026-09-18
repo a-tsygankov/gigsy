@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider, notifyManager } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GigEdit } from "./GigEdit.tsx";
@@ -15,6 +15,39 @@ import type { Client, Gig } from "../lib/types.ts";
 // this the assertions race the timer and the file is non-deterministic.
 notifyManager.setScheduler((cb) => cb());
 
+/**
+ * The real DateTimeField is a popover with a lazily imported calendar,
+ * and driving it in jsdom means opening the popover, waiting for the
+ * module and clicking a day of the current month — none of which is
+ * what these tests are about. A plain input carrying the same
+ * `testId`/`label`/`value`/`onChange` contract stands in, so a date is
+ * set by typing "YYYY-MM-DDTHH:mm" into it. The mocked path is the
+ * file, not the barrel: the barrel re-exports it, so GigEdit and
+ * ExtraDatesField both get this shim. DateTimeField.test.tsx covers the
+ * real control.
+ */
+vi.mock("../components/DateTimeField.tsx", () => ({
+  DateTimeField: ({
+    testId,
+    label,
+    value,
+    onChange,
+  }: {
+    testId?: string;
+    label?: string;
+    value: string;
+    onChange: (v: string) => void;
+  }) => (
+    <input
+      data-testid={testId}
+      data-value={value}
+      aria-label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  ),
+}));
+
 const ACME: Client = {
   id: "c1", name: "Acme", contactInfo: null, notes: null, createdAt: 0, modifiedAt: 0,
 };
@@ -27,6 +60,7 @@ function gig(over: Partial<Gig>): Gig {
     id: "g1",
     clientId: "c1",
     parentGigId: null,
+    batchId: null,
     title: null,
     status: "confirmed",
     location: null,
@@ -70,6 +104,16 @@ vi.mock("../lib/app-context.tsx", () => ({
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 
+/** Marks which route the save landed on, including the `:id` a
+ *  `/gigs/:id` landing carries (same device as PaymentEdit.test.tsx). */
+function LandedGig() {
+  const { id } = useParams();
+  return <div data-testid="landed-gig">{id}</div>;
+}
+
+/** `openId` of "new" opens the create form at `/gigs/new`; anything else
+ *  opens that gig's edit form. The two landing routes are where a save
+ *  navigates to — one gig to its hub, several to the list. */
 async function render(all: Gig[], openId: string) {
   ALL = all;
   container = document.createElement("div");
@@ -79,10 +123,13 @@ async function render(all: Gig[], openId: string) {
   await act(async () => {
     root!.render(
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={[`/gigs/${openId}/edit`]}>
+        <MemoryRouter initialEntries={[openId === "new" ? "/gigs/new" : `/gigs/${openId}/edit`]}>
           <HelpProvider>
             <Routes>
+              <Route path="/gigs/new" element={<GigEdit />} />
               <Route path="/gigs/:id/edit" element={<GigEdit />} />
+              <Route path="/gigs/:id" element={<LandedGig />} />
+              <Route path="/gigs" element={<div data-testid="landed-gigs" />} />
             </Routes>
           </HelpProvider>
         </MemoryRouter>
@@ -90,6 +137,22 @@ async function render(all: Gig[], openId: string) {
     );
   });
   return container;
+}
+
+/** Type into a text input the way React hears it: through the
+ *  prototype's value setter and the native "input" event. */
+async function type(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  await act(async () => {
+    setter.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+async function click(el: Element | null) {
+  await act(async () => {
+    el!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
 }
 
 /** Drive a native <select> the way React hears it: through the
@@ -230,6 +293,92 @@ describe("GigEdit parent picker", () => {
     expect((input as { parentGigId: string | null }).parentGigId).toBeNull();
   });
 
+});
+
+describe("GigEdit extra dates", () => {
+  const byId = <T extends HTMLElement>(el: HTMLElement, id: string) =>
+    el.querySelector<T>(`[data-testid="${id}"]`);
+
+  /** What each putGig call was asked to store. */
+  function saved(): { dateTime: number | null; batchId: string | null; title: string | null }[] {
+    return api.putGig.mock.calls.map(
+      ([, input]) => input as { dateTime: number | null; batchId: string | null; title: string | null },
+    );
+  }
+
+  it("creates one gig per date, all sharing a batch id, and lands on the list", async () => {
+    const el = await render([], "new");
+    await type(byId<HTMLInputElement>(el, "gig-title")!, "Batch shift");
+    await type(byId<HTMLInputElement>(el, "gig-datetime")!, "2026-09-14T09:00");
+
+    // Two "Also on" rows, each given its own day.
+    await click(byId(el, "gig-extra-dates-add"));
+    await type(byId<HTMLInputElement>(el, "gig-extra-dates-0")!, "2026-09-15T09:00");
+    await click(byId(el, "gig-extra-dates-add"));
+    await type(byId<HTMLInputElement>(el, "gig-extra-dates-1")!, "2026-09-16T14:30");
+
+    await click(byId(el, "gig-save"));
+
+    expect(api.putGig).toHaveBeenCalledTimes(3);
+    const rows = saved();
+    // Three different moments, in the order entered.
+    expect(rows.map((r) => r.dateTime)).toEqual([
+      new Date("2026-09-14T09:00").getTime(),
+      new Date("2026-09-15T09:00").getTime(),
+      new Date("2026-09-16T14:30").getTime(),
+    ]);
+    // One batch id, minted once, on all three.
+    expect(rows[0]?.batchId).toEqual(expect.any(String));
+    expect(new Set(rows.map((r) => r.batchId)).size).toBe(1);
+    // Everything else copied.
+    expect(rows.map((r) => r.title)).toEqual(["Batch shift", "Batch shift", "Batch shift"]);
+    // Distinct gig ids.
+    expect(new Set(api.putGig.mock.calls.map(([id]) => id)).size).toBe(3);
+    // No single "the gig" to open: the list.
+    expect(byId(el, "landed-gigs")).not.toBeNull();
+  });
+
+  it("leaves batchId null for one date, and opens that gig", async () => {
+    const el = await render([], "new");
+    await type(byId<HTMLInputElement>(el, "gig-datetime")!, "2026-09-14T09:00");
+    // An opened-and-never-filled row is not a second gig.
+    await click(byId(el, "gig-extra-dates-add"));
+
+    await click(byId(el, "gig-save"));
+
+    expect(api.putGig).toHaveBeenCalledTimes(1);
+    expect(saved()[0]?.batchId).toBeNull();
+    const [createdId] = api.putGig.mock.calls[0]!;
+    expect(byId(el, "landed-gig")?.textContent).toBe(createdId);
+  });
+
+  it("refuses two rows on the same moment, and writes nothing", async () => {
+    const el = await render([], "new");
+    await type(byId<HTMLInputElement>(el, "gig-datetime")!, "2026-09-14T09:00");
+    await click(byId(el, "gig-extra-dates-add"));
+    await type(byId<HTMLInputElement>(el, "gig-extra-dates-0")!, "2026-09-14T09:00");
+
+    await click(byId(el, "gig-save"));
+
+    expect(api.putGig).not.toHaveBeenCalled();
+    expect(byId(el, "gig-date-error")?.textContent).toBe(
+      "Two of the dates are the same — remove one.",
+    );
+    // Still on the form.
+    expect(byId(el, "gig-save")).not.toBeNull();
+  });
+
+  it("offers no extra-date rows when editing an existing gig", async () => {
+    // Batches are made at creation only: an existing gig is one record
+    // with one date, and "Save gig" on it must not create others.
+    const el = await render([gig({ id: "me" })], "me");
+    expect(byId(el, "gig-datetime")).not.toBeNull();
+    expect(byId(el, "gig-extra-dates")).toBeNull();
+    expect(byId(el, "gig-extra-dates-add")).toBeNull();
+  });
+});
+
+describe("GigEdit parent picker (saved parent)", () => {
   it("keeps a saved parent the local gig list has not caught up with", async () => {
     // The clearing rule above must fire on a user edit, never on an
     // absence of local knowledge. A parent this device has not pulled

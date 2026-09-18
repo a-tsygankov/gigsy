@@ -53,6 +53,7 @@ export const gigsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars }>(
       {
         clientId: input.clientId ?? null,
         parentGigId: input.parentGigId ?? null,
+        batchId: input.batchId ?? null,
         title: input.title ?? null,
         status: input.status,
         location: input.location ?? null,

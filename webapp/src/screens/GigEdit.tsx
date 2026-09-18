@@ -24,6 +24,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
 import type { Gig, GigInput, PayType } from "../lib/types.ts";
 import { commitGigPatch, type GigPatch } from "../lib/gig-write.ts";
+import { collectGigDates } from "../lib/gig-dates.ts";
+import { createGigBatch } from "../lib/gig-batch.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { formatDuration } from "../lib/format.ts";
 import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
@@ -33,6 +35,7 @@ import {
   Button,
   DateTimeField,
   DurationField,
+  ExtraDatesField,
   Field,
   Input,
   Select,
@@ -44,6 +47,9 @@ interface FormState {
   parentGigId: string; // "" = part of nothing
   title: string;
   dateTime: string; // "YYYY-MM-DDTHH:mm", the DateTimeField value
+  /** The "Also on" rows, same format. One gig is created per date on
+   *  save (lib/gig-batch.ts); only ever non-empty on `/gigs/new`. */
+  extraDates: string[];
   durationMinutes: string; // "" = not set
   location: string;
   payType: PayType;
@@ -57,6 +63,7 @@ const BLANK: FormState = {
   parentGigId: "",
   title: "",
   dateTime: "",
+  extraDates: [],
   durationMinutes: "",
   location: "",
   payType: "fixed",
@@ -90,6 +97,7 @@ export function GigEdit() {
 
   const [form, setForm] = useState<FormState>(BLANK);
   const [moneyError, setMoneyError] = useState<string | null>(null);
+  const [dateError, setDateError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   useEffect(() => {
@@ -99,6 +107,9 @@ export function GigEdit() {
       parentGigId: gig.data.parentGigId ?? "",
       title: gig.data.title ?? "",
       dateTime: msToLocalInput(gig.data.dateTime),
+      // Always empty on an edit: a stored gig has one date, and the
+      // rows that make several are not rendered on this path (below).
+      extraDates: [],
       durationMinutes:
         gig.data.durationMinutes !== null ? String(gig.data.durationMinutes) : "",
       location: gig.data.location ?? "",
@@ -180,39 +191,59 @@ export function GigEdit() {
     }
   }, [form.parentGigId, formClientId, gigs.data]);
 
+  /**
+   * What `submit` hands the mutation — two shapes because the two
+   * routes write differently, and a discriminated union rather than an
+   * `isNew ? … : …` inside `mutationFn` so that each shape is typed
+   * for its own path: a create carries the whole input plus its dates,
+   * and never a `GigPatch` function (which asks a question about a
+   * record being merged onto, and a gig being created has none).
+   */
+  type SaveRequest =
+    | { kind: "create"; input: GigInput; dateTimes: (number | null)[] }
+    | { kind: "edit"; patch: GigPatch };
+
   const save = useMutation({
-    // A new gig has nothing to merge onto, so it is written whole. An
-    // existing one goes through `commitGigPatch`, which reads the merge
-    // base from the local store rather than from `gig.data` — the query
-    // cache can be holding a pre-pull copy for 30 seconds (main.tsx's
-    // staleTime), and the fields at risk here are exactly the ones this
-    // form does not render: the work log. A stale base would revert the
-    // shift somebody recorded on the hub, silently, on a save that was
-    // only meant to fix a location. See lib/gig-write.ts.
+    // A new gig has nothing to merge onto, so it is written whole — one
+    // gig per date, through `createGigBatch`, which is also what stamps
+    // the shared `batchId` when there is more than one date (and null
+    // when there is one; see lib/gig-batch.ts). An existing gig goes
+    // through `commitGigPatch`, which reads the merge base from the
+    // local store rather than from `gig.data` — the query cache can be
+    // holding a pre-pull copy for 30 seconds (main.tsx's staleTime),
+    // and the fields at risk here are exactly the ones this form does
+    // not render: the work log. A stale base would revert the shift
+    // somebody recorded on the hub, silently, on a save that was only
+    // meant to fix a location. See lib/gig-write.ts.
     //
-    // The cast is safe by construction: the function form of `GigPatch`
-    // asks a question about the record being merged onto, and a gig
-    // being created has none — so `submit` only ever passes a plain
-    // object on the `isNew` path.
-    mutationFn: (patch: GigPatch) =>
-      isNew
-        ? api.putGig(crypto.randomUUID(), patch as GigInput)
-        : commitGigPatch(api, id, patch),
-    // The list AND this gig's own cache entry. Invalidating only the
-    // list left ["gig", id] stale for its 30s window, so reopening a
-    // gig you had just edited showed the values you replaced.
+    // Both resolve to a LIST, so `onSuccess` has one shape to act on.
+    mutationFn: (request: SaveRequest): Promise<Gig[]> =>
+      request.kind === "create"
+        ? createGigBatch(api, request.input, request.dateTimes)
+        : commitGigPatch(api, id, request.patch).then((saved) => [saved]),
+    // The list AND every saved gig's own cache entry. Invalidating only
+    // the list left ["gig", id] stale for its 30s window, so reopening
+    // a gig you had just edited showed the values you replaced.
     onSuccess: async (saved) => {
       await queryClient.invalidateQueries({ queryKey: ["gigs"] });
-      await queryClient.invalidateQueries({ queryKey: ["gig", saved.id] });
-      // The hub, not the list: saving a job definition is the middle of
-      // a task, not the end of one — the next thing anyone does with a
-      // gig is look at it or start work on it.
+      for (const gig of saved) {
+        await queryClient.invalidateQueries({ queryKey: ["gig", gig.id] });
+      }
+      // ONE gig: the hub, not the list. Saving a job definition is the
+      // middle of a task, not the end of one — the next thing anyone
+      // does with a gig is look at it or start work on it.
       //
-      // `replace`, so Back from the hub does not return to the form
-      // that has just been saved: from `/gigs/new` that form comes back
+      // SEVERAL: the list. There is no single "the gig" to open, and
+      // opening the first would hide that the rest exist; the list
+      // shows all of them, newest date first (the design's "after
+      // creating N > 1" row).
+      //
+      // `replace` either way, so Back does not return to the form that
+      // has just been saved: from `/gigs/new` that form comes back
       // BLANK (a fresh create screen, with none of the gig on it),
       // which reads as the save having been thrown away.
-      navigate(`/gigs/${saved.id}`, { replace: true });
+      const only = saved.length === 1 ? saved[0] : undefined;
+      navigate(only !== undefined ? `/gigs/${only.id}` : "/gigs", { replace: true });
     },
   });
 
@@ -315,16 +346,34 @@ export function GigEdit() {
     //
     // "Newly hourly" is judged against the STORED record, not against
     // `gig.data`, for the same reason the merge base is.
-    save.mutate(
-      isNew
-        ? { ...fields, amountOfferedCents: form.payType === "hourly" ? null : offered }
-        : (current: Gig) =>
-            form.payType !== "hourly"
-              ? { ...fields, amountOfferedCents: offered }
-              : current.payType === "hourly"
-                ? fields
-                : { ...fields, amountOfferedCents: null },
-    );
+    if (isNew) {
+      // The primary date plus the "Also on" rows, checked last so a
+      // money problem and a date problem are not both shown at once,
+      // and so the date message is the one left standing when the
+      // money is fine. `fields.dateTime` is overwritten per gig by
+      // `createGigBatch`; the list below is what decides how many.
+      const dates = collectGigDates(form.dateTime, form.extraDates);
+      if (!dates.ok) {
+        setDateError(dates.message);
+        return;
+      }
+      setDateError(null);
+      save.mutate({
+        kind: "create",
+        input: { ...fields, amountOfferedCents: form.payType === "hourly" ? null : offered },
+        dateTimes: dates.dateTimes,
+      });
+      return;
+    }
+    save.mutate({
+      kind: "edit",
+      patch: (current: Gig) =>
+        form.payType !== "hourly"
+          ? { ...fields, amountOfferedCents: offered }
+          : current.payType === "hourly"
+            ? fields
+            : { ...fields, amountOfferedCents: null },
+    });
   }
 
   return (
@@ -398,6 +447,35 @@ export function GigEdit() {
                 onChange={(v) => set("dateTime", v)}
               />
             </Field>
+
+            {/* New gigs only. Batches are made at creation — one form,
+                N dates, N gigs sharing a batchId (lib/gig-batch.ts) —
+                and an existing gig is one record with one date. Rows
+                here on an edit could only mean "also create N more
+                gigs like this one", which is a different action from
+                saving this one and not what "Save gig" says. The
+                design's table has the row: editing stays single-date.
+
+                The date error sits under the rows rather than under
+                the primary field, because "remove one" is something you
+                do to a row. */}
+            {isNew && (
+              <div>
+                <ExtraDatesField
+                  testId="gig-extra-dates"
+                  values={form.extraDates}
+                  onChange={(v) => set("extraDates", v)}
+                />
+                {dateError !== null && (
+                  <span
+                    data-testid="gig-date-error"
+                    className="mt-1 block text-xs text-red-600"
+                  >
+                    {dateError}
+                  </span>
+                )}
+              </div>
+            )}
 
             <Field label="Duration">
               <DurationField

@@ -35,6 +35,7 @@ const GIG: Gig = {
   id: "g1",
   clientId: null,
   parentGigId: null,
+  batchId: null,
   title: "Tasting, Soho",
   status: "confirmed",
   location: null,

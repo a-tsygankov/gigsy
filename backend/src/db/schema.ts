@@ -119,6 +119,13 @@ export const gigs = sqliteTable(
     // from this schema (`drizzle-kit generate`), that delete action is
     // silently lost; the migration file is the source of truth for it.
     parentGigId: text("parent_gig_id"),
+    /** The batch this gig was created in (migration 0019) — several
+     *  dates from one capture or one manual form share one
+     *  client-generated UUID. NULL for a gig created on its own.
+     *  Grouping only, like parentGigId: nothing is shared or
+     *  inherited. No `.references()` because there is no row on the
+     *  other end; the id names a moment, not a record. */
+    batchId: text("batch_id"),
     /** Optional name. Most gigs are identified by their client; this
      *  is for when that is not enough. */
     title: text("title"),
@@ -177,6 +184,7 @@ export const gigs = sqliteTable(
     userStatusIdx: index("idx_gigs_user_status").on(t.userId, t.status),
     clientIdx: index("idx_gigs_client").on(t.clientId),
     parentIdx: index("idx_gigs_parent").on(t.parentGigId),
+    userBatchIdx: index("idx_gigs_user_batch").on(t.userId, t.batchId),
   }),
 );
 

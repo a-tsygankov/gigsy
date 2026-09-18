@@ -126,6 +126,7 @@ describe("LocalStore CRUD + outbox", () => {
       id: G1,
       clientId: null,
       parentGigId: null,
+      batchId: null,
       title: null,
       status: "completed",
       location: null,
@@ -312,6 +313,7 @@ describe("the outbox payload carries everything the server accepts", () => {
     expect(Object.keys(op?.payload as object).sort()).toEqual([
       "amountOfferedCents",
       "amountPaidCents",
+      "batchId",
       "breakMinutes",
       "clientId",
       "dateTime",
@@ -1019,6 +1021,34 @@ describe("gig parent link", () => {
     const ops = await db.pendingOps.toArray();
     const op = ops.find((o) => o.entityId === G2);
     expect((op?.payload as { parentGigId?: string }).parentGigId).toBe(G1);
+  });
+
+  it("sends batchId to the server, not just to Dexie", async () => {
+    // The same silent failure as parentGigId above, for the other
+    // grouping id. `gigToInput`'s `Required<>` guard keeps the key in
+    // the payload at compile time; this proves the VALUE gets there —
+    // a `batchId: null` in the payload would satisfy the type and lose
+    // every batch on the next pull.
+    const { store, db } = makeStore();
+    await store.putGig(G1, { status: "lead", batchId: "batch-1" });
+    await store.putGig(G2, { status: "lead", batchId: "batch-1" });
+
+    const ops = await db.pendingOps.toArray();
+    const payloads = ops.map((o) => (o.payload as { batchId?: string | null }).batchId);
+    expect(payloads).toEqual(["batch-1", "batch-1"]);
+    expect((await store.getGig(G2))?.batchId).toBe("batch-1");
+  });
+
+  it("stores null, not undefined, for a gig created alone", async () => {
+    // A batch of one is not a batch (the design's decision table). The
+    // record and the payload must both say null: the backend's
+    // `entityId.nullish()` accepts undefined, but a stored undefined
+    // would read differently from a pulled null (see `expectedCents`).
+    const { store, db } = makeStore();
+    await store.putGig(G1, { status: "lead" });
+    expect((await store.getGig(G1))?.batchId).toBeNull();
+    const [op] = await db.pendingOps.toArray();
+    expect((op?.payload as { batchId?: string | null }).batchId).toBeNull();
   });
 
   it("clears a child's link locally when its parent is removed", async () => {

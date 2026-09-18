@@ -41,6 +41,7 @@ function gig(id: string, over: Partial<Gig> = {}): Gig {
     id,
     clientId: null,
     parentGigId: null,
+    batchId: null,
     title: null,
     status: "lead",
     location: null,

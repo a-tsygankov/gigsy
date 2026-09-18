@@ -1,0 +1,42 @@
+-- A gig can name the batch it was created in.
+--
+-- Every gig created in one go — several dates read off one booking
+-- sheet at draft review, or one manual form filled in with more than
+-- one date — shares a client-generated UUID here. NULL for a gig
+-- created alone: a batch of one is not a batch, and the column means
+-- "created together with these others", not "created". Grouping only,
+-- exactly like parent_gig_id (0018): nothing is shared or inherited,
+-- each gig keeps its own status, its own money, its own work log.
+--
+-- No REFERENCES clause, unlike 0018, because there is no row on the
+-- other end. The id names a moment, not a record: the webapp mints it
+-- (lib/gig-batch.ts) and the server stores what it is given. That is
+-- also why the index leads with user_id — the only question this
+-- column will ever answer is "which of MY gigs came in with this one",
+-- and the multi-tenancy rule (schema.ts's header) says every read is
+-- scoped by user first.
+--
+-- NO REBUILD, for the same reason as 0018: SQLite's ADD COLUMN takes a
+-- nullable TEXT column with no default in place.
+--
+-- NOTHING IS BACKFILLED. Every existing gig gets NULL, which is the
+-- right value for a gig that was created on its own — and every gig
+-- that exists before this runs was, as far as the database knows.
+--
+-- ONE STATEMENT DOES NOT SELF-HEAL, the same way 0018's and 0016's
+-- ALTER TABLE ... ADD COLUMN do not. SQLite has no `ADD COLUMN IF NOT
+-- EXISTS` (it fails with `near "EXISTS": syntax error`), so applying
+-- this file twice aborts at statement 1 with `duplicate column name:
+-- batch_id` and stops the batch there, BEFORE the CREATE INDEX.
+--
+-- WHAT THAT COSTS AN OPERATOR: a --remote run that drops between the
+-- two statements leaves the column added and the index missing, and
+-- re-running the file will not create it — the retry dies on the
+-- ALTER first. Recovery is to run the CREATE INDEX statement below on
+-- its own; it is IF NOT EXISTS, so it is safe whether or not the index
+-- already made it. Nothing is lost or corrupted either way, which is
+-- why this note is the whole remedy and no rerun test sits beside
+-- 0016's and 0017's.
+ALTER TABLE gigs ADD COLUMN batch_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_gigs_user_batch ON gigs(user_id, batch_id);

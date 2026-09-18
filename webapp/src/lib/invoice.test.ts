@@ -35,6 +35,7 @@ function gig(over: Partial<Gig>): Gig {
     notes: null,
     source: "manual",
     parentGigId: null,
+    batchId: null,
     createdAt: JAN,
     modifiedAt: JAN,
     ...over,

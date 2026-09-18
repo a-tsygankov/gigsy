@@ -69,9 +69,19 @@ export class AnthropicProvider implements ExtractionProvider {
   async extract(input: ExtractionInput): Promise<ExtractedDataT | null> {
     // Images first, then one text block — the order this provider was
     // already using for photo capture.
+    //
+    // A PDF is a `document` block and an image an `image` block; the
+    // base64 source underneath is the same shape, only the tag differs.
+    // This branch lives HERE, not in the capture route, because it is
+    // exactly the provider-specific encoding that attachments.ts's
+    // header names as the reason email capture stays images-only:
+    // pushing it into a call site would make that site know how each
+    // model wants a PDF. A provider already knows how it wants
+    // everything, so nothing leaks — and GeminiProvider needs no such
+    // branch at all, since its inline_data takes a PDF as it is.
     const content: Record<string, unknown>[] = (input.media ?? []).map(
       (item) => ({
-        type: "image",
+        type: item.mimeType === "application/pdf" ? "document" : "image",
         source: {
           type: "base64",
           media_type: item.mimeType,

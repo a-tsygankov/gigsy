@@ -19,6 +19,7 @@ function serverGig(overrides: Partial<Gig> = {}): Gig {
     id: G1,
     clientId: null,
     parentGigId: null,
+    batchId: null,
     title: null,
     status: "completed",
     location: "server copy",

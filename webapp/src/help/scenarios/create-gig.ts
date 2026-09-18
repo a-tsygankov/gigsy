@@ -49,6 +49,15 @@ import type { HelpScenario } from "../types.ts";
  * `GigRate` below. `find-a-payment` and `record-work` cover the parts
  * of a saved gig this form cannot.
  *
+ * The "Also on" rows (components/ExtraDatesField.tsx) are the one
+ * thing on this form that `/gigs/new` has and `/gigs/:id/edit` does
+ * not: batches are made at creation only (docs/superpowers/specs/
+ * 2026-09-18-gig-batches-design.md), so the edit form is single-date.
+ * That is no branch for this scenario either — it starts on
+ * `/gigs/new`, where the block always renders. Only its "+ Add another
+ * date" button has a target: the rows exist only after it is pressed,
+ * and this walk presses nothing.
+ *
  * One conditional IS on screen here: the form shows Offered ($) or Rate
  * ($ per hour) depending on `form.payType` (GigEdit.tsx). That still
  * isn't a second state for this scenario to branch on, because the form
@@ -106,6 +115,13 @@ export const createGig: HelpScenario = {
       title: "Date & time",
       description:
         "Tap this to open a calendar with a time box under it. A gig with no date at all still saves, it just can't block time or sync anywhere. Picking a day before you've touched the time sets 09:00 rather than dropping the day you just chose, and the time box takes any minute of the hour — 14:07 if that is when you start. Both are what the calendar event and your public availability page get built from, so they are worth getting right. \"Clear\" empties the whole thing; a time with no day is not a moment.",
+    },
+    {
+      action: "highlight",
+      target: HelpTarget.GigExtraDatesAdd,
+      title: "Also on",
+      description:
+        "For the same gig on more than one day — a run of shifts for one agency, say. Press this once per extra date and pick the day in the row it adds: on save Gigsy creates one gig per date, each a copy of everything else on this form, and links them as created together so you can see later which ones came from one booking. Each is its own gig after that — its own status, its own money, its own hours. Two rows on the same moment are refused; an empty row is ignored. You only get these rows when adding a gig: an existing gig is one date, and editing it never creates others.",
     },
     {
       action: "highlight",

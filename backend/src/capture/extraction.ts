@@ -24,6 +24,16 @@ export const ExtractedData = z.object({
   // whichever field a kind actually uses onto the record it creates
   // (gig.dateTime for "gig", payment.paidAt for "payment").
   dateTimeMs: z.number().int().nullish(),
+  // Every date-time the document names for the work, epoch ms, in
+  // document order (gig batches, 2026-09-18): a booking sheet or a
+  // roster lists several shifts, and the review screen seeds one gig
+  // per entry. dateTimeMs above stays the FIRST of them rather than
+  // being replaced, so a draft stored before this field existed, and
+  // the stub provider whose exact output the e2e suite depends on,
+  // still read. Integers only, and the whole reply fails on a bad
+  // entry rather than dropping it: a partial list would create fewer
+  // gigs than the document names, silently.
+  dateTimesMs: z.array(z.number().int()).nullish(),
   amountOfferedCents: z.number().int().positive().nullish(),
   // Receipt/slip total — shared by "expense" (what the user paid out)
   // and "payment" (what the user was paid); the two never coexist on
@@ -68,6 +78,7 @@ Reply with ONLY a JSON object (no prose, no markdown fences) with these fields:
 - "clientName": the agency/company offering the work or paying the user, or the merchant for expenses (string or null)
 - "location": venue/address if present (string or null)
 - "dateTimeMs": event date-time for a gig, or the date the payment was received, as epoch milliseconds UTC (number or null)
+- "dateTimesMs": every distinct date-time at which the work happens, as an array of epoch-millisecond numbers in the order the document lists them, when a booking sheet, roster or email names more than one shift or day; null or a one-element array when there is only one. "dateTimeMs" must equal the first entry.
 - "amountOfferedCents": offered pay in integer cents, gigs only (number or null)
 - "amountCents": total in integer cents — the expense's cost, or the payment's amount (number or null)
 - "category": short expense category like "parking", "supplies" (string or null)
