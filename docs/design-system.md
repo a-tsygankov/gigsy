@@ -341,11 +341,17 @@ What stands in for icons:
   action, `·` as a metadata separator, `…` for in-progress labels.
 - **Text instead of icons in navigation.** The bottom tab bar is four words — Home, Gigs,
   Clients, Expenses — with no icons at all. "Sign out" is a text button.
-- **Ringed Unicode glyphs for the header controls.** The three controls at the top right —
-  ☕ (Buy me a coffee), `?` (help), `⚙︎` (settings) — are each a text character inside a
-  24px `slate-400` ring on a 44px tap target, one shared recipe in `AppHeader.tsx`. The
-  gear carries U+FE0E so it renders as text in the ring's colour, not as a colour emoji.
-  A bare character in a header reads as a typo; a ringed one reads as a control.
+- **Ringed marks for the header controls.** The three controls at the top right — coffee
+  (Buy me a coffee), `?` (help), `⚙︎` (settings) — each sit inside a 24px `slate-400` ring
+  on a 44px-tall, 40px-wide tap target with no gap between them, one shared recipe in
+  `AppHeader.tsx`. Help and settings are text characters (the gear carries U+FE0E so it
+  renders as text in the ring's colour, not as a colour emoji). A bare character in a header
+  reads as a typo; a ringed one reads as a control.
+- **The one image in the UI is the coffee icon:** a 48px animated GIF drawn at 24px inside
+  that ring, derived from its source art by `webapp/scripts/generate-coffee-icon.mjs`
+  (`src/assets/coffee.gif`, ~32 KB), with a still PNG served under
+  `prefers-reduced-motion`. It is the exception to "no image icons", made for a link that
+  points out of the app; nothing inside the app's own screens should follow it.
 - **Colour carries meaning** where an icon normally would: the status pill's hue is the
   gig's lifecycle state.
 

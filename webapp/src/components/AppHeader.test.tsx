@@ -74,17 +74,42 @@ describe("AppHeader controls", () => {
     expect(ids).toEqual(["coffee-link", "help-link", "settings-link"]);
   });
 
-  it("gives all three the same tap target and the same ringed glyph", async () => {
+  /** The ringed mark inside a control: a <span> for the two text glyphs,
+   *  the <img> for the coffee (its <picture> wrapper carries no style). */
+  const glyphOf = (control: HTMLElement) =>
+    control.querySelector<HTMLElement>(":scope > span, :scope > picture > img");
+
+  it("gives all three the same tap target and the same ring", async () => {
     const el = await render("/");
     const controls = ["coffee-link", "help-link", "settings-link"].map((id) => byId(el, id)!);
     const first = controls[0]!;
+    const ring = (control: HTMLElement) =>
+      // The coffee adds `object-cover` to fill its ring with the disc;
+      // everything else about the ring must be identical.
+      glyphOf(control)!.className.replace(" object-cover", "");
     for (const control of controls.slice(1)) {
       expect(control.className).toBe(first.className);
-      expect(control.firstElementChild?.className).toBe(first.firstElementChild?.className);
+      expect(ring(control)).toBe(ring(first));
     }
-    // 44px tall: the design system's tap minimum, on every one of them.
+    // 44px tall — the design system's tap minimum — and 40 wide, with
+    // no gap, so the three rings sit 16px apart and read as one set
+    // (AppHeader.tsx's HEADER_CONTROL comment has the arithmetic).
     expect(first.className).toContain("h-11");
-    expect(first.className).toContain("min-w-11");
+    expect(first.className).toContain("min-w-10");
+    expect(first.parentElement?.className).toContain("gap-0");
+  });
+
+  it("draws the coffee as the animated icon, with a still for reduced motion", async () => {
+    const el = await render("/");
+    const coffee = byId(el, "coffee-link")!;
+    const img = coffee.querySelector("picture > img");
+    const still = coffee.querySelector("picture > source");
+    expect(img?.getAttribute("src")).toMatch(/coffee.*\.gif$/);
+    expect(still?.getAttribute("srcset")).toMatch(/coffee-still.*\.png$/);
+    expect(still?.getAttribute("media")).toBe("(prefers-reduced-motion: reduce)");
+    // Drawn at the ring's size, whatever the file's own pixels.
+    expect(img?.getAttribute("width")).toBe("24");
+    expect(img?.getAttribute("height")).toBe("24");
   });
 
   it("keeps Settings named Settings although it is a gear now", async () => {
@@ -116,7 +141,9 @@ describe("AppHeader controls", () => {
   it("marks the glyphs as decoration, so the name is what is announced", async () => {
     const el = await render("/");
     for (const id of ["coffee-link", "help-link", "settings-link"]) {
-      expect(byId(el, id)?.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
+      expect(glyphOf(byId(el, id)!)?.getAttribute("aria-hidden")).toBe("true");
     }
+    // And the image says nothing of its own either.
+    expect(byId(el, "coffee-link")?.querySelector("img")?.getAttribute("alt")).toBe("");
   });
 });
