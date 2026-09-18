@@ -15,7 +15,7 @@ export const openSettings: HelpScenario = {
       action: "click",
       target: HelpTarget.SettingsLink,
       title: "Open Settings",
-      description: "Tap Settings, at the top right.",
+      description: "Tap the gear, at the top right.",
     },
   ],
 };
