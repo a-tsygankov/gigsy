@@ -95,14 +95,17 @@ export const HelpTarget = {
   GigAdd: element("gig-add"),
 
   // ── the job form (GigEdit.tsx, `/gigs/new` and `/gigs/:id/edit`) ──
-  // Every one of these is an Input, Select, Textarea or Button, so every
-  // one is `element`. DateTimeField is one control now — a popover
-  // trigger carrying the id it is given — so a moment is one target, not
-  // a date target plus a time target. Its calendar and time input live
-  // inside the popover and have no help targets at all: this scenario is
-  // highlight-only (see scenarios/create-gig.ts's header), so it never
-  // opens the popover, and a step aiming inside a closed one would wait
-  // out `waitForElement` and fail the walk every run.
+  // Every one of these is an Input, Select, Textarea, Button or a
+  // picker's trigger button, so every one is `element`. DateTimeField
+  // is one control now — a popover trigger carrying the id it is given
+  // — so a moment is one target, not a date target plus a time target.
+  // Its calendar and time input live inside the popover and have no
+  // help targets at all: this scenario is highlight-only (see
+  // scenarios/create-gig.ts's header), so it never opens the popover,
+  // and a step aiming inside a closed one would wait out
+  // `waitForElement` and fail the walk every run. GigPicker (below,
+  // `GigParentSelect`) follows the same shape: trigger on the form,
+  // everything else behind a tap.
   // DurationField still splits, but only its hours half has a help
   // target — there is no separate scenario step for the minutes input.
   GigTitle: element("gig-title"),
@@ -127,14 +130,26 @@ export const HelpTarget = {
   // gigs.amountPaidCents became server-derived from payment
   // allocations. What has arrived is recorded payment by payment on
   // the detail hub — see GigEdit.tsx's header.
-  // The "Part of" picker. Unconditional on the form — only its
-  // `disabled` state is conditional — so it resolves on `/gigs/new` as
-  // well as on a saved gig. Named for the control, not for the id
-  // `gig-parent`, which is a DIFFERENT thing one screen over: the
-  // read-only "Part of X" line on the detail hub. No target for that
-  // line, nor for `gig-children` beside it: at most one of the two ever
-  // renders for a given gig (GigDetail.tsx), both need a gig that is
-  // already linked, and no scenario walks one.
+  // The "Part of" picker — a GigPicker (components/GigPicker.tsx), so
+  // the id is on its TRIGGER: a button styled like an input that opens
+  // a full-screen sheet holding the gig list's search and filters. The
+  // id still says "select" because it was a `<select>` when this
+  // target was named and every scenario resolves by id; renaming it
+  // would buy nothing. Unconditional on the form — only its `disabled`
+  // state is conditional, and when disabled the reason renders beneath
+  // it as `gig-parent-select-blocked` (the picker's own `-blocked`
+  // suffix), which has no target: it needs a saved gig with follow-ups
+  // and no scenario walks one — so it resolves on `/gigs/new` as well
+  // as on a saved gig. The sheet's own ids (`-sheet`, `-list`,
+  // `-row-<id>`) have no targets either: a highlight-only walk never
+  // opens it, and a step aiming inside a closed sheet would wait out
+  // `waitForElement` every run, exactly as for DateTimeField's popover.
+  // Named for the control, not for the id `gig-parent`, which is a
+  // DIFFERENT thing one screen over: the read-only "Part of X" line on
+  // the detail hub. No target for that line, nor for `gig-children`
+  // beside it: at most one of the two ever renders for a given gig
+  // (GigDetail.tsx), both need a gig that is already linked, and no
+  // scenario walks one.
   GigParentSelect: element("gig-parent-select"),
   // The "+ Add another date" button under the "Also on" rows
   // (components/ExtraDatesField.tsx). Rendered on `/gigs/new` only —
@@ -222,10 +237,14 @@ export const HelpTarget = {
   // ── the payment form (PaymentEdit.tsx) ──
   PaymentAmount: element("payment-amount"),
   PaymentClient: element("payment-client"),
-  // The FIRST split row's gig select. There is no longer a single
-  // `payment-gig` — one payment can pay for several gigs, so the rows
-  // are indexed (`payment-gig-0`, `payment-gig-1`, …) and a tour can
-  // only ever point at the one that is always there.
+  // The FIRST split row's gig picker — the trigger button of a
+  // GigPicker (components/GigPicker.tsx), which opens a searchable
+  // sheet of the client's gigs; there is no `<select>` here any more.
+  // There is no longer a single `payment-gig` either — one payment can
+  // pay for several gigs, so the rows are indexed (`payment-gig-0`,
+  // `payment-gig-1`, …) and a tour can only ever point at the one that
+  // is always there. The sheet's ids (`payment-gig-0-sheet`, …) have no
+  // targets, for the reason `GigParentSelect` gives.
   PaymentGig: element("payment-gig-0"),
   PaymentPaidAt: element("payment-paid-at"),
   PaymentNotes: element("payment-notes"),
@@ -250,6 +269,11 @@ export const HelpTarget = {
   // ExpenseEdit.tsx, per this file's rule.
   ExpenseAmount: element("expense-amount"),
   ExpenseCategory: element("expense-category"),
+  // The "Linked gig" picker's trigger — a GigPicker
+  // (components/GigPicker.tsx) over every gig, not the `<select>` it
+  // replaced. Unconditional on the form, so it resolves on
+  // `/expenses/new`; the sheet behind it has no targets (see
+  // `GigParentSelect`).
   ExpenseGig: element("expense-gig"),
   ExpenseNotes: element("expense-notes"),
   ExpenseReimbursable: element("expense-reimbursable"),

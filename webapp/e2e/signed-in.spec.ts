@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { requireTestAuth } from "./helpers/test-auth.ts";
 import { dateTimeField } from "./helpers/datetime-field.ts";
+import { gigPicker } from "./helpers/gig-picker.ts";
 
 // Signed-in flows via the test-auth bypass (POST /api/auth/test-login,
 // which only exists outside production). Where it's disabled these
@@ -73,7 +74,9 @@ test("a completed unpaid gig with a service reaches the dashboard drill-down", a
   // old "Paid ($)" box never touched any of it.
   await page.getByRole("link", { name: "+ Add payment" }).click();
   await page.getByTestId("payment-amount").fill("50");
-  await expect(page.getByTestId("payment-gig-0")).not.toHaveValue("");
+  // The row's gig is a picker now, not a select: its value is the
+  // `data-value` the trigger carries (helpers/gig-picker.ts).
+  await gigPicker(page, "payment-gig-0").expectChosen();
   // The whole $50 goes to that one gig: the split's single row mirrors
   // the payment amount while nothing about the split has been touched
   // (lib/payment-split.ts), so there is nothing left over.

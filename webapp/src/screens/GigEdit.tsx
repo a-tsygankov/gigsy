@@ -29,7 +29,6 @@ import { createGigBatch } from "../lib/gig-batch.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { formatDuration } from "../lib/format.ts";
 import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
-import { gigDisplayTitle } from "../lib/gig-title.ts";
 import {
   AppHeader,
   Button,
@@ -37,10 +36,18 @@ import {
   DurationField,
   ExtraDatesField,
   Field,
+  GigPicker,
   Input,
   Select,
   Textarea,
 } from "../components/index.ts";
+
+/** Why the "Part of" picker is disabled on a gig with follow-ups —
+ *  rendered by the picker itself, under its trigger, as
+ *  `gig-parent-select-blocked`. See `hasChildren` below. */
+const PARENT_BLOCKED_REASON =
+  "This job has follow-ups of its own, so it can’t also be part of another job. " +
+  "Unlink them first.";
 
 interface FormState {
   clientId: string; // "" = none
@@ -162,18 +169,22 @@ export function GigEdit() {
    * `C → B`, then accept `B → A`, and the stored tree is two deep.
    *
    * It cannot be expressed by filtering the list, so the picker is
-   * disabled with a reason instead. An empty dropdown would read as
-   * "nothing matches"; this is "this gig cannot be a child", which is
-   * a different fact, and one the user can act on.
+   * disabled with a reason instead (`disabledReason`, which GigPicker
+   * renders under the trigger). An empty list would read as "nothing
+   * matches"; this is "this gig cannot be a child", which is a
+   * different fact, and one the user can act on.
    */
   const hasChildren = (gigs.data ?? []).some((g) => g.parentGigId === id);
 
   /**
    * Change the client and a parent already picked can stop being
-   * valid. Nothing on screen says so: a controlled `<select>` whose
-   * value matches no option reports "" from the DOM, so the box LOOKS
-   * empty while `form` still holds the old id — and the save sends it,
-   * for the worker to refuse with a 400 the user cannot explain.
+   * valid. The picker no longer hides that the way the old `<select>`
+   * did (a controlled select whose value matches no option reports ""
+   * from the DOM, so the box LOOKED empty while `form` still held the
+   * old id) — it says "a gig this device hasn't loaded yet" — but a
+   * true-sounding line under a wrong id is not much better than a
+   * blank one, and the save would still send it for the worker to
+   * refuse with a 400 the user cannot explain.
    *
    * Only the client can invalidate a selection from this form, so that
    * is the only mismatch checked. Two things are deliberately left
@@ -410,33 +421,22 @@ export function GigEdit() {
             </Field>
 
             <Field label="Part of">
-              <Select
-                data-testid="gig-parent-select"
-                disabled={hasChildren}
+              {/* `gig-parent-select` is kept as the id although this is
+                  a picker now, not a select: the create-gig help
+                  scenario points at it (help/targets.ts's
+                  GigParentSelect). The candidates are `parentOptions`
+                  — the picker never decides eligibility, and the four
+                  rules above are this form's to echo. */}
+              <GigPicker
+                testId="gig-parent-select"
+                label="Part of"
+                placeholder="Not part of anything"
+                gigs={parentOptions}
+                clients={clients.data ?? []}
                 value={form.parentGigId}
-                onChange={(e) => set("parentGigId", e.target.value)}
-              >
-                <option value="">Not part of anything</option>
-                {parentOptions.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {gigDisplayTitle(
-                      g,
-                      g.clientId === null
-                        ? null
-                        : (clients.data?.find((c) => c.id === g.clientId)?.name ?? null),
-                    )}
-                  </option>
-                ))}
-              </Select>
-              {hasChildren && (
-                <span
-                  className="mt-1 block text-xs text-slate-500"
-                  data-testid="gig-parent-blocked"
-                >
-                  This job has follow-ups of its own, so it can&rsquo;t also be part
-                  of another job. Unlink them first.
-                </span>
-              )}
+                onChange={(id) => set("parentGigId", id)}
+                disabledReason={hasChildren ? PARENT_BLOCKED_REASON : null}
+              />
             </Field>
 
             <Field label="Date & time">

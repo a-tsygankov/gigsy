@@ -56,7 +56,7 @@ export const addExpense: HelpScenario = {
       target: HelpTarget.ExpenseGig,
       title: "Linked gig",
       description:
-        "Which job you were on when you spent it, and it changes two things in Reports. A linked expense is counted in its GIG's month — the day of the job, not the day you typed it in — so a receipt entered a fortnight late still lands against the work it belongs to; an unlinked one falls back to the day you added it. And when you filter a report to one client, only expenses that reach that client through a linked gig are counted at all: leave this on \"Not linked\" and the expense silently drops out of every per-client figure. Fine for a box of business cards. Not fine for the parking at their venue.",
+        "Which job you were on when you spent it — tap it to search your gigs by title, client or location, the way the Gigs tab does — and it changes two things in Reports. A linked expense is counted in its GIG's month — the day of the job, not the day you typed it in — so a receipt entered a fortnight late still lands against the work it belongs to; an unlinked one falls back to the day you added it. And when you filter a report to one client, only expenses that reach that client through a linked gig are counted at all: leave this on \"Not linked\" and the expense silently drops out of every per-client figure. Fine for a box of business cards. Not fine for the parking at their venue.",
     },
     {
       action: "highlight",

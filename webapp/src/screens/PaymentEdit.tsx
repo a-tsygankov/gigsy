@@ -2,10 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData, useSyncState } from "../lib/app-context.tsx";
-import type { Gig, PaymentInput } from "../lib/types.ts";
+import type { PaymentInput } from "../lib/types.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { formatMoney } from "../lib/format.ts";
-import { gigDisplayTitle } from "../lib/gig-title.ts";
 import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
 import {
   applyAutoBalance,
@@ -27,6 +26,7 @@ import {
   DateTimeField,
   Field,
   FilePicker,
+  GigPicker,
   Input,
   SectionHeading,
   Select,
@@ -46,7 +46,7 @@ import {
  * reload.
  *
  * The client comes first because it is what makes the rest readable:
- * name who the money came from and every gig select below narrows to
+ * name who the money came from and every gig picker below narrows to
  * that client's gigs, instead of every gig ever worked. Leaving it
  * unset is allowed and offers everything — the escape hatch for a
  * transfer you cannot yet attribute.
@@ -243,10 +243,6 @@ export function PaymentEdit() {
   }, [isNew, id, payment.data?.confirmationR2Key, data]);
 
   const allGigs = useMemo(() => gigs.data ?? [], [gigs.data]);
-  const clientNameOf = (gig: Gig): string | null =>
-    gig.clientId == null
-      ? null
-      : (clients.data?.find((c) => c.id === gig.clientId)?.name ?? null);
   const offeredGigs = useMemo(
     () => gigsForClient(allGigs, clientId),
     [allGigs, clientId],
@@ -454,28 +450,28 @@ export function PaymentEdit() {
                 {shownRows.map((row, index) => (
                   <div key={row.id} className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
-                      <Select
-                        data-testid={`payment-gig-${index}`}
-                        aria-label={`Gig ${index + 1}`}
+                      {/* One picker per row, over `offeredGigs` — the
+                          client's gigs, or every gig while the client is
+                          unset. `allowNone` is off: a split row without
+                          a gig is REMOVED (the ✕ beside it), never
+                          blanked, so "no gig" is not a choice the sheet
+                          should offer. The id is indexed for the same
+                          reason it always was (help/targets.ts's
+                          PaymentGig), and "Gig N" stays the row's name. */}
+                      <GigPicker
+                        testId={`payment-gig-${index}`}
+                        label={`Gig ${index + 1}`}
+                        placeholder="Choose a gig…"
+                        allowNone={false}
+                        gigs={offeredGigs}
+                        clients={clients.data ?? []}
                         value={row.gigId}
-                        onChange={(e) =>
+                        onChange={(gigId) =>
                           editRows(
-                            shownRows.map((r, i) =>
-                              i === index ? { ...r, gigId: e.target.value } : r,
-                            ),
+                            shownRows.map((r, i) => (i === index ? { ...r, gigId } : r)),
                           )
                         }
-                      >
-                        <option value="">Choose a gig…</option>
-                        {offeredGigs.map((gig) => (
-                          <option key={gig.id} value={gig.id}>
-                            {gigDisplayTitle(gig, clientNameOf(gig)) +
-                              (gig.dateTime !== null
-                                ? ` — ${new Date(gig.dateTime).toLocaleDateString()}`
-                                : "")}
-                          </option>
-                        ))}
-                      </Select>
+                      />
                     </div>
                     <div className="w-28 shrink-0">
                       <Input
