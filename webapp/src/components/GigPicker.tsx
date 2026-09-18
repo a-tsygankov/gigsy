@@ -149,23 +149,40 @@ export function GigPicker({
         aria-expanded={open}
         disabled={disabled}
         onClick={openSheet}
-        className={`${inputShellClasses} flex items-center justify-between gap-2 text-left disabled:cursor-not-allowed disabled:opacity-60`}
+        // A column once a gig is chosen (name row over details row);
+        // a row while empty, so the placeholder and chevron sit on one
+        // line the way DateTimeField's "No date yet" does.
+        className={`${inputShellClasses} flex text-left disabled:cursor-not-allowed disabled:opacity-60 ${
+          summary !== null
+            ? "flex-col items-stretch"
+            : "items-center justify-between gap-2"
+        }`}
       >
         {summary !== null && chosen !== null ? (
           <>
             {/* The same two lines the Gigs tab row shows, so the gig
                 you picked reads the way it did in the list you picked
                 it from. Spans, not <p>s: a button may not hold block
-                content. */}
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-semibold text-slate-900">
+                content.
+
+                Stacked, not side by side. The row layout (name and
+                sub-line left, pill and chevron right) left the NAME
+                sharing its width with the pill, and inside a payment
+                split row — a picker beside an amount box — that came
+                out as "Tasting …" with the pill taking half the card.
+                The name is the one thing that tells two gigs apart, so
+                it gets the whole width and only the chevron beside it;
+                the pill joins the details underneath, where it wraps
+                with them when the card is narrow. */}
+            <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+              <span className="min-w-0 truncate text-sm font-semibold text-slate-900">
                 {summary.heading}
               </span>
-              <span className="mt-0.5 block text-xs text-slate-500">{summary.sub}</span>
-            </span>
-            <span className="flex shrink-0 items-center gap-2">
-              <StatusPill status={chosen.status} paid={isPaid(chosen)} />
               <Chevron />
+            </span>
+            <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+              <StatusPill status={chosen.status} paid={isPaid(chosen)} />
+              <span className="min-w-0">{summary.sub}</span>
             </span>
           </>
         ) : (
