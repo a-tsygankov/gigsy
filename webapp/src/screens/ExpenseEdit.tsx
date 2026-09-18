@@ -8,8 +8,8 @@ import {
   AppHeader,
   Button,
   Field,
+  GigPicker,
   Input,
-  Select,
   Textarea,
 } from "../components/index.ts";
 
@@ -25,7 +25,17 @@ export function ExpenseEdit() {
     queryFn: () => api.getExpense(id),
     enabled: !isNew,
   });
+  /**
+   * Every gig, for the "Linked gig" picker below — an expense may
+   * belong to any of them, so there is no narrowing here (unlike the
+   * parent picker on GigEdit, or the split rows on PaymentEdit). Keyed
+   * ["gigs"] and ["clients"], the keys the list and the hub use, so
+   * both share that cache rather than firing fetches of their own.
+   * The clients are for the rows' `client · date · location` line and
+   * the picker's client filter; the old `<select>` showed neither.
+   */
   const gigs = useQuery({ queryKey: ["gigs"], queryFn: () => api.listGigs() });
+  const clients = useQuery({ queryKey: ["clients"], queryFn: () => api.listClients() });
 
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("");
@@ -59,13 +69,6 @@ export function ExpenseEdit() {
       navigate("/expenses");
     },
   });
-
-  function gigLabel(g: { location: string | null; dateTime: number | null }): string {
-    const where = g.location ?? "gig";
-    const when =
-      g.dateTime !== null ? new Date(g.dateTime).toLocaleDateString() : "no date";
-    return `${where} — ${when}`;
-  }
 
   function submit() {
     const cents = parseMoney(amount);
@@ -113,18 +116,22 @@ export function ExpenseEdit() {
               />
             </Field>
             <Field label="Linked gig">
-              <Select
-                data-testid="expense-gig"
+              {/* Was a `<select>` with a `location — date` label of its
+                  own invention, one of three formats across the app
+                  (components/GigPicker.tsx's header). The picker shows
+                  a gig the way the Gigs tab does and is searchable,
+                  which is what "every gig" needs once there are
+                  hundreds. Same test id, so the add-expense help
+                  scenario keeps resolving (help/targets.ts). */}
+              <GigPicker
+                testId="expense-gig"
+                label="Linked gig"
+                placeholder="Not linked"
+                gigs={gigs.data ?? []}
+                clients={clients.data ?? []}
                 value={gigId}
-                onChange={(e) => setGigId(e.target.value)}
-              >
-                <option value="">Not linked</option>
-                {gigs.data?.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {gigLabel(g)}
-                  </option>
-                ))}
-              </Select>
+                onChange={setGigId}
+              />
             </Field>
             <Field label="Notes">
               <Textarea

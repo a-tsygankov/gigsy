@@ -178,25 +178,43 @@ afterEach(() => {
 });
 
 describe("GigEdit parent picker", () => {
-  function options(el: HTMLElement): string[] {
-    const select = el.querySelector('[data-testid="gig-parent-select"]');
-    return [...(select?.querySelectorAll("option") ?? [])]
-      .map((o) => o.getAttribute("value") ?? "")
-      .filter((v) => v !== "");
+  /** The "Part of" control is a GigPicker (components/GigPicker.tsx):
+   *  a trigger on the form, and a sheet portalled to <body> — so the
+   *  trigger is found through the render container and the rows
+   *  through `document`. */
+  const trigger = (el: HTMLElement) =>
+    el.querySelector<HTMLButtonElement>('[data-testid="gig-parent-select"]')!;
+  const inSheet = <T extends HTMLElement>(id: string) =>
+    document.querySelector<T>(`[data-testid="${id}"]`);
+
+  /** What the picker offers: open the sheet, read the row ids, close it
+   *  again — the picker's answer to what `<option>`s used to be. */
+  async function offered(el: HTMLElement): Promise<string[]> {
+    await click(trigger(el));
+    const ids = [...document.querySelectorAll<HTMLElement>('[data-testid^="gig-parent-select-row-"]')]
+      .map((row) => row.dataset["testid"]!.slice("gig-parent-select-row-".length));
+    await click(inSheet("gig-parent-select-sheet-close"));
+    return ids;
+  }
+
+  /** Pick a parent the way a person does: open the sheet, tap the row. */
+  async function pick(el: HTMLElement, id: string) {
+    await click(trigger(el));
+    await click(inSheet(`gig-parent-select-row-${id}`));
   }
 
   it("offers a same-client gig that has no parent of its own", async () => {
     const editing = gig({ id: "me", clientId: "c1" });
     const ok = gig({ id: "ok", clientId: "c1", title: "Eligible" });
     const el = await render([editing, ok], "me");
-    expect(options(el)).toContain("ok");
+    expect(await offered(el)).toContain("ok");
   });
 
   it("does not offer the gig being edited", async () => {
     // Mirrors "a gig cannot be its own parent".
     const editing = gig({ id: "me", clientId: "c1" });
     const el = await render([editing], "me");
-    expect(options(el)).not.toContain("me");
+    expect(await offered(el)).not.toContain("me");
   });
 
   it("does not offer another client's gig", async () => {
@@ -204,7 +222,7 @@ describe("GigEdit parent picker", () => {
     const editing = gig({ id: "me", clientId: "c1" });
     const other = gig({ id: "other", clientId: "c2", title: "Bravo's job" });
     const el = await render([editing, other], "me");
-    expect(options(el)).not.toContain("other");
+    expect(await offered(el)).not.toContain("other");
   });
 
   it("does not offer a gig that already has a parent", async () => {
@@ -213,7 +231,7 @@ describe("GigEdit parent picker", () => {
     const editing = gig({ id: "me", clientId: "c1" });
     const nested = gig({ id: "nested", clientId: "c1", parentGigId: "somewhere" });
     const el = await render([editing, nested], "me");
-    expect(options(el)).not.toContain("nested");
+    expect(await offered(el)).not.toContain("nested");
   });
 
   it("offers a client-less gig only to another client-less gig", async () => {
@@ -222,24 +240,30 @@ describe("GigEdit parent picker", () => {
     const free = gig({ id: "free", clientId: null, title: "Unattributed" });
     const owned = gig({ id: "owned", clientId: "c1", title: "Acme's" });
     const el = await render([editing, free, owned], "me");
-    expect(options(el)).toContain("free");
-    expect(options(el)).not.toContain("owned");
+    const ids = await offered(el);
+    expect(ids).toContain("free");
+    expect(ids).not.toContain("owned");
   });
 
   it("disables the picker, with a reason, for a gig that has follow-ups", async () => {
     // Rule 5 constrains the gig being EDITED, not the options — a gig
     // with children may not itself become a child, or the stored tree
     // goes two levels deep. Filtering the list cannot say that; an
-    // empty dropdown reads as "nothing matches".
+    // empty list reads as "nothing matches". The reason line is the
+    // picker's own (`-blocked`), fed by GigEdit's `disabledReason`.
     const editing = gig({ id: "me", clientId: "c1" });
     const follow = gig({ id: "k", clientId: "c1", title: "Second day", parentGigId: "me" });
     const eligible = gig({ id: "ok", clientId: "c1", title: "Eligible" });
     const el = await render([editing, follow, eligible], "me");
 
-    const select = el.querySelector<HTMLSelectElement>('[data-testid="gig-parent-select"]');
-    expect(select).not.toBeNull();
-    expect(select?.disabled).toBe(true);
-    expect(el.querySelector('[data-testid="gig-parent-blocked"]')).not.toBeNull();
+    expect(trigger(el)).not.toBeNull();
+    expect(trigger(el).disabled).toBe(true);
+    expect(el.querySelector('[data-testid="gig-parent-select-blocked"]')?.textContent).toContain(
+      "follow-ups of its own",
+    );
+    // Disabled means disabled: nothing opens.
+    await click(trigger(el));
+    expect(inSheet("gig-parent-select-sheet")).toBeNull();
   });
 
   it("leaves the picker usable, and unexplained, for a gig with no follow-ups", async () => {
@@ -247,13 +271,12 @@ describe("GigEdit parent picker", () => {
     const other = gig({ id: "k", clientId: "c1", title: "Someone else's follow-up", parentGigId: "elsewhere" });
     const el = await render([editing, other], "me");
 
-    const select = el.querySelector<HTMLSelectElement>('[data-testid="gig-parent-select"]');
-    expect(select?.disabled).toBe(false);
-    expect(el.querySelector('[data-testid="gig-parent-blocked"]')).toBeNull();
+    expect(trigger(el).disabled).toBe(false);
+    expect(el.querySelector('[data-testid="gig-parent-select-blocked"]')).toBeNull();
   });
 
   it("re-filters when the client changes in the form, not on save", async () => {
-    // The option list is read off `form.clientId`, not off the stored
+    // The candidate list is read off `form.clientId`, not off the stored
     // gig — pick a different client and the list must follow, or the
     // picker keeps offering jobs the server would refuse.
     const editing = gig({ id: "me", clientId: "c1" });
@@ -261,25 +284,42 @@ describe("GigEdit parent picker", () => {
     const bravo = gig({ id: "b1", clientId: "c2", title: "Bravo's job" });
     const el = await render([editing, acme, bravo], "me");
 
-    expect(options(el)).toEqual(["a1"]);
+    expect(await offered(el)).toEqual(["a1"]);
 
     await choose(el.querySelector<HTMLSelectElement>('[data-testid="gig-client"]')!, "c2");
 
-    expect(options(el)).toEqual(["b1"]);
+    expect(await offered(el)).toEqual(["b1"]);
+  });
+
+  it("shows the picked parent on the trigger, and saves its id", async () => {
+    const editing = gig({ id: "me", clientId: "c1" });
+    const acme = gig({ id: "a1", clientId: "c1", title: "Acme's job" });
+    const el = await render([editing, acme], "me");
+
+    await pick(el, "a1");
+    // Closed after the pick, and the trigger states the choice both
+    // canonically and for a person.
+    expect(inSheet("gig-parent-select-sheet")).toBeNull();
+    expect(trigger(el).dataset["value"]).toBe("a1");
+    expect(trigger(el).textContent).toContain("Acme's job");
+
+    await click(el.querySelector('[data-testid="gig-save"]'));
+    const [, input] = api.putGig.mock.calls[0]!;
+    expect((input as { parentGigId: string | null }).parentGigId).toBe("a1");
   });
 
   it("drops a selected parent that the new client makes invalid", async () => {
-    // A stale selection is invisible: a controlled <select> whose value
-    // matches no option reports "" from the DOM, so the box looks empty
-    // while the form still holds the old id — and the save sends it, to
-    // be refused by the server. Assert on what is SAVED, not on what
-    // the select reads back.
+    // A stale selection used to be invisible (a controlled <select>
+    // whose value matches no option reads back ""), and the save sent
+    // it, to be refused by the server. The picker can SAY the id is not
+    // in its list, but that is not a reason to keep sending it. Assert
+    // on what is SAVED, not on what the trigger reads back.
     const editing = gig({ id: "me", clientId: "c1" });
     const acme = gig({ id: "a1", clientId: "c1", title: "Acme's job" });
     const bravo = gig({ id: "b1", clientId: "c2", title: "Bravo's job" });
     const el = await render([editing, acme, bravo], "me");
 
-    await choose(el.querySelector<HTMLSelectElement>('[data-testid="gig-parent-select"]')!, "a1");
+    await pick(el, "a1");
     await choose(el.querySelector<HTMLSelectElement>('[data-testid="gig-client"]')!, "c2");
 
     const save = el.querySelector<HTMLButtonElement>('[data-testid="gig-save"]')!;

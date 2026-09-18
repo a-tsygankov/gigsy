@@ -30,11 +30,36 @@ const PAYMENT: Payment = {
 const GIGS: Gig[] = [];
 const CLIENTS: Client[] = [];
 
-function makeApi(allocations: Allocation[]) {
+const TASTING: Gig = {
+  id: "g1",
+  clientId: null,
+  parentGigId: null,
+  batchId: null,
+  title: "Arrange a tasting",
+  status: "confirmed",
+  location: "Soho",
+  dateTime: null,
+  durationMinutes: null,
+  payType: "fixed",
+  hourlyRateCents: null,
+  workStartedAt: null,
+  workEndedAt: null,
+  breakMinutes: null,
+  calendarEventId: null,
+  amountOfferedCents: 10000,
+  amountPaidCents: null,
+  expectedCents: 10000,
+  notes: null,
+  source: null,
+  createdAt: 0,
+  modifiedAt: 0,
+};
+
+function makeApi(allocations: Allocation[], gigs: Gig[] = GIGS) {
   return {
     getPayment: vi.fn(async () => PAYMENT),
     listAllocationsByPayment: vi.fn(async () => allocations),
-    listGigs: vi.fn(async () => GIGS),
+    listGigs: vi.fn(async () => gigs),
     listClients: vi.fn(async () => CLIENTS),
     queuedPaymentConfirmation: vi.fn(async () => null),
     getPaymentConfirmationBlob: vi.fn(async () => null),
@@ -68,8 +93,8 @@ function LandedGig() {
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 
-async function render(allocations: Allocation[]) {
-  api = makeApi(allocations);
+async function render(allocations: Allocation[], gigs: Gig[] = GIGS) {
+  api = makeApi(allocations, gigs);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -136,5 +161,34 @@ describe("PaymentEdit back target", () => {
     const landed = el.querySelector('[data-testid="landed-gig"]');
     expect(landed).not.toBeNull();
     expect(landed!.textContent).toBe("g1");
+  });
+});
+
+describe("PaymentEdit split rows", () => {
+  // Each row's gig is a GigPicker (components/GigPicker.tsx): a trigger
+  // in the row, a sheet portalled to <body>. The trigger keeps the
+  // indexed id the `<select>` had, so the payment help scenario still
+  // resolves `payment-gig-0`.
+  const inSheet = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+
+  it("picks a gig for the first row through the sheet", async () => {
+    const el = await render([], [TASTING]);
+    const trigger = el.querySelector<HTMLButtonElement>('[data-testid="payment-gig-0"]')!;
+    expect(trigger.getAttribute("aria-label")).toContain("Gig 1");
+    expect(trigger.dataset["value"]).toBe("");
+
+    await act(async () => {
+      trigger.click();
+    });
+    // No "none" row: a split row without a gig is removed with the ✕
+    // beside it, never blanked from inside the picker.
+    expect(inSheet("payment-gig-0-none")).toBeNull();
+    await act(async () => {
+      inSheet("payment-gig-0-row-g1")!.click();
+    });
+
+    expect(inSheet("payment-gig-0-sheet")).toBeNull();
+    expect(trigger.dataset["value"]).toBe("g1");
+    expect(trigger.textContent).toContain("Arrange a tasting");
   });
 });

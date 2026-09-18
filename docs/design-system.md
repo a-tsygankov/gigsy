@@ -89,10 +89,17 @@ A hidden debug console opens on three quick taps of the wordmark.
 Every component reads its values from the CSS custom properties in `tokens/`; each has a
 sibling `.d.ts` (props) and `.prompt.md` (usage).
 
-- **Core** — `Button`, `Card`, `Input`, `Textarea`, `Select`, `Field`
+- **Core** — `Button`, `Card`, `Input`, `Textarea`, `Select`, `Field`, `DateTimeField`,
+  `DurationField`, `FilePicker`, `ExtraDatesField`, `GigPicker`
 - **Feedback** — `StatusPill`, `SyncBadge`, `EmptyState`, `ListSkeleton`
 - **Navigation** — `AppHeader`, `TabBar`, `Fab`
-- **Data** — `Tile`, `SectionHeading`
+- **Data** — `Tile`, `SectionHeading`, `GigRow`
+- **Overlay** — `Sheet`
+
+`GigPicker` is the one control for choosing a gig out of many (2026-09-18): a trigger
+styled like an input that opens a full-screen `Sheet` holding the Gigs tab's own search,
+filters and sort over the caller's candidate list, one `GigRow` per match. Native
+`<select>`s are for short, fixed vocabularies (status, sort, pay type), never for records.
 
 The inventory mirrors the codebase exactly: `ui.ts` (button/input/card recipes),
 `Scaffold.tsx` (Field, EmptyState, ListSkeleton, Fab), `StatusPill.tsx`, `Header.tsx`
@@ -102,9 +109,10 @@ The inventory mirrors the codebase exactly: `ui.ts` (button/input/card recipes),
 applies the identical `inputCls` shell to both. `SectionHeading` and `Tile` were lifted out
 of `Dashboard.tsx`/`GigEdit.tsx` where they exist as local components.
 
-**Deliberately absent:** Tabs, Modal, Toast, Tooltip, Avatar, Accordion, Table, icon
+**Deliberately absent:** Tabs, Toast, Tooltip, Avatar, Accordion, Table, icon
 components. Gigsy has none of them — the debug console is a bottom sheet, confirmation
-uses `window.confirm`, and there are no toasts or tooltips anywhere.
+uses `window.confirm`, and there are no toasts or tooltips anywhere. The one modal is
+`Sheet`, and it exists for the gig picker alone.
 
 ## Content fundamentals
 

@@ -11,6 +11,7 @@ import {
   resetGigListView,
 } from "./helpers/test-auth.ts";
 import { dateTimeField } from "./helpers/datetime-field.ts";
+import { gigPicker } from "./helpers/gig-picker.ts";
 
 /**
  * What a gig is worth, everywhere it is stated.
@@ -166,7 +167,7 @@ async function rowEventually(
 async function recordPayment(page: Page, dollars: string): Promise<void> {
   await page.getByTestId("gig-add-payment").click();
   await page.getByTestId("payment-amount").fill(dollars);
-  await expect(page.getByTestId("payment-gig-0")).not.toHaveValue("");
+  await gigPicker(page, "payment-gig-0").expectChosen();
   await expect(page.getByTestId("payment-split-amount-0")).toHaveValue(dollars);
   await expect(page.getByTestId("payment-unallocated")).toHaveText("Fully allocated");
   await page.getByTestId("payment-save").click();
@@ -180,9 +181,10 @@ async function recordPayment(page: Page, dollars: string): Promise<void> {
 /**
  * Create a gig with a title and a fixed fee, and hand back its id.
  *
- * The id, not just the URL, because the split editor's gig selects are
- * chosen by option VALUE — the only way to name a specific gig on a
- * shared dev user whose list is full of gigs from every prior run.
+ * The id, not just the URL, because the split editor's gig pickers are
+ * driven by row ID (helpers/gig-picker.ts) — the only way to name a
+ * specific gig on a shared dev user whose list is full of gigs from
+ * every prior run.
  */
 async function createGig(page: Page, marker: string, offered: string): Promise<string> {
   await page.goto("/gigs/new");
@@ -202,13 +204,14 @@ async function createGig(page: Page, marker: string, offered: string): Promise<s
  * written in the same millisecond have no defined order between them
  * (LocalStore sorts by createdAt). Asserting on a fixed index would
  * therefore be a coin flip that passes most of the time — the worst
- * kind of test. This asks the selects instead.
+ * kind of test. This asks the pickers instead: each row's trigger
+ * carries the chosen id as `data-value` (helpers/gig-picker.ts).
  */
 async function splitRowFor(page: Page, gigId: string): Promise<number> {
   for (let index = 0; index < 10; index++) {
-    const select = page.getByTestId(`payment-gig-${index}`);
-    if ((await select.count()) === 0) break;
-    if ((await select.inputValue()) === gigId) return index;
+    const trigger = page.getByTestId(`payment-gig-${index}`);
+    if ((await trigger.count()) === 0) break;
+    if ((await trigger.getAttribute("data-value")) === gigId) return index;
   }
   throw new Error(`no split row is on gig ${gigId}`);
 }
@@ -595,12 +598,14 @@ test("one payment covers two gigs", async ({ page }) => {
   // ── $150 in one transfer, split $100 / $50 ──
   await page.goto("/payments/new");
   await page.getByTestId("payment-amount").fill("150");
-  await page.getByTestId("payment-gig-0").selectOption(gigA);
+  // Each row's gig is a GigPicker: the helper opens its sheet and taps
+  // the row tagged with the id, then the sheet closes on the pick.
+  await gigPicker(page, "payment-gig-0").pick(gigA);
   await page.getByTestId("payment-split-amount-0").fill("100");
   await expect(page.getByTestId("payment-unallocated")).toHaveText("Unallocated $50.00");
 
   await page.getByTestId("payment-add-split").click();
-  await page.getByTestId("payment-gig-1").selectOption(gigB);
+  await gigPicker(page, "payment-gig-1").pick(gigB);
   await page.getByTestId("payment-split-amount-1").fill("50");
   await expect(page.getByTestId("payment-unallocated")).toHaveText("Fully allocated");
 
@@ -699,7 +704,7 @@ test("one payment covers two gigs", async ({ page }) => {
 
   await page.goto(paymentUrl);
   await expect(page.getByTestId("payment-unallocated")).toHaveText("Unallocated $50.00");
-  await expect(page.getByTestId("payment-gig-0")).toHaveValue(gigA);
+  await gigPicker(page, "payment-gig-0").expectValue(gigA);
   await expect(page.getByTestId("payment-split-amount-0")).toHaveValue("100.00");
   await expect(page.getByTestId("payment-gig-1")).toHaveCount(0);
 
@@ -729,4 +734,50 @@ test("one payment covers two gigs", async ({ page }) => {
     await expect(row.getByTestId("paid-badge")).toHaveCount(0);
     await expect(row.getByText("$50.00", { exact: true })).toBeVisible();
   });
+});
+
+/**
+ * An expense finds its gig by SEARCH, not by scrolling a dropdown.
+ *
+ * The "Linked gig" control used to be a `<select>` over every gig the
+ * account owns, labelled `location — date`, which on the shared dev
+ * user is several hundred near-identical options with no way to type
+ * into them. It is a GigPicker now (components/GigPicker.tsx): a
+ * trigger opening a sheet that carries the Gigs tab's own search and
+ * filters over the same list. So this test does the one thing the old
+ * control could not — types a title and picks the row that survives —
+ * and then proves the link was actually STORED by reopening the saved
+ * expense from the Expenses list and reading the picker's value back.
+ *
+ * The category doubles as the marker for the list row, because the
+ * Expenses list headlines each row by category (screens/Expenses.tsx)
+ * and says nothing about the gig; the gig is only on the form.
+ */
+test("an expense links to a gig found by search", async ({ page }) => {
+  const stamp = Date.now();
+  const title = `search-me-${stamp}`;
+  const category = `parking-${stamp}`;
+  const gigId = await createGig(page, title, "80");
+
+  await page.goto("/expenses/new");
+  await page.getByTestId("expense-amount").fill("12.50");
+  await page.getByTestId("expense-category").fill(category);
+
+  const picker = gigPicker(page, "expense-gig");
+  await picker.expectValue("");
+  // By title, so the search box is what finds it — passing the id
+  // would let the helper skip the search entirely.
+  await picker.pick(title);
+  await picker.expectValue(gigId);
+  await expect(picker.trigger).toContainText(title);
+
+  await page.getByTestId("expense-save").click();
+  await expect(page).toHaveURL(/\/expenses$/, { timeout: 15_000 });
+
+  // Back in from the list: the link came from storage, not from the
+  // form state that was just thrown away by the navigation.
+  await page.getByTestId("expense-list").getByRole("link", { name: category }).click();
+  await expect(page).toHaveURL(/\/expenses\/(?!new$)[\w-]+/);
+  await picker.expectValue(gigId);
+  await expect(picker.trigger).toContainText(title);
 });

@@ -2,10 +2,6 @@ import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData, useSyncState } from "../lib/app-context.tsx";
-import { formatMoney } from "../lib/format.ts";
-import { formatLocalMoment } from "../lib/datetime.ts";
-import { gigDisplayTitle } from "../lib/gig-title.ts";
-import { isPaid, storedOrDerivedExpectedCents } from "../lib/gig-pay.ts";
 import { useSettings } from "./settings/useSettings.ts";
 import {
   applyGigFilters,
@@ -19,18 +15,11 @@ import {
 import { GigFilters } from "./gigs/GigFilters.tsx";
 import {
   AppHeader,
-  CardLink,
   EmptyState,
   Fab,
+  GigRow,
   ListSkeleton,
-  StatusPill,
 } from "../components/index.ts";
-
-function dateLine(ms: number | null): string {
-  // Same formatter DateTimeField's trigger uses, so the line you read
-  // in the list and the line you read on the form are the same line.
-  return ms === null ? "No date yet" : formatLocalMoment(ms);
-}
 
 export function Gigs() {
   const api = useData();
@@ -181,61 +170,21 @@ export function Gigs() {
             was giving them. */}
         {visible.length > 0 && (
           <div className="space-y-3" data-testid="gig-list">
-            {visible.map((gig) => {
-              // What was paid if anything was, otherwise what the gig
-              // is expected to earn. Not `amountOfferedCents`: on an
-              // hourly gig that is only an optional override, so the
-              // row showed no amount at all for a rated shift.
-              const money = gig.amountPaidCents ?? storedOrDerivedExpectedCents(gig);
-              const name = nameOf(gig.clientId);
-              const heading = gigDisplayTitle(gig, name);
-              // The client only repeats below when it is not already the
-              // heading — losing it entirely would be worse than repeating.
-              const sub = [
-                name !== null && name !== heading ? name : null,
-                dateLine(gig.dateTime),
-                gig.location,
-              ].filter((part): part is string => part !== null);
-              return (
-                <CardLink key={gig.id} to={`/gigs/${gig.id}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    {pending.data?.has(gig.id) === true && (
-                      <span
-                        data-testid="gig-unsynced"
-                        // Not colour alone. role="img" is what makes the
-                        // label legal: ARIA forbids naming a bare span
-                        // (role generic), so without it the label is
-                        // dropped from the accessibility tree and the
-                        // marker really is colour-only.
-                        role="img"
-                        title="Not synced yet"
-                        aria-label="Not synced yet"
-                        className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-amber-500"
-                      />
-                    )}
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900">
-                        {heading}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-500">{sub.join(" · ")}</p>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      {/* Paid-ness is derived from the money, not the
-                          status (lib/gig-pay.ts) — a confirmed gig paid
-                          in full up front has nowhere else in this row
-                          to say so, since `money` above shows the
-                          figure but not whether it is settled. */}
-                      <StatusPill status={gig.status} paid={isPaid(gig)} />
-                      {money !== null && (
-                        <span className="text-sm font-semibold text-slate-800">
-                          {formatMoney(money)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </CardLink>
-              );
-            })}
+            {/* The row itself is components/GigRow.tsx now, shared with
+                the gig picker — see that file's header for why one row
+                serves both. This screen decides only what goes into it:
+                the client name as THIS screen knows it (the "…" while
+                clients load is its call, not the row's), and whether
+                the outbox still holds the gig. */}
+            {visible.map((gig) => (
+              <GigRow
+                key={gig.id}
+                gig={gig}
+                clientName={nameOf(gig.clientId)}
+                unsynced={pending.data?.has(gig.id) === true}
+                to={`/gigs/${gig.id}`}
+              />
+            ))}
           </div>
         )}
       </main>
