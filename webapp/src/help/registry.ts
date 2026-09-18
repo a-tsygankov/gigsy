@@ -14,6 +14,7 @@ import { findAPayment } from "./scenarios/find-a-payment.ts";
 import { installApp } from "./scenarios/install-app.ts";
 import { configureNotifications } from "./scenarios/notifications.ts";
 import { openSettings } from "./scenarios/open-settings.ts";
+import { recordAPayment } from "./scenarios/record-a-payment.ts";
 import { recordWork } from "./scenarios/record-work.ts";
 import { configureWorkingHours } from "./scenarios/working-hours.ts";
 import type { HelpScenario, HelpScenarioId } from "./types.ts";
@@ -34,8 +35,11 @@ export const helpScenarios: HelpScenario[] = [
   // tied to a gig, and a gig to a client — the same order the data has.
   // Then money in before money out, which is the order the Money tab's
   // own segmented control puts them in (Money.tsx's OPTIONS) — reading
-  // this section should not contradict the screen it describes.
+  // this section should not contradict the screen it describes. Within
+  // money in, recording comes before finding, for the reason create-gig
+  // precedes find-a-gig: the form is what the list hands over to.
   createClient,
+  recordAPayment,
   findAPayment,
   createInvoice,
   addExpense,

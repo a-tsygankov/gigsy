@@ -246,6 +246,17 @@ export const HelpTarget = {
   // is always there. The sheet's ids (`payment-gig-0-sheet`, …) have no
   // targets, for the reason `GigParentSelect` gives.
   PaymentGig: element("payment-gig-0"),
+  // "+ Add gig" under the split rows — a plain <button>, unconditional
+  // on the form. It is what turns one payment into a split, so
+  // `record-a-payment` walks it; the rows it adds (`payment-gig-1`, …)
+  // have no targets, since a highlight-only walk never presses it.
+  PaymentAddSplit: element("payment-add-split"),
+  // The line under the split list: "Fully allocated" or "Unallocated
+  // $X" (lib/payment-split.ts's `unallocatedLabel`). Always rendered,
+  // so it resolves on `/payments/new` with the row still empty. It is
+  // a <p>, but it carries the id itself rather than being painted by
+  // its parent, so `element` per this file's rule.
+  PaymentUnallocated: element("payment-unallocated"),
   PaymentPaidAt: element("payment-paid-at"),
   PaymentNotes: element("payment-notes"),
   PaymentConfirmation: element("payment-confirmation"),
