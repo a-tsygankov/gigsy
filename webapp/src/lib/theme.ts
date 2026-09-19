@@ -85,3 +85,55 @@ export function applyTheme(doc: ThemeTarget, resolved: ResolvedTheme): void {
   const meta = doc.querySelector('meta[name="theme-color"]');
   if (meta !== null) meta.setAttribute("content", THEME_COLORS[resolved]);
 }
+
+export const DARK_QUERY = "(prefers-color-scheme: dark)";
+
+/** Just the two things the boot path reads off `window`, typed against
+ *  the calls made rather than `Window`, for the reason ThemeTarget is. */
+export interface ThemeWindow {
+  localStorage: Pick<Storage, "getItem">;
+  matchMedia(query: string): {
+    readonly matches: boolean;
+    addEventListener(type: "change", listener: () => void): void;
+    removeEventListener(type: "change", listener: () => void): void;
+  };
+}
+
+/**
+ * Apply the stored theme once, from the app's own bundle.
+ *
+ * public/theme-boot.js does this before first paint, and is the reason
+ * there is no flash. This is the fallback for the day that file does
+ * not run — which has already happened once: the inline script it
+ * replaced was blocked by the production CSP for months, and because
+ * nothing in the bundle applied the theme either, the app stayed light
+ * until the Settings screen happened to mount. A second, idempotent
+ * application costs nothing when the boot script did its job and
+ * recovers the whole session when it did not.
+ */
+export function bootTheme(win: ThemeWindow, doc: ThemeTarget): ResolvedTheme {
+  const resolved = resolveTheme(
+    readStoredTheme(win.localStorage),
+    win.matchMedia(DARK_QUERY).matches,
+  );
+  applyTheme(doc, resolved);
+  return resolved;
+}
+
+/**
+ * Follow the OS for as long as the choice is "system" — app-wide, not
+ * only while the Settings screen is mounted (which is where this used
+ * to live, so a phone dimming at sunset only re-themed the app if you
+ * happened to be looking at Settings). Re-reads the stored choice on
+ * every change, so a choice made after this was installed is honoured
+ * without re-installing. Returns the teardown.
+ */
+export function followSystemTheme(win: ThemeWindow, doc: ThemeTarget): () => void {
+  const media = win.matchMedia(DARK_QUERY);
+  const sync = () => {
+    if (readStoredTheme(win.localStorage) !== "system") return;
+    applyTheme(doc, resolveTheme("system", media.matches));
+  };
+  media.addEventListener("change", sync);
+  return () => media.removeEventListener("change", sync);
+}

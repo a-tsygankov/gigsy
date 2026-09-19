@@ -75,11 +75,23 @@
   --c-accent-hover: 4 120 87;
 }
 
-/* Resolved by the pre-paint script in index.html, which always writes
-   an explicit light|dark — never "system". Keeping the resolution in
-   one place means CSS needs no prefers-color-scheme branch that could
-   disagree with what the script decided. */
+/* Resolved by the pre-paint script (public/theme-boot.js, loaded from
+   index.html), which always writes an explicit light|dark — never
+   "system". Keeping the resolution in one place means CSS needs no
+   prefers-color-scheme branch that could disagree with what the script
+   decided.
+
+   `color-scheme` tells the browser which way the page is drawn, so the
+   parts it paints itself — a native <select>'s dropdown, scrollbars, the
+   canvas past the end of the document, form controls — follow the
+   tokens instead of staying light on a dark app. Declared per theme,
+   not as `light dark`, because the choice is ours, not the OS's. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
 :root[data-theme="dark"] {
+  color-scheme: dark;
   /* The slate ramp inverts: bg-slate-50 (the app background) becomes
      the darkest value and text-slate-900 becomes the lightest, so every
      existing utility lands the right way up. */
