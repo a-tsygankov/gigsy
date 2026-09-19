@@ -13,6 +13,16 @@ import { activityEvents, type ActivityKind } from "../db/schema.ts";
 import { log } from "../logger.ts";
 
 export interface ActivityEventInput {
+  /**
+   * Row id, when the caller needs the write to be repeatable.
+   *
+   * Client-reported events can be retried after a response is lost, so
+   * presence supplies a stable id and a repeat is ignored rather than
+   * duplicated — double-counted screen time is worse than none, since
+   * it looks plausible. Omitted everywhere else, where the worker is
+   * the only writer and cannot repeat itself.
+   */
+  id?: string;
   /** Null before we know who is asking (a refused sign-in). */
   userId: string | null;
   kind: ActivityKind;
@@ -74,7 +84,7 @@ export class ActivityRecorder {
       await this.db
         .insert(activityEvents)
         .values({
-          id: crypto.randomUUID(),
+          id: event.id ?? crypto.randomUUID(),
           userId: event.userId,
           ts: now,
           kind: event.kind,
@@ -89,6 +99,8 @@ export class ActivityRecorder {
           ipCountry: event.ipCountry ?? null,
           userAgent: event.userAgent?.slice(0, MAX_USER_AGENT) ?? null,
         })
+        // A repeat of an id already stored is a retry, not new data.
+        .onConflictDoNothing()
         .run();
     } catch (error) {
       // Deliberately swallowed. A failure to observe must not become a

@@ -133,7 +133,7 @@ function NotificationsSection() {
 
 function AccountSection() {
   const { user } = useAuthState();
-  const { auth } = useServices();
+  const { auth, presence } = useServices();
 
   return (
     <Card as="section" data-testid="settings-account" className="space-y-2">
@@ -141,7 +141,16 @@ function AccountSection() {
       <p className="text-xs text-slate-500" data-testid="settings-email">
         {user?.email ?? "Not signed in"}
       </p>
-      <Button variant="ghost" onClick={() => void auth.signOut()}>
+      <Button
+        variant="ghost"
+        onClick={() => {
+          // Drop any unsent screen time first: it belongs to the
+          // person leaving, and a shared device must not attribute it
+          // to whoever signs in next.
+          presence.discard();
+          void auth.signOut();
+        }}
+      >
         Sign out
       </Button>
     </Card>

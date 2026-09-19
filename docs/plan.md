@@ -329,6 +329,62 @@ Three taps on the app logo (within 600ms per tap —
 Security note: `/api/debug/*` must move behind the JWT middleware when
 Phase 2 lands (TODO in `backend/src/routes/debug.ts`).
 
+## 12.3 Activity log & screen time
+
+`activity_events` (migration 0012) is an append-only record of what
+happened, as opposed to every other table, which records what the data
+is. It exists because nothing here remembered behaviour: refresh
+tokens are delete-on-read, so all but the most recent sign-in vanished;
+the worker log buffer is per-isolate and in memory; and reads left no
+trace at all.
+
+| Kind | Written by | Carries |
+| --- | --- | --- |
+| `auth.login` | `routes/auth.ts` | which door (`google` / `test`) |
+| `auth.refused` | `routes/auth.ts` | the address turned away, `user_id` NULL |
+| `auth.refresh` | `routes/auth.ts` | — rotation destroys the evidence otherwise |
+| `api.request` | `activity/middleware.ts` | method, path, status, duration |
+| `app.visible` | `routes/activity.ts` | `ts` = became visible, `duration_ms` = how long |
+
+Rules that hold for all of them:
+
+- **Recording must never fail a request.** `ActivityRecorder` swallows
+  its own errors, and complains once per isolate rather than once per
+  failure — a line per failure is a line per request, and they land in
+  the same ring buffer the debug console reads.
+- Country is stored, never the IP. No token, raw or hashed, is ever
+  written; `activity-events.test.ts` asserts it.
+- `/api/health`, `/api/version` and `/api/debug/*` are excluded, so the
+  console polling for logs does not manufacture the activity it shows.
+- A prune on the 15-minute cron drops anything past 90 days. The
+  window is rolling, which makes it the one table that cannot grow
+  without bound.
+
+### Screen time
+
+`app.visible` is the only kind the client reports rather than the
+worker observing. `webapp/src/lib/presence.ts` watches the Page
+Visibility API and posts the intervals during which Gigsy was actually
+on screen, because request timings alone cannot measure presence:
+reading and thinking produce no requests, and offline work produces
+none at all until the outbox drains.
+
+Consequences worth keeping in mind:
+
+- The timestamps are **client** timestamps, arriving late and from a
+  clock nobody controls. `clampInterval` in `routes/activity.ts` is
+  the trust boundary — it rejects backwards, absurd, future and
+  expired intervals — and each row records `reportedAfterMs` so a
+  delayed offline flush stays distinguishable from live reporting.
+- Intervals are queued in `localStorage` and flushed on reconnect, so
+  offline sessions are measured rather than lost.
+- The open interval is persisted and extended every 30s, so an OS kill
+  loses at most one heartbeat instead of the whole session — and is
+  closed at its last beat, never at the next launch, or a phone spending
+  the night in a pocket would report as hours of use.
+- Signing out discards the queue: a shared device must not attribute
+  one person's time to the next.
+
 ## 13. Phases
 
 - **Phase 0 — Scaffold (this commit).** Monorepo + configs + CI +

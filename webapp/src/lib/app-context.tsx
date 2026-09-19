@@ -14,6 +14,7 @@ import {
 } from "react";
 import { ApiClient, AuthApiClient } from "./api.ts";
 import { AuthManager } from "./auth-store.ts";
+import { PresenceTracker, startPresence } from "./presence.ts";
 import { DexieKV } from "./kv.ts";
 import { openUserDb } from "./db.ts";
 import { LocalStore } from "./local-store.ts";
@@ -25,13 +26,25 @@ export interface AppServices {
   authApi: AuthApiClient;
   auth: AuthManager;
   api: ApiClient;
+  presence: PresenceTracker;
 }
 
 export function createAppServices(): AppServices {
   const authApi = new AuthApiClient();
   const auth = new AuthManager(authApi, new DexieKV());
   const api = new ApiClient(auth);
-  return { authApi, auth, api };
+  // Screen time. localStorage rather than the Dexie KV the auth
+  // manager uses: presence has to be readable and writable
+  // synchronously from a visibilitychange handler, and an async store
+  // loses the last interval when the page goes away mid-write.
+  const presence = new PresenceTracker({
+    now: () => Date.now(),
+    storage: localStorage,
+    isOnline: () => navigator.onLine,
+    isSignedIn: () => auth.isSignedIn(),
+    send: (intervals) => api.reportVisibility(intervals),
+  });
+  return { authApi, auth, api, presence };
 }
 
 interface UserDataStack {
@@ -55,6 +68,27 @@ export function AppProvider({
 
   useEffect(() => {
     void services.auth.bootstrap().finally(() => setReady(true));
+  }, [services]);
+
+  // Presence starts once and lives as long as the app does.
+  //
+  // The auth subscription is not optional. The tracker refuses to open
+  // an interval for a signed-out user, and at mount nobody is signed
+  // in yet — so without this, the session in which someone signs in
+  // records no time at all, and the next one only starts counting at
+  // the first tab switch. Signing in IS the app coming into use.
+  useEffect(() => {
+    const stop = startPresence(services.presence);
+    const unsubscribe = services.auth.subscribe(() => {
+      if (services.auth.isSignedIn() && document.visibilityState === "visible") {
+        services.presence.open();
+        void services.presence.flush();
+      }
+    });
+    return () => {
+      stop();
+      unsubscribe();
+    };
   }, [services]);
 
   // The offline stack is per-user (per-user Dexie DB — shared-device

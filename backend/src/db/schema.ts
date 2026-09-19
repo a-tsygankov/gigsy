@@ -405,6 +405,11 @@ export const ACTIVITY_KINDS = [
   "auth.refresh",
   "api.request",
   "capture.received",
+  // Screen time, reported by the client from the Page Visibility API.
+  // `ts` is when the app became visible and `duration_ms` how long it
+  // stayed so. No migration introduced this: `kind` is TEXT, so a new
+  // value is not a schema change.
+  "app.visible",
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 

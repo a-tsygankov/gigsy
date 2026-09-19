@@ -450,6 +450,13 @@ export class ApiClient {
     return this.request("GET", `/api/reports/dashboard${qs ? `?${qs}` : ""}`);
   }
 
+  // ── presence (screen time, lib/presence.ts) ──────────────────────
+  reportVisibility(
+    intervals: Array<{ startedAt: number; endedAt: number }>,
+  ): Promise<{ accepted: number; received: number }> {
+    return this.request("POST", "/api/activity/visibility", { intervals });
+  }
+
   // ── sync (offline outbox drain, docs/plan.md §7) ─────────────────
   sync(ops: SyncOp[]): Promise<{ results: SyncOpResult[] }> {
     return this.request("POST", "/api/sync", { ops });

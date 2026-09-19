@@ -24,6 +24,7 @@ import { runPushCron } from "./push/cron.ts";
 import { recordActivity } from "./activity/middleware.ts";
 import { runActivityPrune } from "./activity/prune.ts";
 import { makeAuthRouter } from "./routes/auth.ts";
+import { makeActivityRouter } from "./routes/activity.ts";
 import { handleCapturedEmail } from "./capture/email-capture.ts";
 import type { AuthVars } from "./middleware/auth.ts";
 
@@ -83,6 +84,7 @@ app.route("/api/capture", makeCaptureRouter());
 app.route("/api/calendar", makeCalendarRouter());
 app.route("/api/geo", geoRouter);
 app.route("/api/push", pushRouter);
+app.route("/api/activity", makeActivityRouter());
 app.route("/api/auth", makeAuthRouter());
 
 export { app };
