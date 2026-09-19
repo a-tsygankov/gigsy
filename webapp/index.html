@@ -14,37 +14,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#f8fafc" />
     <!--
-      Applied before first paint, deliberately inline and synchronous.
-      React state resolves too late: the user gets a white flash on every
-      launch, worst on the installed PWA, which is the primary surface.
+      Applied before first paint, deliberately synchronous: a classic
+      <script src> here blocks parsing, so React state — which resolves
+      too late and gave a white flash on every launch, worst on the
+      installed PWA — never gets the first word.
 
-      Kept minimal and duplicated from src/lib/theme.ts on purpose —
-      importing a module here would defeat the point by making it async.
-      src/lib/theme.test.ts pins the same rules.
+      A FILE, not an inline script. Production's Content-Security-Policy
+      (functions/_middleware.ts) is `script-src 'self'` with no inline
+      allowance, so the inline version that used to sit here was blocked
+      on every cold start of the deployed app: the theme reverted to
+      light until Settings was opened, and iOS painted a light status
+      bar over a dark app. `vite dev` serves no CSP, which is why it
+      looked fine locally. src/lib/index-html.test.ts keeps this page
+      free of inline scripts for that reason; src/lib/theme-boot.test.ts
+      runs the file itself against the module's cases.
     -->
-    <script>
-      (function () {
-        try {
-          var stored = localStorage.getItem("gigsy:theme");
-          var choice =
-            stored === "light" || stored === "dark" || stored === "system"
-              ? stored
-              : "system";
-          var dark =
-            choice === "dark" ||
-            (choice === "system" &&
-              window.matchMedia("(prefers-color-scheme: dark)").matches);
-          document.documentElement.setAttribute(
-            "data-theme",
-            dark ? "dark" : "light",
-          );
-          var meta = document.querySelector('meta[name="theme-color"]');
-          if (meta) meta.setAttribute("content", dark ? "#0f172a" : "#f8fafc");
-        } catch (e) {
-          document.documentElement.setAttribute("data-theme", "light");
-        }
-      })();
-    </script>
+    <script src="/theme-boot.js"></script>
     <title>Gigsy</title>
   </head>
   <body>

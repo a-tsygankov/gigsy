@@ -125,3 +125,37 @@ test("capture either offers a forwarding address or says it is off", async ({
     await expect(value).toHaveText(/^u-[\w-]+@\S+$/);
   }
 });
+
+/**
+ * The theme survives leaving Settings AND a full reload.
+ *
+ * Reported on the installed PWA as "dark theme is not saved on closing
+ * Settings". It was saved; it was not APPLIED on the next launch,
+ * because the pre-paint script was inline and the production CSP
+ * blocked it (see e2e/theme.spec.ts, which proves the boot path on the
+ * deployed page without signing in). This is the same journey from the
+ * user's side: choose it here, go elsewhere, come back cold.
+ */
+test("a theme chosen here is still on after leaving and reloading", async ({ page }) => {
+  await page.goto("/settings");
+  await page.getByTestId("theme-dark").click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+  // The gear on Settings closes it (AppHeader.tsx's `closeSettings`):
+  // back to the previous entry, or home when the screen was opened cold.
+  await page.getByTestId("settings-link").click();
+  await expect(page.getByTestId("tab-bar")).toBeVisible();
+  await expect(page).not.toHaveURL(/\/(settings|login)$/);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+  await page.reload();
+  // Still signed in — the theme is applied on the login page too, so
+  // without this a lost session would pass the next line by accident.
+  await expect(page.getByTestId("tab-bar")).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#0f172a");
+
+  // Put it back, so the next spec is not run dark by surprise.
+  await page.goto("/settings");
+  await page.getByTestId("theme-system").click();
+});

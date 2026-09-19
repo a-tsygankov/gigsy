@@ -13,6 +13,7 @@
 import { useEffect, useState } from "react";
 import { SettingGroup, SettingRow } from "../../components/index.ts";
 import {
+  DARK_QUERY,
   applyTheme,
   readStoredTheme,
   resolveTheme,
@@ -25,8 +26,6 @@ const CHOICES: { value: ThemeChoice; label: string }[] = [
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
 ];
-
-const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 export function AppearanceSection() {
   const [choice, setChoice] = useState<ThemeChoice>(() =>
