@@ -222,8 +222,43 @@ jobs:
 
       - name: Start the worker
         working-directory: backend
+        # Three layers, all because of one failure seen five times on
+        # 2026-09-18/19: `wrangler dev` stops answering somewhere between
+        # 30 s and 4 min after it comes up — its own log simply ends —
+        # and the process is gone two minutes later with a blank
+        # "✘ [ERROR]". Nothing in the worker's code changed between the
+        # runs that passed and the runs that hung.
+        #
+        #   1. Telemetry off. wrangler phones home on a timer; a hung
+        #      outbound call is the one thing that fits "silent, then
+        #      dead", and the job has no use for the metrics either way.
+        #   2. A restart loop: if the process exits, it is back in
+        #      seconds rather than gone for the rest of the job.
+        #   3. A watchdog: a hang does not exit on its own, so the health
+        #      check kills workerd and wrangler after three misses and
+        #      the loop above restarts them. `pkill -x workerd` by exact
+        #      name, and the node pattern anchored on `^node`, so neither
+        #      matches the `sh -c 'until …wrangler dev…'` loop itself.
+        #
+        # Playwright's CI `retries: 2` (playwright.config.ts) is what
+        # turns a five-second outage into a pass: the test that was in
+        # flight fails once and is run again against the restarted worker.
         run: |
-          nohup pnpm exec wrangler dev --port 8787 > /tmp/wrangler.log 2>&1 &
+          export WRANGLER_SEND_METRICS=false
+          nohup sh -c 'until pnpm exec wrangler dev --port 8787; do
+            echo "[ci] $(date -u +%T) wrangler dev exited with $?; restarting"; sleep 2
+          done' > /tmp/wrangler.log 2>&1 &
+          nohup sh -c 'fails=0; while true; do
+            sleep 5
+            if curl -sf -m 5 http://127.0.0.1:8787/api/health > /dev/null; then fails=0; continue; fi
+            fails=$((fails + 1)); echo "[watchdog] $(date -u +%T) health miss $fails"
+            if [ "$fails" -ge 3 ]; then
+              echo "[watchdog] $(date -u +%T) worker unresponsive; killing it for the restart loop"
+              pkill -x workerd || true
+              pkill -f "^node .*wrangler.* dev" || true
+              fails=0
+            fi
+          done' > /tmp/watchdog.log 2>&1 &
           for _ in $(seq 1 90); do
             curl -sf http://127.0.0.1:8787/api/health > /dev/null && exit 0
             sleep 1
@@ -285,7 +320,28 @@ jobs:
           retention-days: 7
       - name: Server logs on failure
         if: failure()
-        run: tail -n 100 /tmp/wrangler.log /tmp/vite.log || true
+        # /tmp/wrangler.log is what wrangler prints; on a crash that is
+        # a blank "✘ [ERROR]" line and nothing else. The reason goes to
+        # wrangler's OWN log under ~/.config/.wrangler/logs, which is
+        # what this needs to answer "why did the worker die 4 minutes
+        # in" — the question three runs in a row left open on
+        # 2026-09-18/19.
+        run: |
+          tail -n 100 /tmp/wrangler.log /tmp/vite.log /tmp/watchdog.log || true
+          echo "=== wrangler internal log(s) ==="
+          for f in "$HOME"/.config/.wrangler/logs/*.log; do
+            [ -f "$f" ] || continue
+            echo "--- $f"
+            tail -n 200 "$f"
+          done || true
+          # A process that dies with nothing in its own log was killed
+          # from outside, and the kernel is the usual culprit on a shared
+          # runner. Memory as it stands now, the biggest residents, and
+          # any OOM verdicts, so the next silent death names its cause.
+          echo "=== memory / top residents / oom ==="
+          free -m || true
+          ps aux --sort=-rss | head -n 8 || true
+          sudo dmesg -T 2>/dev/null | grep -iE "out of memory|killed process|oom" | tail -n 20 || true
 
   # The service worker only exists in a production build, so the jobs
   # above cannot see it at all. This one builds, serves the result, and

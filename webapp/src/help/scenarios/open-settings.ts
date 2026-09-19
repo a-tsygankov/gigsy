@@ -7,8 +7,10 @@ export const openSettings: HelpScenario = {
   title: "Open Settings",
   description: "Everything you can configure lives on one screen.",
   category: "settings",
-  // Not "/settings": AppHeader hides the link on the screen it leads to,
-  // so a tour starting there would point at nothing.
+  // Not "/settings": on that screen the gear is the same control in its
+  // pressed state and CLOSES Settings (AppHeader.tsx's `closeSettings`),
+  // so a tour starting there would tell you to open what you are
+  // already looking at and the tap would take you away from it.
   startRoute: "/",
   steps: [
     {
