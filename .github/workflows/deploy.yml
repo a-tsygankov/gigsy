@@ -285,7 +285,20 @@ jobs:
           retention-days: 7
       - name: Server logs on failure
         if: failure()
-        run: tail -n 100 /tmp/wrangler.log /tmp/vite.log || true
+        # /tmp/wrangler.log is what wrangler prints; on a crash that is
+        # a blank "✘ [ERROR]" line and nothing else. The reason goes to
+        # wrangler's OWN log under ~/.config/.wrangler/logs, which is
+        # what this needs to answer "why did the worker die 4 minutes
+        # in" — the question three runs in a row left open on
+        # 2026-09-18/19.
+        run: |
+          tail -n 100 /tmp/wrangler.log /tmp/vite.log || true
+          echo "=== wrangler internal log(s) ==="
+          for f in "$HOME"/.config/.wrangler/logs/*.log; do
+            [ -f "$f" ] || continue
+            echo "--- $f"
+            tail -n 200 "$f"
+          done || true
 
   # The service worker only exists in a production build, so the jobs
   # above cannot see it at all. This one builds, serves the result, and
