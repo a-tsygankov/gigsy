@@ -14,27 +14,35 @@ import {
 import { useHelp } from "../help/runtime/HelpProvider.tsx";
 import { useConsoleTap } from "./ConsoleProvider.tsx";
 import { SyncBadge } from "./SyncBadge.tsx";
+import coffeeGif from "../assets/coffee.gif";
+import coffeeStill from "../assets/coffee-still.png";
 
 /**
  * The three header controls — coffee, help, settings — share one
  * recipe, so they read as a set and a new one cannot drift from the
  * other two.
  *
- * The control is h-11 / min-w-11 — 44px, the design system's tap
- * minimum — with the paint left small. Same trick as Toggle: the
- * target is finger-sized, the glyph is not. They sit next to each
- * other on a phone, and a 24px trio four pixels apart was a mis-tap
- * waiting to happen.
+ * The control is 44px tall — the design system's tap minimum — and
+ * 40px wide, with the paint left small. Same trick as Toggle: the
+ * target is finger-sized, the glyph is not. 40 rather than 44 across,
+ * and no gap between the three: side by side at 44 + 4px the rings sat
+ * 24px apart and read as three separate things; at 40 + 0 they are
+ * 16px apart and read as one set, which is what they are. Height keeps
+ * the full 44, and 40 is still above the 36px the platform guidelines
+ * treat as the floor. Overlapping targets to bring the rings closer
+ * still was ruled out: the shared strip would belong to nobody.
  *
- * The glyph is a 24px ring around a text character. A bare character
- * floating in a header reads as a typo; a ringed one reads as a
- * control. Still pure type: the design system has no icon set
- * (docs/design-system.md, "Iconography") and Unicode plus a border is
- * how it draws marks. `group` on the control lets the ring darken on
- * hover of the whole 44px target, not just the 24px ring.
+ * The glyph is a 24px ring around a mark. For help and settings the
+ * mark is a text character — a bare character floating in a header
+ * reads as a typo; a ringed one reads as a control — and the design
+ * system has no icon set (docs/design-system.md, "Iconography"), so
+ * Unicode plus a border is how it draws them. The coffee is the one
+ * image, and it wears the same ring at the same size so the three
+ * still read as one row. `group` on the control lets the ring darken
+ * on hover of the whole target, not just the 24px ring.
  */
 const HEADER_CONTROL =
-  "group inline-flex h-11 min-w-11 items-center justify-center rounded-xl " +
+  "group inline-flex h-11 min-w-10 items-center justify-center rounded-xl " +
   "transition-colors hover:bg-slate-200 focus:outline-none " +
   "focus-visible:ring-2 focus-visible:ring-emerald-500";
 const HEADER_GLYPH =
@@ -85,7 +93,9 @@ export function AppHeader({ title }: { title: string }) {
             two sit next to each other on a phone, and the one people
             reach for most is Settings; a 24px pair four pixels apart
             was a mis-tap waiting to happen. */}
-        <div className="flex items-center gap-1">
+        {/* gap-0: the spacing between the rings comes from the controls'
+            own width — see HEADER_CONTROL. */}
+        <div className="flex items-center gap-0">
           {/* "Buy me a coffee" — one static link to the hosted page, no
               widget, no image API, no script: the whole integration is
               this URL (docs: the BMC page is tied to the account that
@@ -103,9 +113,27 @@ export function AppHeader({ title }: { title: string }) {
             data-testid="coffee-link"
             className={HEADER_CONTROL}
           >
-            <span aria-hidden="true" className={HEADER_GLYPH}>
-              ☕
-            </span>
+            {/* The one image in the header: a 48px animated GIF drawn at
+                24px (scripts/generate-coffee-icon.mjs derives it from
+                the source art). A GIF cannot be paused from CSS, so the
+                <picture> hands anyone who asked their device for less
+                motion the first frame as a PNG instead — the same cup,
+                standing still. The ring is HEADER_GLYPH on the <img>
+                itself, so it matches the two text glyphs beside it
+                pixel for pixel; `object-cover` fills the ring with the
+                disc so no transparent corner shows inside the border.
+                `alt=""` plus aria-hidden: the link's own label names it. */}
+            <picture>
+              <source srcSet={coffeeStill} media="(prefers-reduced-motion: reduce)" />
+              <img
+                src={coffeeGif}
+                alt=""
+                aria-hidden="true"
+                width={24}
+                height={24}
+                className={`${HEADER_GLYPH} object-cover`}
+              />
+            </picture>
           </a>
           {/* Unlike Settings, help has nowhere it would be pointing at
               itself — it opens the same sheet from every screen,

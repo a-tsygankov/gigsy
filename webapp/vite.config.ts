@@ -30,7 +30,11 @@ export default defineConfig({
       srcDir: "src",
       filename: "sw.ts",
       injectManifest: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,webmanifest}"],
+        // gif: the header's coffee icon (src/assets/coffee.gif) is the
+        // one animated image in the shell, and a shell that opens
+        // offline with a broken image in its header is not the shell
+        // that was promised.
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,gif,webmanifest}"],
       },
       // The service worker precaches the app shell so the PWA loads
       // with zero connectivity (docs/plan.md §7). Icons come from
