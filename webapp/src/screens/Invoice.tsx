@@ -12,11 +12,17 @@
  * a legal destination for a help `navigate` step. It allocates nothing
  * and writes nothing: the number was spent by whoever opened it.
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { useData } from "../lib/app-context.tsx";
 import { buildInvoice, formatInvoiceNumber } from "../lib/invoice.ts";
+import {
+  downloadInvoiceFile,
+  invoiceExportStrategy,
+  shareInvoiceFile,
+} from "../lib/invoice-export.ts";
+import { browserEnv } from "../lib/pwa-env.ts";
 import type { InvoiceDocument } from "../lib/invoice.ts";
 import { formatMoney } from "../lib/format.ts";
 import { isoDate } from "../lib/report-export.ts";
@@ -155,6 +161,29 @@ export function Invoice() {
       termsDays: settings.invoicePaymentTermsDays,
     });
   }, [params, error, loading, settings, gigs.data, services.data, expenses.data, clients.data]);
+
+  // Print where a print dialog exists; share a file in the installed
+  // iOS app, where there is none (lib/invoice-export.ts). Read once:
+  // where the app runs does not change while a screen is open.
+  const [strategy] = useState(() => invoiceExportStrategy(browserEnv()));
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
+
+  async function exportInvoice(): Promise<void> {
+    if (doc === null) return;
+    setExportNotice(null);
+    if (strategy === "print") {
+      window.print();
+      return;
+    }
+    const outcome = await shareInvoiceFile(navigator, doc);
+    if (outcome === "unsupported") {
+      // No share sheet for files on this device: the same file, as a
+      // download. Said out loud, because a download in an installed
+      // app lands in Files without any other sign that it happened.
+      downloadInvoiceFile(doc);
+      setExportNotice("Saved the invoice as a file — look in Files, then open it in Safari to print.");
+    }
+  }
 
   if (params === null) {
     return (
@@ -313,9 +342,27 @@ export function Invoice() {
           )}
         </article>
 
-        <Button block data-testid="invoice-print" onClick={() => window.print()}>
-          Print or save as PDF
+        {/* One button, two ways out (lib/invoice-export.ts): the print
+            dialog wherever one exists, the share sheet in the installed
+            iOS app, where window.print() returns without doing anything
+            — which is what "the button does nothing" looked like from
+            the phone. Same test id in both states, so the help tour and
+            the specs find it either way. */}
+        <Button block data-testid="invoice-print" onClick={() => void exportInvoice()}>
+          {strategy === "print" ? "Print or save as PDF" : "Share as a file"}
         </Button>
+        {strategy === "share" && (
+          <p className="text-xs text-slate-500" data-testid="invoice-print-hint">
+            The installed app has no print dialog. Sharing hands the invoice to
+            Files, Mail or AirDrop as a file; open it in Safari for Print → Save
+            as PDF.
+          </p>
+        )}
+        {exportNotice !== null && (
+          <p className="text-xs text-amber-700" data-testid="invoice-export-notice">
+            {exportNotice}
+          </p>
+        )}
       </main>
     </>
   );

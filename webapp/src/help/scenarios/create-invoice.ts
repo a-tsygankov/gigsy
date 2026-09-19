@@ -112,7 +112,7 @@ export const createInvoice: HelpScenario = {
               target: HelpTarget.InvoicePrint,
               title: "Save it as a PDF",
               description:
-                "This opens your browser's own print dialog; choose \"Save as PDF\" as the destination and you have a file to send. Printing uses the browser's fonts, so any alphabet comes out right — and the app's header, tabs and this button are all left off the page.",
+                "In a browser this opens its own print dialog; choose \"Save as PDF\" as the destination and you have a file to send. Printing uses the browser's fonts, so any alphabet comes out right — and the app's header, tabs and this button are all left off the page. In the app installed on an iPhone or iPad there is no print dialog to open, so the button reads \"Share as a file\" instead and hands the invoice to the share sheet: send it straight from there, or save it to Files and open it in Safari, where Print → Save as PDF is one tap away.",
             },
           ],
         },
