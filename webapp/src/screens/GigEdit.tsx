@@ -23,15 +23,24 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
 import type { Gig, GigInput, PayType } from "../lib/types.ts";
-import { commitGigPatch, type GigPatch } from "../lib/gig-write.ts";
+import { commitGigPatch } from "../lib/gig-write.ts";
 import { collectGigDates } from "../lib/gig-dates.ts";
 import { createGigBatch } from "../lib/gig-batch.ts";
+import {
+  NEW_CLIENT_NAME_REQUIRED,
+  clientChoiceFromId,
+  clientChoiceId,
+  hasClientName,
+  resolveClientChoice,
+  type ClientChoice,
+} from "../lib/client-choice.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { formatDuration } from "../lib/format.ts";
 import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
 import {
   AppHeader,
   Button,
+  ClientSelect,
   DateTimeField,
   DurationField,
   ExtraDatesField,
@@ -50,7 +59,11 @@ const PARENT_BLOCKED_REASON =
   "Unlink them first.";
 
 interface FormState {
-  clientId: string; // "" = none
+  /** Who the gig is for — including a client that does not exist yet
+   *  (`kind: "new"`), which is created on save and never before
+   *  (lib/client-choice.ts). The select on the form is a ClientSelect,
+   *  whose last option is "New client…". */
+  client: ClientChoice;
   parentGigId: string; // "" = part of nothing
   title: string;
   dateTime: string; // "YYYY-MM-DDTHH:mm", the DateTimeField value
@@ -66,7 +79,7 @@ interface FormState {
 }
 
 const BLANK: FormState = {
-  clientId: "",
+  client: { kind: "none" },
   parentGigId: "",
   title: "",
   dateTime: "",
@@ -103,6 +116,7 @@ export function GigEdit() {
   const gigs = useQuery({ queryKey: ["gigs"], queryFn: () => api.listGigs() });
 
   const [form, setForm] = useState<FormState>(BLANK);
+  const [clientError, setClientError] = useState<string | null>(null);
   const [moneyError, setMoneyError] = useState<string | null>(null);
   const [dateError, setDateError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
@@ -110,7 +124,7 @@ export function GigEdit() {
   useEffect(() => {
     if (gig.data === undefined) return;
     setForm({
-      clientId: gig.data.clientId ?? "",
+      client: clientChoiceFromId(gig.data.clientId),
       parentGigId: gig.data.parentGigId ?? "",
       title: gig.data.title ?? "",
       dateTime: msToLocalInput(gig.data.dateTime),
@@ -142,24 +156,32 @@ export function GigEdit() {
    * gig-invariants.ts). Offering anything else would only produce a
    * save the worker refuses.
    *
-   * `form.clientId` is a string where "" means none — that is how the
-   * form spells null, and `submit` below already converts it the same
-   * way. Comparing the raw value against `g.clientId` would never
-   * match a client-less gig, so two unattributed gigs — which ARE the
-   * same client as far as the rule is concerned — would silently
-   * offer each other nothing.
+   * `form.client` is a `ClientChoice`, and `clientChoiceId` reads it
+   * as the rule does: an `existing` choice is its id, and both `none`
+   * and `new` are null. Comparing against `g.clientId` with `?? null`
+   * is what lets two unattributed gigs — which ARE the same client as
+   * far as the rule is concerned — offer each other.
+   *
+   * A `new` client is the one case the id alone would get wrong: null
+   * would read as "client-less", and offer the client-less gigs to a
+   * gig that is about to carry a brand-new id the server would refuse
+   * them under. A client that does not exist yet has no gigs, so its
+   * list is EMPTY, and that is the honest answer rather than a gap.
    *
    * Read off `form`, not off `gig.data`: change the client in the box
    * above and the list must re-filter, or the picker keeps offering
    * the old client's jobs.
    */
-  const formClientId = form.clientId === "" ? null : form.clientId;
-  const parentOptions = (gigs.data ?? []).filter(
-    (g) =>
-      g.id !== id &&
-      (g.clientId ?? null) === formClientId &&
-      g.parentGigId === null,
-  );
+  const formClientId = clientChoiceId(form.client);
+  const parentOptions =
+    form.client.kind === "new"
+      ? []
+      : (gigs.data ?? []).filter(
+          (g) =>
+            g.id !== id &&
+            (g.clientId ?? null) === formClientId &&
+            g.parentGigId === null,
+        );
 
   /**
    * The fifth rule, and the only one that constrains the gig being
@@ -192,35 +214,64 @@ export function GigEdit() {
    * gained a parent of its own elsewhere. Both are absences of local
    * knowledge, not user edits, and clearing on them would quietly
    * unlink a gig because a pull had not landed.
+   *
+   * A `new` client clears any parent outright: the client will have an
+   * id no stored gig carries, so nothing can be its parent (the same
+   * reason `parentOptions` is empty for it above). Keyed on
+   * `form.client.kind` as well as `formClientId` because the id alone
+   * reads null for both `none` and `new`, and switching from "No
+   * client" to "New client…" must drop a client-less parent.
    */
   useEffect(() => {
     if (form.parentGigId === "" || gigs.data === undefined) return;
+    if (form.client.kind === "new") {
+      setForm((f) => ({ ...f, parentGigId: "" }));
+      return;
+    }
     const chosen = gigs.data.find((g) => g.id === form.parentGigId);
     if (chosen === undefined) return;
     if ((chosen.clientId ?? null) !== formClientId) {
       setForm((f) => ({ ...f, parentGigId: "" }));
     }
-  }, [form.parentGigId, formClientId, gigs.data]);
+  }, [form.parentGigId, form.client.kind, formClientId, gigs.data]);
 
   /**
    * What `submit` hands the mutation — two shapes because the two
    * routes write differently, and a discriminated union rather than an
    * `isNew ? … : …` inside `mutationFn` so that each shape is typed
    * for its own path: a create carries the whole input plus its dates,
-   * and never a `GigPatch` function (which asks a question about a
-   * record being merged onto, and a gig being created has none).
+   * and never a patch function (which asks a question about a record
+   * being merged onto, and a gig being created has none).
+   *
+   * Both carry the client as a CHOICE, not an id, and `input`/`patch`
+   * carry no `clientId` of their own: the id is minted inside the
+   * mutation (below), because a `new` choice means writing a client
+   * row first, and that write belongs with the gig's — see there.
    */
-  type SaveRequest =
-    | { kind: "create"; input: GigInput; dateTimes: (number | null)[] }
-    | { kind: "edit"; patch: GigPatch };
+  type SaveRequest = { client: ClientChoice } & (
+    | { kind: "create"; input: Omit<GigInput, "clientId">; dateTimes: (number | null)[] }
+    | { kind: "edit"; patch: (current: Gig) => Omit<GigInput, "clientId"> }
+  );
 
   const save = useMutation({
-    // A new gig has nothing to merge onto, so it is written whole — one
-    // gig per date, through `createGigBatch`, which is also what stamps
-    // the shared `batchId` when there is more than one date (and null
-    // when there is one; see lib/gig-batch.ts). An existing gig goes
-    // through `commitGigPatch`, which reads the merge base from the
-    // local store rather than from `gig.data` — the query cache can be
+    // The client first, in every case: `resolveClientChoice` (lib/
+    // client-choice.ts) turns the form's choice into the id the gig is
+    // written with, creating the client row when the choice is "New
+    // client…". It happens INSIDE the mutation rather than in `submit`
+    // so that a failed `putClient` is a failed save — same red line,
+    // same button re-enabled — instead of an unhandled rejection
+    // before the mutation ever started. The blank-name case never gets
+    // here (`submit` refuses it under the field), but the helper
+    // throws for it too, so nothing can slip past into a client called
+    // "".
+    //
+    // Then the gig. A new gig has nothing to merge onto, so it is
+    // written whole — one gig per date, through `createGigBatch`,
+    // which is also what stamps the shared `batchId` when there is
+    // more than one date (and null when there is one; see
+    // lib/gig-batch.ts). An existing gig goes through
+    // `commitGigPatch`, which reads the merge base from the local
+    // store rather than from `gig.data` — the query cache can be
     // holding a pre-pull copy for 30 seconds (main.tsx's staleTime),
     // and the fields at risk here are exactly the ones this form does
     // not render: the work log. A stale base would revert the shift
@@ -228,14 +279,29 @@ export function GigEdit() {
     // meant to fix a location. See lib/gig-write.ts.
     //
     // Both resolve to a LIST, so `onSuccess` has one shape to act on.
-    mutationFn: (request: SaveRequest): Promise<Gig[]> =>
-      request.kind === "create"
-        ? createGigBatch(api, request.input, request.dateTimes)
-        : commitGigPatch(api, id, request.patch).then((saved) => [saved]),
+    mutationFn: async (request: SaveRequest): Promise<Gig[]> => {
+      const clientId = await resolveClientChoice(api, request.client);
+      if (request.kind === "create") {
+        return createGigBatch(api, { ...request.input, clientId }, request.dateTimes);
+      }
+      const saved = await commitGigPatch(api, id, (current: Gig) => ({
+        ...request.patch(current),
+        clientId,
+      }));
+      return [saved];
+    },
     // The list AND every saved gig's own cache entry. Invalidating only
     // the list left ["gig", id] stale for its 30s window, so reopening
     // a gig you had just edited showed the values you replaced.
-    onSuccess: async (saved) => {
+    //
+    // And the clients, when one was just made: the hub this navigates
+    // to names the gig by its client, and the Clients tab lists them;
+    // both read ["clients"], which would otherwise show the old list
+    // for its stale window.
+    onSuccess: async (saved, request) => {
+      if (request.client.kind === "new") {
+        await queryClient.invalidateQueries({ queryKey: ["clients"] });
+      }
       await queryClient.invalidateQueries({ queryKey: ["gigs"] });
       for (const gig of saved) {
         await queryClient.invalidateQueries({ queryKey: ["gig", gig.id] });
@@ -301,6 +367,16 @@ export function GigEdit() {
   }
 
   function submit() {
+    // The client first, because it is the first field: a "New client…"
+    // with no name typed is refused here, under its own field, rather
+    // than as a save error at the bottom — the box to fix is at the
+    // top of the form, and the message should be beside it.
+    if (!hasClientName(form.client)) {
+      setClientError(NEW_CLIENT_NAME_REQUIRED);
+      return;
+    }
+    setClientError(null);
+
     const offered = form.offered.trim() === "" ? null : parseMoney(form.offered);
     if (offered === null && form.offered.trim() !== "") {
       setMoneyError("Offered amount isn't a valid dollar value.");
@@ -326,9 +402,9 @@ export function GigEdit() {
     // Only what this form OWNS. Everything else — the work log, and an
     // hourly override the work card wrote — comes from the stored
     // record inside `commitGigPatch`, which is what keeps a job edit
-    // from erasing them.
-    const fields: GigInput = {
-      clientId: form.clientId === "" ? null : form.clientId,
+    // from erasing them. No `clientId` here: the mutation adds it once
+    // `form.client` has been resolved (a `new` choice has no id yet).
+    const fields: Omit<GigInput, "clientId"> = {
       parentGigId: form.parentGigId === "" ? null : form.parentGigId,
       title: form.title.trim() === "" ? null : form.title.trim(),
       dateTime: localInputToMs(form.dateTime),
@@ -371,6 +447,7 @@ export function GigEdit() {
       setDateError(null);
       save.mutate({
         kind: "create",
+        client: form.client,
         input: { ...fields, amountOfferedCents: form.payType === "hourly" ? null : offered },
         dateTimes: dates.dateTimes,
       });
@@ -378,6 +455,7 @@ export function GigEdit() {
     }
     save.mutate({
       kind: "edit",
+      client: form.client,
       patch: (current: Gig) =>
         form.payType !== "hourly"
           ? { ...fields, amountOfferedCents: offered }
@@ -405,19 +483,22 @@ export function GigEdit() {
               />
             </Field>
 
-            <Field label="Client">
-              <Select
-                data-testid="gig-client"
-                value={form.clientId}
-                onChange={(e) => set("clientId", e.target.value)}
-              >
-                <option value="">No client</option>
-                {clients.data?.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </Select>
+            <Field label="Client" error={clientError}>
+              {/* `gig-client` stays on the select itself (the
+                  create-gig help scenario points at it: help/targets.ts's
+                  GigClient). The last option is "New client…", which
+                  opens a name box under it; the client is created on
+                  save, not on pick — see lib/client-choice.ts. */}
+              <ClientSelect
+                testId="gig-client"
+                label="Client"
+                clients={clients.data ?? []}
+                value={form.client}
+                onChange={(client) => {
+                  setClientError(null);
+                  set("client", client);
+                }}
+              />
             </Field>
 
             <Field label="Part of">

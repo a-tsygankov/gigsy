@@ -38,6 +38,13 @@ import type { HelpScenario } from "../types.ts";
  * used to be the exception is on the hub now — so every target below
  * resolves on the empty form as well as on a saved one.
  *
+ * The "Client" select (a ClientSelect, components/ClientSelect.tsx)
+ * ends in a "New client…" option that opens a name box under it. The
+ * box has no target and no step: it exists only after that option is
+ * picked, and this walk picks nothing (below). The step on the select
+ * says the option is there and that the client is created on save
+ * (lib/client-choice.ts), which is the part a person cannot see.
+ *
  * The "Part of" picker (a GigPicker — its target is the trigger button,
  * and the searchable sheet behind it is never opened by this walk)
  * resolves here like the rest, with one thing about it that does not:
@@ -102,7 +109,7 @@ export const createGig: HelpScenario = {
       target: HelpTarget.GigClient,
       title: "Client",
       description:
-        "Who the work is for. Leaving it on \"No client\" is fine — the gig still saves — but a client is what groups this gig with the rest of their work in Reports, and what the list falls back to for a name.",
+        "Who the work is for. Leaving it on \"No client\" is fine — the gig still saves — but a client is what groups this gig with the rest of their work in Reports, and what the list falls back to for a name. The list ends in \"New client…\" for an agency you haven't added yet: pick it and a box opens right here for the name. Nothing is created when you pick it — the client is made when you save the gig, so backing out of this form leaves no stray client behind. Contact details and notes can go on the client's own page afterwards.",
     },
     {
       action: "highlight",

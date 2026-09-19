@@ -6,9 +6,12 @@ import { centsToInput, parseMoney } from "../lib/money.ts";
 import { msToLocalInput, localInputToMs } from "../lib/datetime.ts";
 import { collectGigDates } from "../lib/gig-dates.ts";
 import { createGigBatch } from "../lib/gig-batch.ts";
+import { resolveClientChoice, type ClientChoice } from "../lib/client-choice.ts";
+import { matchBand, seedDraftClient } from "../lib/draft-client-match.ts";
 import {
   AppHeader,
   Button,
+  ClientSelect,
   DateTimeField,
   ExtraDatesField,
   Field,
@@ -79,7 +82,19 @@ export function DraftReview() {
   });
 
   const [kind, setKind] = useState<DraftKind>("gig");
-  const [clientName, setClientName] = useState("");
+  /**
+   * The gig's client, as a choice the save resolves (lib/client-
+   * choice.ts) — seeded by `seedDraftClient` from the server's match:
+   * the matched client when it was confident, "New client" with the
+   * name the document used when nothing matched, and NOTHING while the
+   * screen is still asking "is this X?" (`questionOpen`). While that
+   * question is open Confirm is disabled — a guessed link is worse
+   * than an extra tap (the design's confirm-gate row). Both Yes and No
+   * set the choice and close the question; so does touching the select
+   * by hand, because a person who picked a client has answered it.
+   */
+  const [client, setClient] = useState<ClientChoice>({ kind: "none" });
+  const [questionOpen, setQuestionOpen] = useState(false);
   const [location, setLocation] = useState("");
   const [dateTime, setDateTime] = useState("");
   /** The "Also on" rows under the gig date — seeded from every date
@@ -100,7 +115,9 @@ export function DraftReview() {
         ? extracted.kind
         : "gig",
     );
-    setClientName(extracted.clientName ?? "");
+    const seeded = seedDraftClient(extracted);
+    setClient(seeded.client);
+    setQuestionOpen(seeded.questionOpen);
     setLocation(extracted.location ?? "");
     // Every date the document named (extraction.ts's `dateTimesMs`), or
     // the one it named before that field existed — `dateTimeMs` is the
@@ -137,9 +154,37 @@ export function DraftReview() {
     };
   }, [draft.data?.source, draft.data?.rawR2Key, id, data]);
 
-  const matchedClient = clients.data?.find(
-    (c) => c.id === draft.data?.extracted.matchedClientId,
-  );
+  /**
+   * What the banner says about the match — read at render off the
+   * draft, not held in state, because it is evidence and never
+   * changes: the band decides WHICH banner, and `client` (state)
+   * decides whether it still applies. A confident match the person
+   * then re-pointed at another client is no longer "matched", and the
+   * banner goes with it.
+   *
+   * The matched client's name comes off the local list; the server
+   * matched against the same list this device pulls (the design's "no
+   * client-side re-match" row), so it is there in all but the edge of
+   * a client deleted since capture, where the extracted spelling is
+   * the next best thing to say.
+   */
+  const extracted = draft.data?.extracted;
+  const band = extracted === undefined ? "none" : matchBand(extracted);
+  const matchedId = extracted?.matchedClientId ?? null;
+  const matchedName =
+    clients.data?.find((c) => c.id === matchedId)?.name ??
+    extracted?.clientName?.trim() ??
+    "this client";
+  const extractedName = extracted?.clientName?.trim() ?? "";
+  const choseMatch = client.kind === "existing" && client.id === matchedId;
+
+  /** Any answer — Yes, No, or a hand-picked client — closes the
+   *  question. One setter for all three so none can forget the other
+   *  half. */
+  function answerClient(next: ClientChoice) {
+    setClient(next);
+    setQuestionOpen(false);
+  }
 
   const confirm = useMutation({
     mutationFn: async () => {
@@ -161,21 +206,17 @@ export function DraftReview() {
       // rather than a second return shape for `onSuccess` to branch on.
       const commitHandlers: Record<DraftKind, () => Promise<{ createdIds: string[] }>> = {
         gig: async () => {
-          // Resolve the client: matched → link it; otherwise a typed
-          // name becomes a new client stub (the handoff's confirm-flow).
-          let clientId = matchedClient?.id ?? null;
-          if (clientId === null && clientName.trim() !== "") {
-            const stub = await data.putClient(crypto.randomUUID(), {
-              name: clientName.trim(),
-            });
-            clientId = stub.id;
-          }
-          // The primary date plus the "Also on" rows: one gig per date,
-          // sharing a batchId when there is more than one
-          // (lib/gig-batch.ts). Refused the same way a bad amount is —
-          // thrown, shown by `onError` — before anything is written.
+          // The dates are checked before anything is written — a bad
+          // row is refused the same way a bad amount is, thrown and
+          // shown by `onError` — and only then the client: a `new`
+          // choice writes a client row (lib/client-choice.ts), and a
+          // row for a gig that is then refused would be an orphan.
           const dates = collectGigDates(dateTime, extraDates);
           if (!dates.ok) throw new Error(dates.message);
+          const clientId = await resolveClientChoice(data, client);
+          // The primary date plus the "Also on" rows: one gig per date,
+          // sharing a batchId when there is more than one
+          // (lib/gig-batch.ts).
           const created = await createGigBatch(
             data,
             {
@@ -249,6 +290,11 @@ export function DraftReview() {
     onSuccess: async ({ createdIds }) => {
       await queryClient.invalidateQueries({ queryKey: ["drafts"] });
       await queryClient.invalidateQueries({ queryKey: [KIND_QUERY_KEY[kind]] });
+      // A client made on the way: the gig's hub names it by that
+      // client, and the Clients tab lists it — both off ["clients"].
+      if (kind === "gig" && client.kind === "new") {
+        await queryClient.invalidateQueries({ queryKey: ["clients"] });
+      }
       // One record: open it. Several: the list, because there is no
       // single one to open and opening the first would hide the rest.
       const only = createdIds.length === 1 ? createdIds[0] : undefined;
@@ -297,27 +343,69 @@ export function DraftReview() {
               <p className="text-xs text-slate-500">✉️ Captured from a forwarded email.</p>
             )}
 
-            {/* client match banner (gig kind) */}
-            {kind === "gig" &&
-              (matchedClient !== undefined ? (
-                <p
-                  className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700"
-                  data-testid="match-banner"
-                >
-                  Matched existing client: <strong>{matchedClient.name}</strong>
-                  {draft.data.extracted.matchConfidence != null &&
-                    ` (${Math.round(draft.data.extracted.matchConfidence * 100)}%)`}
+            {/* The client match, in three bands (lib/draft-client-
+                match.ts). CONFIDENT: say so, and the select below is
+                already on it. UNSURE: ask, with the two answers as
+                buttons, and hold Confirm until one is pressed. NONE
+                with a name read: say a client will be created — the
+                select below is on "New client" with that name typed
+                in, and the line follows what is typed. The last two
+                lines share `match-banner` with the first because that
+                is the one thing the capture e2e waits on: "the review
+                screen is up and has read the client". */}
+            {kind === "gig" && band === "confident" && choseMatch && (
+              <p
+                className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700"
+                data-testid="match-banner"
+              >
+                Matched existing client: <strong>{matchedName}</strong>
+                {extracted?.matchConfidence != null &&
+                  ` (${Math.round(extracted.matchConfidence * 100)}%)`}
+              </p>
+            )}
+            {kind === "gig" && questionOpen && (
+              <div
+                className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800"
+                data-testid="match-question"
+              >
+                <p>
+                  Looks like <strong>{matchedName}</strong> — is that right?
                 </p>
-              ) : (
-                clientName.trim() !== "" && (
-                  <p
-                    className="rounded-xl bg-sky-50 p-3 text-sm text-sky-700"
-                    data-testid="match-banner"
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    data-testid="draft-match-yes"
+                    onClick={() => answerClient({ kind: "existing", id: matchedId! })}
                   >
-                    New client will be created: <strong>{clientName.trim()}</strong>
-                  </p>
-                )
-              ))}
+                    Yes, it's {matchedName}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    data-testid="draft-match-no"
+                    onClick={() =>
+                      answerClient(
+                        extractedName === ""
+                          ? { kind: "none" }
+                          : { kind: "new", name: extractedName },
+                      )
+                    }
+                  >
+                    {extractedName === ""
+                      ? "No, someone else"
+                      : `No, new client "${extractedName}"`}
+                  </Button>
+                </div>
+              </div>
+            )}
+            {kind === "gig" && client.kind === "new" && client.name.trim() !== "" && (
+              <p
+                className="rounded-xl bg-sky-50 p-3 text-sm text-sky-700"
+                data-testid="match-banner"
+              >
+                New client will be created: <strong>{client.name.trim()}</strong>
+              </p>
+            )}
 
             <Field label="This is a…">
               <Select
@@ -333,11 +421,16 @@ export function DraftReview() {
             {kind === "gig" && (
               <>
                 <Field label="Client">
-                  <Input
-                    placeholder="Agency or company"
-                    value={clientName}
-                    onChange={(e) => setClientName(e.target.value)}
-                    disabled={matchedClient !== undefined}
+                  {/* The same control as the gig form's, so a client
+                      the matcher missed is one tap away in the list —
+                      and a hand-picked one answers the question above
+                      (`answerClient`). */}
+                  <ClientSelect
+                    testId="draft-client"
+                    label="Client"
+                    clients={clients.data ?? []}
+                    value={client}
+                    onChange={answerClient}
                   />
                 </Field>
                 <Field label="Location">
@@ -435,6 +528,11 @@ export function DraftReview() {
             </Field>
 
             {error !== null && <p className="text-sm text-red-600">{error}</p>}
+            {kind === "gig" && questionOpen && (
+              <p className="text-xs text-amber-700" data-testid="draft-match-pending">
+                Answer the client question first.
+              </p>
+            )}
             {offline && (
               <p className="text-xs text-amber-700">
                 Confirming needs a connection (the draft closes server-side).
@@ -445,7 +543,7 @@ export function DraftReview() {
               <Button
                 className="flex-1"
                 data-testid="draft-confirm"
-                disabled={confirm.isPending || offline}
+                disabled={confirm.isPending || offline || (kind === "gig" && questionOpen)}
                 onClick={() => {
                   setError(null);
                   confirm.mutate();

@@ -6,7 +6,8 @@ import { QueryClient, QueryClientProvider, notifyManager } from "@tanstack/react
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GigEdit } from "./GigEdit.tsx";
 import { HelpProvider } from "../help/runtime/HelpProvider.tsx";
-import type { Client, Gig } from "../lib/types.ts";
+import { NEW_CLIENT_OPTION } from "../components/ClientSelect.tsx";
+import type { Client, ClientInput, Gig } from "../lib/types.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -88,6 +89,13 @@ const api = {
   listGigs: vi.fn(async () => ALL),
   listClients: vi.fn(async () => [ACME, BRAVO]),
   putGig: vi.fn(async (id: string, input: unknown) => ({ ...gig({ id }), ...(input as object) })),
+  putClient: vi.fn(
+    async (id: string, input: ClientInput): Promise<Client> => ({
+      ...ACME,
+      id,
+      name: input.name,
+    }),
+  ),
   reverseGeocode: vi.fn(async () => ({ label: null })),
 };
 
@@ -434,5 +442,136 @@ describe("GigEdit parent picker (saved parent)", () => {
 
     const [, input] = api.putGig.mock.calls[0]!;
     expect((input as { parentGigId: string | null }).parentGigId).toBe("ghost");
+  });
+});
+
+describe("GigEdit client field", () => {
+  const byId = <T extends HTMLElement>(el: HTMLElement, id: string) =>
+    el.querySelector<T>(`[data-testid="${id}"]`);
+  const clientSelect = (el: HTMLElement) => byId<HTMLSelectElement>(el, "gig-client")!;
+  const nameBox = (el: HTMLElement) => byId<HTMLInputElement>(el, "gig-client-new-name");
+
+  /** What the "Part of" picker offers — same device as the parent
+   *  picker block above. */
+  async function offered(el: HTMLElement): Promise<string[]> {
+    await click(byId(el, "gig-parent-select"));
+    const ids = [...document.querySelectorAll<HTMLElement>('[data-testid^="gig-parent-select-row-"]')]
+      .map((row) => row.dataset["testid"]!.slice("gig-parent-select-row-".length));
+    await click(document.querySelector('[data-testid="gig-parent-select-sheet-close"]'));
+    return ids;
+  }
+
+  it("lists No client, the clients, then New client…", async () => {
+    const el = await render([], "new");
+    const values = [...clientSelect(el).options].map((o) => o.value);
+    expect(values).toEqual(["", "c1", "c2", NEW_CLIENT_OPTION]);
+    expect(nameBox(el)).toBeNull();
+  });
+
+  it("seeds the select from the stored gig's client", async () => {
+    const el = await render([gig({ id: "me", clientId: "c2" })], "me");
+    expect(clientSelect(el).value).toBe("c2");
+  });
+
+  it("creates the typed client on save, then the gig with that client's id", async () => {
+    const el = await render([], "new");
+    await choose(clientSelect(el), NEW_CLIENT_OPTION);
+    expect(nameBox(el)).not.toBeNull();
+    await type(nameBox(el)!, "Full Field Agency");
+    await type(byId<HTMLInputElement>(el, "gig-title")!, "First shift");
+
+    await click(byId(el, "gig-save"));
+
+    // The client row first, once, with the trimmed name…
+    expect(api.putClient).toHaveBeenCalledTimes(1);
+    const [clientId, clientInput] = api.putClient.mock.calls[0]!;
+    expect(clientInput).toEqual({ name: "Full Field Agency" });
+    // …then the gig, carrying that id.
+    expect(api.putGig).toHaveBeenCalledTimes(1);
+    const [, gigInput] = api.putGig.mock.calls[0]!;
+    expect((gigInput as { clientId: string | null }).clientId).toBe(clientId);
+    expect(api.putClient.mock.invocationCallOrder[0]!).toBeLessThan(
+      api.putGig.mock.invocationCallOrder[0]!,
+    );
+    // And the save landed on the gig's hub, as any single save does.
+    expect(byId(el, "landed-gig")).not.toBeNull();
+  });
+
+  it("links a new client to an EDITED gig too", async () => {
+    // Both paths resolve the choice: an existing gig moved to a client
+    // that does not exist yet gets the client created and the id
+    // patched in, with the rest of the record left to commitGigPatch.
+    const el = await render([gig({ id: "me", clientId: "c1" })], "me");
+    await choose(clientSelect(el), NEW_CLIENT_OPTION);
+    await type(nameBox(el)!, "Bravo Two");
+
+    await click(byId(el, "gig-save"));
+
+    expect(api.putClient).toHaveBeenCalledWith(expect.any(String), { name: "Bravo Two" });
+    const [savedId, input] = api.putGig.mock.calls[0]!;
+    expect(savedId).toBe("me");
+    expect((input as { clientId: string | null }).clientId).toBe(
+      api.putClient.mock.calls[0]![0],
+    );
+  });
+
+  it("refuses a blank new-client name under the field and writes nothing", async () => {
+    const el = await render([], "new");
+    await choose(clientSelect(el), NEW_CLIENT_OPTION);
+    await type(nameBox(el)!, "   ");
+
+    await click(byId(el, "gig-save"));
+
+    expect(api.putClient).not.toHaveBeenCalled();
+    expect(api.putGig).not.toHaveBeenCalled();
+    expect(el.textContent).toContain("Give the new client a name.");
+    // Still on the form, and the message clears once the field changes.
+    expect(byId(el, "gig-save")).not.toBeNull();
+    await type(nameBox(el)!, "Acme Two");
+    expect(el.textContent).not.toContain("Give the new client a name.");
+  });
+
+  it("saves with no client when the select is left on No client", async () => {
+    const el = await render([], "new");
+    await click(byId(el, "gig-save"));
+    expect(api.putClient).not.toHaveBeenCalled();
+    const [, input] = api.putGig.mock.calls[0]!;
+    expect((input as { clientId: string | null }).clientId).toBeNull();
+  });
+
+  it("offers nothing in Part of for a new client, and drops a picked parent", async () => {
+    // A client that does not exist yet has no gigs. Null-as-clientless
+    // would offer the unattributed gigs, which the server would then
+    // refuse under the new client's id.
+    const editing = gig({ id: "me", clientId: null });
+    const free = gig({ id: "free", clientId: null, title: "Unattributed" });
+    const el = await render([editing, free], "me");
+    expect(await offered(el)).toEqual(["free"]);
+
+    await click(byId(el, "gig-parent-select"));
+    await click(document.querySelector('[data-testid="gig-parent-select-row-free"]'));
+    expect(byId(el, "gig-parent-select")?.dataset["value"]).toBe("free");
+
+    await choose(clientSelect(el), NEW_CLIENT_OPTION);
+    expect(await offered(el)).toEqual([]);
+    await type(nameBox(el)!, "Brand New");
+    await click(byId(el, "gig-save"));
+    const [, input] = api.putGig.mock.calls[0]!;
+    expect((input as { parentGigId: string | null }).parentGigId).toBeNull();
+  });
+
+  it("shows a failed client write as a failed save", async () => {
+    // The client is resolved INSIDE the mutation so that this is a save
+    // error on the form, not an unhandled rejection before it started.
+    api.putClient.mockRejectedValueOnce(new Error("offline store closed"));
+    const el = await render([], "new");
+    await choose(clientSelect(el), NEW_CLIENT_OPTION);
+    await type(nameBox(el)!, "Doomed");
+
+    await click(byId(el, "gig-save"));
+
+    expect(api.putGig).not.toHaveBeenCalled();
+    expect(el.textContent).toContain("Save failed");
+    expect(byId(el, "landed-gig")).toBeNull();
   });
 });

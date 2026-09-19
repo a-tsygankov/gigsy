@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider, notifyManager } from "@tanstack/react
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DraftReview } from "./DraftReview.tsx";
 import { HelpProvider } from "../help/runtime/HelpProvider.tsx";
+import { NEW_CLIENT_OPTION } from "../components/ClientSelect.tsx";
 import { msToLocalInput } from "../lib/datetime.ts";
 import type { Client, Draft, DraftExtracted, Gig, GigInput } from "../lib/types.ts";
 
@@ -173,6 +174,25 @@ async function click(el: Element | null) {
   });
 }
 
+/** Drive a native <select> the way React hears it: through the
+ *  prototype's value setter, so React's change tracking does not
+ *  swallow the event as a no-op (same device as GigEdit.test.tsx). */
+async function choose(select: HTMLSelectElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+  await act(async () => {
+    setter.call(select, value);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+async function type(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  await act(async () => {
+    setter.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 /** What each putGig call was asked to store. */
 function saved(): { dateTime: number | null; batchId: string | null }[] {
   return api.putGig.mock.calls.map(([, input]) => ({
@@ -248,5 +268,169 @@ describe("DraftReview gig dates", () => {
     expect(api.putGig).not.toHaveBeenCalled();
     expect(api.setDraftStatus).not.toHaveBeenCalled();
     expect(el.textContent).toContain("Two of the dates are the same — remove one.");
+  });
+});
+
+describe("DraftReview client match", () => {
+  const clientSelect = (el: HTMLElement) => byId<HTMLSelectElement>(el, "draft-client")!;
+  const nameBox = (el: HTMLElement) => byId<HTMLInputElement>(el, "draft-client-new-name");
+  const confirmButton = (el: HTMLElement) => byId<HTMLButtonElement>(el, "draft-confirm")!;
+  const savedClientIds = () => api.putGig.mock.calls.map(([, input]) => input.clientId ?? null);
+
+  describe("confident band (≥ 0.9)", () => {
+    it("announces the match, preselects it, and asks nothing", async () => {
+      const el = await render(draft({ matchedClientId: "c1", matchConfidence: 0.97 }));
+
+      expect(byId(el, "match-banner")?.textContent).toContain("Matched existing client: Acme");
+      expect(byId(el, "match-banner")?.textContent).toContain("(97%)");
+      expect(byId(el, "match-question")).toBeNull();
+      expect(byId(el, "draft-match-pending")).toBeNull();
+      expect(clientSelect(el).value).toBe("c1");
+      expect(confirmButton(el).disabled).toBe(false);
+    });
+
+    it("confirms with the matched id and creates no client", async () => {
+      const el = await render(draft({ matchedClientId: "c1", matchConfidence: 1, dateTimeMs: MON }));
+      await click(confirmButton(el));
+      expect(api.putClient).not.toHaveBeenCalled();
+      expect(savedClientIds()).toEqual(["c1"]);
+    });
+
+    it("drops the banner once the person points the select elsewhere", async () => {
+      // The band is evidence; the banner is a claim about the CHOICE.
+      const el = await render(draft({ matchedClientId: "c1", matchConfidence: 1 }));
+      await choose(clientSelect(el), "");
+      expect(byId(el, "match-banner")).toBeNull();
+      await click(confirmButton(el));
+      expect(savedClientIds()).toEqual([null]);
+    });
+  });
+
+  describe("unsure band (< 0.9)", () => {
+    const unsure = draft({ matchedClientId: "c1", matchConfidence: 0.8, clientName: "ACME LLC" });
+
+    it("asks, preselects nothing, and holds Confirm until answered", async () => {
+      const el = await render(unsure);
+
+      expect(byId(el, "match-question")?.textContent).toContain("Looks like Acme — is that right?");
+      expect(byId(el, "draft-match-yes")?.textContent).toBe("Yes, it's Acme");
+      expect(byId(el, "draft-match-no")?.textContent).toBe('No, new client "ACME LLC"');
+      expect(byId(el, "match-banner")).toBeNull();
+      expect(clientSelect(el).value).toBe("");
+      expect(confirmButton(el).disabled).toBe(true);
+      expect(byId(el, "draft-match-pending")?.textContent).toBe("Answer the client question first.");
+
+      // Disabled means disabled: a click writes nothing.
+      await click(confirmButton(el));
+      expect(api.putGig).not.toHaveBeenCalled();
+    });
+
+    it("Yes links the matched client and releases Confirm", async () => {
+      const el = await render(unsure);
+      await click(byId(el, "draft-match-yes"));
+
+      expect(byId(el, "match-question")).toBeNull();
+      expect(byId(el, "draft-match-pending")).toBeNull();
+      expect(clientSelect(el).value).toBe("c1");
+      expect(confirmButton(el).disabled).toBe(false);
+
+      await click(confirmButton(el));
+      expect(api.putClient).not.toHaveBeenCalled();
+      expect(savedClientIds()).toEqual(["c1"]);
+    });
+
+    it("No creates a client spelt as the document had it", async () => {
+      const el = await render(unsure);
+      await click(byId(el, "draft-match-no"));
+
+      expect(byId(el, "match-question")).toBeNull();
+      expect(clientSelect(el).value).toBe(NEW_CLIENT_OPTION);
+      expect(nameBox(el)?.value).toBe("ACME LLC");
+      expect(byId(el, "match-banner")?.textContent).toContain("New client will be created: ACME LLC");
+      expect(confirmButton(el).disabled).toBe(false);
+
+      await click(confirmButton(el));
+      expect(api.putClient).toHaveBeenCalledTimes(1);
+      expect(api.putClient).toHaveBeenCalledWith(expect.any(String), { name: "ACME LLC" });
+      expect(savedClientIds()).toEqual([api.putClient.mock.calls[0]![0]]);
+    });
+
+    it("a hand-picked client answers the question too", async () => {
+      const el = await render(unsure);
+      await choose(clientSelect(el), "c1");
+      expect(byId(el, "match-question")).toBeNull();
+      expect(confirmButton(el).disabled).toBe(false);
+    });
+
+    it("the question does not gate an expense", async () => {
+      // The client is a gig's field; switching kind takes the question
+      // (and the gate) off the screen with it.
+      const el = await render(unsure);
+      const kindSelect = el.querySelector<HTMLSelectElement>("select")!;
+      await choose(kindSelect, "expense");
+      expect(byId(el, "match-question")).toBeNull();
+      expect(byId(el, "draft-match-pending")).toBeNull();
+      expect(confirmButton(el).disabled).toBe(false);
+    });
+  });
+
+  describe("none band", () => {
+    it("preselects New client with the extracted name, and creates it on confirm", async () => {
+      const el = await render(
+        draft({ matchedClientId: null, matchConfidence: null, clientName: "Full Field Agency" }),
+      );
+
+      expect(byId(el, "match-question")).toBeNull();
+      expect(clientSelect(el).value).toBe(NEW_CLIENT_OPTION);
+      expect(nameBox(el)?.value).toBe("Full Field Agency");
+      expect(byId(el, "match-banner")?.textContent).toContain(
+        "New client will be created: Full Field Agency",
+      );
+      expect(confirmButton(el).disabled).toBe(false);
+
+      await click(confirmButton(el));
+      expect(api.putClient).toHaveBeenCalledWith(expect.any(String), { name: "Full Field Agency" });
+      expect(savedClientIds()).toEqual([api.putClient.mock.calls[0]![0]]);
+    });
+
+    it("follows an edited name into the banner and the client row", async () => {
+      const el = await render(draft({ matchedClientId: null, clientName: "FFA" }));
+      await type(nameBox(el)!, "Full Field Agency");
+      expect(byId(el, "match-banner")?.textContent).toContain("Full Field Agency");
+      await click(confirmButton(el));
+      expect(api.putClient).toHaveBeenCalledWith(expect.any(String), { name: "Full Field Agency" });
+    });
+
+    it("selects nothing, shows no banner and creates no client when no name was read", async () => {
+      const el = await render(draft({ matchedClientId: null, clientName: null }));
+      expect(byId(el, "match-banner")).toBeNull();
+      expect(clientSelect(el).value).toBe("");
+      expect(nameBox(el)).toBeNull();
+
+      await click(confirmButton(el));
+      expect(api.putClient).not.toHaveBeenCalled();
+      expect(savedClientIds()).toEqual([null]);
+    });
+
+    it("refuses a new client whose name was cleared, writing nothing", async () => {
+      const el = await render(draft({ matchedClientId: null, clientName: "FFA" }));
+      await type(nameBox(el)!, "  ");
+      await click(confirmButton(el));
+      expect(api.putClient).not.toHaveBeenCalled();
+      expect(api.putGig).not.toHaveBeenCalled();
+      expect(api.setDraftStatus).not.toHaveBeenCalled();
+      expect(el.textContent).toContain("Give the new client a name.");
+    });
+
+    it("does not create a client for a draft whose dates are refused", async () => {
+      // Dates are checked before the client is written, so a refused
+      // draft leaves no orphan client behind.
+      const el = await render(
+        draft({ matchedClientId: null, clientName: "FFA", dateTimeMs: MON, dateTimesMs: [MON, MON] }),
+      );
+      await click(confirmButton(el));
+      expect(api.putClient).not.toHaveBeenCalled();
+      expect(api.putGig).not.toHaveBeenCalled();
+    });
   });
 });
