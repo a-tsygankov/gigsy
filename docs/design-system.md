@@ -90,7 +90,7 @@ Every component reads its values from the CSS custom properties in `tokens/`; ea
 sibling `.d.ts` (props) and `.prompt.md` (usage).
 
 - **Core** — `Button`, `Card`, `Input`, `Textarea`, `Select`, `Field`, `DateTimeField`,
-  `DurationField`, `FilePicker`, `ExtraDatesField`, `GigPicker`
+  `DurationField`, `FilePicker`, `ExtraDatesField`, `GigPicker`, `ClientSelect`
 - **Feedback** — `StatusPill`, `SyncBadge`, `EmptyState`, `ListSkeleton`
 - **Navigation** — `AppHeader`, `TabBar`, `Fab`
 - **Data** — `Tile`, `SectionHeading`, `GigRow`

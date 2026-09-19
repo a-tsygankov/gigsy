@@ -5,7 +5,7 @@
  *
  *   core        Button, Card, Input, Textarea, Select, Field, Toggle,
  *               DateTimeField, DurationField, ExtraDatesField, FilePicker,
- *               GigPicker
+ *               GigPicker, ClientSelect
  *   settings    SettingRow, SettingGroup
  *   data        Tile, SectionHeading, GigRow
  *   feedback    StatusPill, SyncBadge, EmptyState, ListSkeleton, Splash
@@ -22,6 +22,7 @@ export { DurationField } from "./DurationField.tsx";
 export { ExtraDatesField } from "./ExtraDatesField.tsx";
 export { FilePicker } from "./FilePicker.tsx";
 export { GigPicker, type GigPickerProps } from "./GigPicker.tsx";
+export { ClientSelect, NEW_CLIENT_OPTION, type ClientSelectProps } from "./ClientSelect.tsx";
 export { Toggle } from "./Toggle.tsx";
 export { SettingRow, SettingGroup } from "./SettingRow.tsx";
 export { Tile, TILE_TONE_CLASSES } from "./Tile.tsx";
