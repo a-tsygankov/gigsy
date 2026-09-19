@@ -4,7 +4,7 @@
  * two translucent surfaces in the app. The wordmark doubles as the
  * hidden-console trigger (three quick taps).
  */
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   useAuthState,
   useServices,
@@ -49,6 +49,13 @@ const HEADER_GLYPH =
   "flex h-6 w-6 items-center justify-center rounded-full border " +
   "border-slate-400 text-sm font-semibold leading-none text-slate-500 " +
   "transition-colors group-hover:border-slate-600 group-hover:text-slate-700";
+/** The gear alone is set larger. `⚙︎` at text-sm is a 14px glyph whose
+ *  ink is mostly its spokes — inside a 24px ring it read as a speck
+ *  beside the "?". text-lg brings its ink to about the "?"'s height;
+ *  the ring stays 24px, so the three still line up. Every other ring
+ *  class is inherited from HEADER_GLYPH, which is what keeps the test
+ *  that compares the three rings honest. */
+const GEAR_GLYPH = "text-lg";
 
 export function AppHeader({ title }: { title: string }) {
   const { auth } = useServices();
@@ -57,8 +64,29 @@ export function AppHeader({ title }: { title: string }) {
   const engine = useSyncEngine();
   const tap = useConsoleTap();
   const { isOpen: helpOpen, openHelp, closeHelp } = useHelp();
-  // No point linking to the screen you're already on.
-  const onSettings = useLocation().pathname === "/settings";
+  const location = useLocation();
+  const navigate = useNavigate();
+  const onSettings = location.pathname === "/settings";
+
+  /**
+   * The gear on the Settings screen itself closes it — the same
+   * control, pressed again, the way the help button closes the sheet
+   * it opened. It used to vanish there ("no point linking to the screen
+   * you are on"), and a control that disappears the moment you use it
+   * reads as broken, not as tidy.
+   *
+   * "Close" means back where you came from, and that is the history
+   * entry before this one — except when there is none: a fresh load
+   * of /settings, or a home-screen icon pointing there, has nothing to
+   * go back to. React Router marks that first entry with the key
+   * "default" (in the browser and in MemoryRouter alike), so it is the
+   * one case that goes home instead. `replace`, so Back from home does
+   * not bounce through Settings a second time.
+   */
+  function closeSettings() {
+    if (location.key === "default") navigate("/", { replace: true });
+    else navigate(-1);
+  }
 
   return (
     <header
@@ -178,17 +206,42 @@ export function AppHeader({ title }: { title: string }) {
               colour emoji that ignores the theme. The accessible name
               is still "Settings" — the tour's "Open Settings" step and
               the settings spec find it by id and by name, not by
-              paint. Still hidden on /settings: no point linking to the
-              screen you are on. */}
-          {!onSettings && (
+              paint.
+
+              On /settings it is the same ring, filled, and a button
+              that closes the screen (`closeSettings` above) — so the
+              gear is the one control that shows where you are AND takes
+              you back, which is what a pressed toggle means.
+              `aria-pressed` says so for anyone not looking at the fill.
+              Same id in both states: every spec and the tour find the
+              gear as `settings-link` whichever screen it is on. */}
+          {onSettings ? (
+            <button
+              type="button"
+              onClick={closeSettings}
+              aria-label="Close Settings"
+              aria-pressed="true"
+              title="Close Settings"
+              data-testid="settings-link"
+              className={HEADER_CONTROL}
+            >
+              <span
+                aria-hidden="true"
+                className={`${HEADER_GLYPH} ${GEAR_GLYPH} border-slate-600 bg-slate-200 text-slate-800`}
+              >
+                ⚙︎
+              </span>
+            </button>
+          ) : (
             <Link
               to="/settings"
               aria-label="Settings"
+              aria-pressed="false"
               title={user?.email === undefined ? "Settings" : `Settings · ${user.email}`}
               data-testid="settings-link"
               className={HEADER_CONTROL}
             >
-              <span aria-hidden="true" className={HEADER_GLYPH}>
+              <span aria-hidden="true" className={`${HEADER_GLYPH} ${GEAR_GLYPH}`}>
                 ⚙︎
               </span>
             </Link>

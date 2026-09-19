@@ -40,9 +40,10 @@ test("help is reachable from Settings and starts a real tour", async ({
   // This test starts on `/settings` rather than where the scenario
   // runs, for two reasons: the tour's own hop to `/` is part of what's
   // under test — `openSettings.startRoute` is `/` precisely so that
-  // `settings-link`, which AppHeader hides on `/settings`, is on screen
-  // by the time the tour looks for it — and `/settings` is where help's
-  // removed second door used to be.
+  // `settings-link` is the OPEN gear by the time the tour looks for it
+  // (on `/settings` the same id is the pressed gear that closes the
+  // screen, AppHeader.tsx) — and `/settings` is where help's removed
+  // second door used to be.
   await prepareHelpScenario(page, request, baseURL!, {
     ...openSettings,
     startRoute: "/settings",

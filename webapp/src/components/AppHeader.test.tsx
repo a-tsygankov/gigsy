@@ -24,13 +24,15 @@ function WhereAmI() {
   return <p data-testid="where">{useLocation().pathname}</p>;
 }
 
-async function render(at: string) {
+/** `at` is the route to render on, or the history to render at the end
+ *  of — a list, so a test can give the gear somewhere to go back to. */
+async function render(at: string | string[]) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
     root!.render(
-      <MemoryRouter initialEntries={[at]}>
+      <MemoryRouter initialEntries={typeof at === "string" ? [at] : at}>
         <HelpProvider>
           <AppHeader title="Test" />
           <Routes>
@@ -84,9 +86,10 @@ describe("AppHeader controls", () => {
     const controls = ["coffee-link", "help-link", "settings-link"].map((id) => byId(el, id)!);
     const first = controls[0]!;
     const ring = (control: HTMLElement) =>
-      // The coffee adds `object-cover` to fill its ring with the disc;
+      // The coffee adds `object-cover` to fill its ring with the disc,
+      // and the gear is set one size up (AppHeader.tsx's GEAR_GLYPH);
       // everything else about the ring must be identical.
-      glyphOf(control)!.className.replace(" object-cover", "");
+      glyphOf(control)!.className.replace(" object-cover", "").replace(" text-lg", "");
     for (const control of controls.slice(1)) {
       expect(control.className).toBe(first.className);
       expect(ring(control)).toBe(ring(first));
@@ -130,12 +133,33 @@ describe("AppHeader controls", () => {
     expect(byId(el, "where")?.textContent).toBe("/settings");
   });
 
-  it("hides the gear on the settings screen, as the text link was", async () => {
+  it("keeps the gear on the settings screen, pressed, and it goes back", async () => {
+    // Two entries, so there is a "back" to go to: the gear on Settings
+    // is the same control pressed again, and returns where you came from.
+    const el = await render(["/gigs", "/settings"]);
+    const gear = byId(el, "settings-link");
+    expect(gear).not.toBeNull();
+    expect(gear?.getAttribute("aria-pressed")).toBe("true");
+    expect(gear?.getAttribute("aria-label")).toBe("Close Settings");
+    await act(async () => {
+      gear!.click();
+    });
+    expect(byId(el, "where")?.textContent).toBe("/gigs");
+  });
+
+  it("goes home from Settings when there is nothing to go back to", async () => {
+    // A fresh load of /settings — the first entry, which React Router
+    // keys "default" — has no history behind it.
     const el = await render("/settings");
-    expect(byId(el, "settings-link")).toBeNull();
-    // The other two are not about the current screen, so they stay.
-    expect(byId(el, "coffee-link")).not.toBeNull();
-    expect(byId(el, "help-link")).not.toBeNull();
+    await act(async () => {
+      byId(el, "settings-link")!.click();
+    });
+    expect(byId(el, "where")?.textContent).toBe("/");
+  });
+
+  it("is not pressed anywhere but Settings", async () => {
+    const el = await render("/gigs");
+    expect(byId(el, "settings-link")?.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("marks the glyphs as decoration, so the name is what is announced", async () => {

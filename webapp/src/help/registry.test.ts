@@ -35,9 +35,10 @@ describe("the help registry", () => {
     expect(helpScenarios.length - executableHelpScenarios.length).toBe(1);
   });
 
-  // Opening help from Settings and being told to tap a link that
-  // AppHeader hides on that very screen is the trap startRoute exists
-  // to avoid (AppHeader.tsx:43).
+  // Opening help from Settings and being told to "open Settings" by
+  // tapping a gear that, on that very screen, is the pressed one that
+  // CLOSES it is the trap startRoute exists to avoid (AppHeader.tsx's
+  // `closeSettings`).
   it("starts the settings-link scenario somewhere that renders it", () => {
     expect(getHelpScenario("open-settings")?.startRoute).toBe("/");
   });
