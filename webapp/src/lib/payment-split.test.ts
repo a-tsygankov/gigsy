@@ -3,7 +3,7 @@ import { formatMoney } from "./format.ts";
 import {
   SPLIT_MESSAGE,
   allocatedCents,
-  applyAutoBalance,
+  distributeAmount,
   clearMismatchedRows,
   gigsForClient,
   isBlankRow,
@@ -231,35 +231,87 @@ describe("validateSplit", () => {
   });
 });
 
-describe("applyAutoBalance", () => {
-  it("mirrors the payment amount into a single untouched row that has a gig", () => {
-    expect(applyAutoBalance([row("r1", "a1", "")], "150", true)).toEqual([
-      row("r1", "a1", "150"),
+describe("distributeAmount — the waterfall over untouched rows", () => {
+  // What each gig is still owed: a1 100, a2 50, a3 unknown (hourly,
+  // no time yet), a4 already paid off.
+  const owed = (gigId: string) =>
+    ({ a1: 10000, a2: 5000, a3: null, a4: 0 })[gigId] ?? null;
+
+  it("gives a lone gig the whole amount, whatever it is owed", () => {
+    expect(distributeAmount([row("r1", "a1", "")], 6000, owed)).toEqual([row("r1", "a1", "60.00")]);
+    expect(distributeAmount([row("r1", "a1", "")], 25000, owed)).toEqual([row("r1", "a1", "250.00")]);
+  });
+
+  it("fills the first gig up to what it is owed and passes the rest to the second", () => {
+    const rows = [row("r1", "a1", ""), row("r2", "a2", "")];
+    expect(distributeAmount(rows, 12000, owed)).toEqual([
+      row("r1", "a1", "100.00"),
+      row("r2", "a2", "20.00"),
+    ]);
+  });
+
+  it("carries on down the list, and the last gig takes whatever is left", () => {
+    const rows = [row("r1", "a1", ""), row("r2", "a2", ""), row("r3", "a3", "")];
+    // 100 + 50 owed, 200 arrived: the third, owed an unknown amount,
+    // is last and so takes the remaining 50.
+    expect(distributeAmount(rows, 20000, owed)).toEqual([
+      row("r1", "a1", "100.00"),
+      row("r2", "a2", "50.00"),
+      row("r3", "a3", "50.00"),
+    ]);
+  });
+
+  it("leaves a gig it never reaches EMPTY, not 0.00", () => {
+    // 100 owed first, only 80 arrived: the second gets nothing, and an
+    // empty amount is what validateSplit will refuse — the honest
+    // answer for a gig this payment does not cover.
+    const rows = [row("r1", "a1", ""), row("r2", "a2", "")];
+    expect(distributeAmount(rows, 8000, owed)).toEqual([
+      row("r1", "a1", "80.00"),
+      row("r2", "a2", ""),
+    ]);
+  });
+
+  it("skips a gig owed nothing that can be named, unless it is last", () => {
+    const rows = [row("r1", "a3", ""), row("r2", "a1", "")];
+    expect(distributeAmount(rows, 12000, owed)).toEqual([
+      row("r1", "a3", ""),
+      row("r2", "a1", "120.00"),
+    ]);
+    // Already paid off: the same.
+    expect(distributeAmount([row("r1", "a4", ""), row("r2", "a1", "")], 3000, owed)).toEqual([
+      row("r1", "a4", ""),
+      row("r2", "a1", "30.00"),
     ]);
   });
 
   it("leaves a gig-less row empty, so an unattributed transfer still saves", () => {
     // /payments/new with no gig: mirroring here would turn "record it
     // now, attribute it later" into a validation error about a gig the
-    // user never named.
-    expect(applyAutoBalance([row("r1", "", "")], "150", true)).toEqual([
-      row("r1", "", ""),
-    ]);
+    // user never named. A gig-less row in the middle is skipped, too.
+    expect(distributeAmount([row("r1", "", "")], 15000, owed)).toEqual([row("r1", "", "")]);
+    expect(
+      distributeAmount([row("r1", "a1", ""), row("r2", "", ""), row("r3", "a2", "")], 12000, owed),
+    ).toEqual([row("r1", "a1", "100.00"), row("r2", "", ""), row("r3", "a2", "20.00")]);
   });
 
-  it("stops mirroring once the split has been touched", () => {
-    expect(applyAutoBalance([row("r1", "a1", "100")], "150", false)).toEqual([
-      row("r1", "a1", "100"),
-    ]);
-  });
-
-  it("never mirrors into a real split", () => {
-    const rows = [row("r1", "a1", "100"), row("r2", "a2", "50")];
-    expect(applyAutoBalance(rows, "150", true)).toEqual(rows);
+  it("clears the rows while there is no amount to spread", () => {
+    expect(distributeAmount([row("r1", "a1", "50.00")], null, owed)).toEqual([row("r1", "a1", "")]);
   });
 
   it("handles an empty row list without inventing one", () => {
-    expect(applyAutoBalance([], "150", true)).toEqual([]);
+    expect(distributeAmount([], 15000, owed)).toEqual([]);
+  });
+
+  it("never over-allocates: the rows always add up to the amount when any gig is chosen", () => {
+    for (const amount of [1, 4999, 5000, 15000, 15001, 99999]) {
+      const rows = distributeAmount(
+        [row("r1", "a1", ""), row("r2", "a2", ""), row("r3", "a4", "")],
+        amount,
+        owed,
+      );
+      expect(sumSplitRows(rows)).toBe(amount);
+    }
   });
 });
 
