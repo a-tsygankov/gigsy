@@ -5,9 +5,10 @@ import { useData, useSyncState } from "../lib/app-context.tsx";
 import type { PaymentInput } from "../lib/types.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { formatMoney } from "../lib/format.ts";
+import { outstandingCents } from "../lib/gig-pay.ts";
 import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
 import {
-  applyAutoBalance,
+  distributeAmount,
   clearMismatchedRows,
   gigsForClient,
   rowsFromAllocations,
@@ -127,7 +128,16 @@ export function PaymentEdit() {
     { id: crypto.randomUUID(), gigId: searchParams.get("gigId") ?? "", amount: "" },
   ]);
   /** See `applyAutoBalance`: true until the split is touched. */
-  const [autoBalance, setAutoBalance] = useState(true);
+  /**
+   * Whether the amounts are the user's. False until someone types into
+   * an amount box; until then `distributeAmount` spreads the payment
+   * across the chosen gigs on every render (lib/payment-split.ts), so
+   * choosing a gig, adding one or removing one re-spreads rather than
+   * ending the help. It used to be a single "touched" flag that any
+   * edit flipped — including choosing the gig — so the one-gig payment
+   * the mirror exists for was the one case it never covered.
+   */
+  const [manualAmounts, setManualAmounts] = useState(false);
   const [paidAt, setPaidAt] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -183,7 +193,9 @@ export function PaymentEdit() {
         ? stored
         : [{ id: crypto.randomUUID(), gigId: "", amount: "" }],
     );
-    setAutoBalance(stored.length === 0);
+    // A payment that already has a split is the user's: re-spreading
+    // it would rewrite figures someone entered and saved.
+    setManualAmounts(stored.length > 0);
   }, [id, payment.data, allocations.data]);
 
   /**
@@ -251,7 +263,12 @@ export function PaymentEdit() {
   // What the rows say right now, mirror applied. Everything below reads
   // this rather than `rows`, so what is displayed, what is summed and
   // what is saved cannot disagree.
-  const shownRows = applyAutoBalance(rows, amount, autoBalance);
+  const shownRows = manualAmounts
+    ? rows
+    : distributeAmount(rows, parseMoney(amount), (gigId) => {
+        const gig = allGigs.find((g) => g.id === gigId);
+        return gig === undefined ? null : outstandingCents(gig);
+      });
   const paymentCents = parseMoney(amount) ?? 0;
   const unallocated = unallocatedCents(paymentCents, shownRows);
   /**
@@ -276,8 +293,18 @@ export function PaymentEdit() {
   // now the payment came from `/payments` and belongs back there.
   const backTo = soleGigId !== "" ? `/gigs/${soleGigId}` : "/payments";
 
+  /** A change to WHICH gigs, or how many: the spread carries on over
+   *  the new list while the amounts are still its to fill. */
   function editRows(next: SplitRow[]): void {
-    setAutoBalance(false);
+    setRows(next);
+    setSplitError(null);
+  }
+
+  /** A change to an amount: from here the figures are the user's, all
+   *  of them — `next` is built from `shownRows`, so the other rows keep
+   *  the values the spread had given them rather than going blank. */
+  function editAmounts(next: SplitRow[]): void {
+    setManualAmounts(true);
     setRows(next);
     setSplitError(null);
   }
@@ -481,7 +508,7 @@ export function PaymentEdit() {
                         placeholder="0.00"
                         value={row.amount}
                         onChange={(e) =>
-                          editRows(
+                          editAmounts(
                             shownRows.map((r, i) =>
                               i === index ? { ...r, amount: e.target.value } : r,
                             ),

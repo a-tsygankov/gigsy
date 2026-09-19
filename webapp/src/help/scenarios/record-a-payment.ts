@@ -53,7 +53,7 @@ export const recordAPayment: HelpScenario = {
       target: HelpTarget.PaymentAmount,
       title: "Amount ($)",
       description:
-        "What actually landed, in dollars — the figure off the bank statement or the cash in hand. It is the one field a payment can't do without: blank, zero or not a number is refused. Enter it as you'd say it — 150.00. If it paid for one job, this is also the last time you type it: the row below takes the whole amount on its own until you start splitting.",
+        "What actually landed, in dollars — the figure off the bank statement or the cash in hand. It is the one field a payment can't do without: blank, zero or not a number is refused. Enter it as you'd say it — 150.00. This is also usually the last figure you type: the rows below share it out among the jobs you pick, and only if you type into one of them does that stop.",
     },
     {
       action: "highlight",
@@ -67,14 +67,14 @@ export const recordAPayment: HelpScenario = {
       target: HelpTarget.PaymentGig,
       title: "Paid for",
       description:
-        "Which job this money was for. Tap it to search your gigs by title, client or location, with the same filters and sort the Gigs tab has — the row you pick shows the gig's name on one line and its client, date, place and status beneath, so two \"Tasting\" shifts for two agencies can be told apart. Beside it is how much of the payment went to that job. Leave the amount alone and it mirrors the total for a one-job payment; type into it and you are splitting. The ✕ removes a row, and the last row is emptied rather than removed.",
+        "Which job this money was for. Tap it to search your gigs by title, client or location, with the same filters and sort the Gigs tab has — the row you pick shows the gig's name on one line and its client, date, place and status beneath, so two \"Tasting\" shifts for two agencies can be told apart. Beside it is how much of the payment went to that job — filled in for you: one job takes the whole amount, and with several the money runs down the list, each job taking what it is still owed and the last taking the rest. Type into any amount box and the figures are yours from then on, every one of them. The ✕ removes a row, and the last row is emptied rather than removed.",
     },
     {
       action: "highlight",
       target: HelpTarget.PaymentAddSplit,
       title: "+ Add gig",
       description:
-        "One transfer that covered several jobs — an agency paying three shifts at once. Each press adds another row: pick the gig, type its share. The shares can't add up to more than the payment, every row needs both a gig and an amount, and every row must belong to the client above (or to any client, when none is set). What each job has been paid is added up from these rows, which is what turns a gig's status badge to \"paid\" — there is no field for that anywhere else.",
+        "One transfer that covered several jobs — an agency paying three shifts at once. Each press adds another row: pick the gig, and its share is worked out for you — what it is still owed, after the rows above have taken theirs, with the last row taking whatever remains. A job the money never reaches is left blank rather than given nothing, so you see it. Type a share yourself if the split was different. The shares can't add up to more than the payment, every row needs both a gig and an amount, and every row must belong to the client above (or to any client, when none is set). What each job has been paid is added up from these rows, which is what turns a gig's status badge to \"paid\" — there is no field for that anywhere else.",
     },
     {
       action: "highlight",

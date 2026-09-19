@@ -192,3 +192,66 @@ describe("PaymentEdit split rows", () => {
     expect(trigger.textContent).toContain("Arrange a tasting");
   });
 });
+
+describe("PaymentEdit spreads the amount across the chosen gigs", () => {
+  const SHIFT: Gig = { ...TASTING, id: "g2", title: "Evening shift", expectedCents: 5000, amountOfferedCents: 5000 };
+  const byId = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+  const amountBox = (i: number) => byId(`payment-split-amount-${i}`) as HTMLInputElement;
+
+  /** Type into a controlled input the way React hears it. */
+  async function type(input: HTMLInputElement, value: string) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+  async function pickGig(rowIndex: number, gigId: string) {
+    await act(async () => {
+      byId(`payment-gig-${rowIndex}`)!.click();
+    });
+    await act(async () => {
+      byId(`payment-gig-${rowIndex}-row-${gigId}`)!.click();
+    });
+  }
+
+  it("gives the whole amount to a lone gig, once one is chosen", async () => {
+    // The screenshot that prompted this: 60 typed, one gig picked, and
+    // the row still read 0.00 with "Unallocated $60.00" beneath it —
+    // choosing the gig used to count as touching the split.
+    await render([], [TASTING, SHIFT]);
+    await type(byId("payment-amount") as HTMLInputElement, "60");
+    await pickGig(0, "g1");
+    expect(amountBox(0).value).toBe("60.00");
+    expect(byId("payment-unallocated")?.textContent).toBe("Fully allocated");
+  });
+
+  it("fills the first gig up to what it is owed and hands the rest to the next", async () => {
+    await render([], [TASTING, SHIFT]);
+    await type(byId("payment-amount") as HTMLInputElement, "120");
+    await pickGig(0, "g1");
+    await act(async () => {
+      byId("payment-add-split")!.click();
+    });
+    await pickGig(1, "g2");
+    // TASTING is owed 100.00; SHIFT, last, takes the remaining 20.00.
+    expect(amountBox(0).value).toBe("100.00");
+    expect(amountBox(1).value).toBe("20.00");
+    expect(byId("payment-unallocated")?.textContent).toBe("Fully allocated");
+  });
+
+  it("keeps spreading as the amount changes, until an amount box is typed into", async () => {
+    await render([], [TASTING, SHIFT]);
+    await type(byId("payment-amount") as HTMLInputElement, "60");
+    await pickGig(0, "g1");
+    await type(byId("payment-amount") as HTMLInputElement, "75");
+    expect(amountBox(0).value).toBe("75.00");
+
+    // From here the figure is the user's: a later change to the total
+    // must not overwrite it.
+    await type(amountBox(0), "40");
+    await type(byId("payment-amount") as HTMLInputElement, "90");
+    expect(amountBox(0).value).toBe("40");
+    expect(byId("payment-unallocated")?.textContent).toBe("Unallocated $50.00");
+  });
+});

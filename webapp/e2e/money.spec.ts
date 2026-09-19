@@ -145,11 +145,13 @@ async function rowEventually(
  *
  * "+ Add payment" opens `/payments/new?gigId=<this gig>`, so the FIRST
  * split row arrives already on this gig — and, while nothing about the
- * split has been touched, its amount mirrors the payment's
- * (`applyAutoBalance` in lib/payment-split.ts), so the whole payment
- * goes to the one gig without the figure being typed twice. The
- * "Fully allocated" assertion is what proves that mirror actually
- * happened rather than leaving a silently unallocated payment behind.
+ * split has been typed into, its amount is the payment's — a lone gig
+ * takes the whole amount (`distributeAmount` in lib/payment-split.ts,
+ * the waterfall's last-row rule) — so the figure is never typed twice.
+ * The spread writes cents formatted ("50.00" for "50"), unlike the
+ * verbatim mirror it replaced. The "Fully allocated" assertion is what
+ * proves the spread actually happened rather than leaving a silently
+ * unallocated payment behind.
  *
  * The save queues TWO ops: the payment, and the `payment_allocations`
  * row that says which gig it paid for — written by the client now
@@ -168,7 +170,9 @@ async function recordPayment(page: Page, dollars: string): Promise<void> {
   await page.getByTestId("gig-add-payment").click();
   await page.getByTestId("payment-amount").fill(dollars);
   await gigPicker(page, "payment-gig-0").expectChosen();
-  await expect(page.getByTestId("payment-split-amount-0")).toHaveValue(dollars);
+  await expect(page.getByTestId("payment-split-amount-0")).toHaveValue(
+    Number(dollars).toFixed(2),
+  );
   await expect(page.getByTestId("payment-unallocated")).toHaveText("Fully allocated");
   await page.getByTestId("payment-save").click();
   // Saving a new payment replaces the URL with the record's own id.

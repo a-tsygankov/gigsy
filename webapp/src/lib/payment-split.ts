@@ -183,31 +183,54 @@ export function validateSplit(args: {
 }
 
 /**
- * What the amount box does to a single untouched row.
+ * What the amount box does to the rows while nobody has typed into
+ * them: it is spread across the gigs, in order, as a waterfall.
  *
  * The one-gig payment is still the common one, and asking for the same
  * figure twice to record it would be a screen that got worse at its
- * main job in order to do a rarer one. So while nothing about the split
- * has been touched — one row, no amount edited, no row added or removed
- * — that row's amount simply IS the payment's.
+ * main job in order to do a rarer one. So a lone gig simply takes the
+ * whole amount. With several, each gig in turn takes what it is still
+ * owed (`outstandingOf`, gig-pay.ts's expected minus paid) and passes
+ * the rest down; the LAST gig takes whatever is left, however much,
+ * which is also what makes the lone-gig case the same rule rather than
+ * a special one. An agency paying three shifts at once is exactly this
+ * shape, and typing three figures that the gigs already know would be
+ * the form asking a question it can answer.
  *
- * Only once a gig is chosen, though. `/payments/new` with no gig
- * carries an empty row, and mirroring the amount into it would turn
- * "record this transfer, attribute it later" into a validation error
- * about a gig the user never asked to name.
+ * A gig whose expectation is unknown (hourly, no time yet) is owed
+ * nothing that can be named, so it takes nothing — unless it is last.
+ * A gig that the waterfall reaches with nothing left keeps an EMPTY
+ * amount, not "0.00": validateSplit refuses a row with a gig and no
+ * amount, and that refusal is the right thing to say about a gig that
+ * this payment does not cover.
+ *
+ * Rows with no gig take nothing. `/payments/new` with no gig carries
+ * an empty row, and mirroring the amount into it would turn "record
+ * this transfer, attribute it later" into a validation error about a
+ * gig the user never asked to name.
  *
  * A pure function over the state rather than an effect that writes it
- * back: the mirror is a VIEW of the amount, and storing it would make
- * "did the user type this?" unanswerable a moment later.
+ * back: the spread is a VIEW of the amount and the gigs, and storing it
+ * would make "did the user type this?" unanswerable a moment later.
+ * The screen stops calling this the moment someone types into an
+ * amount box (PaymentEdit.tsx's `manualAmounts`), and from then on the
+ * rows are theirs.
  */
-export function applyAutoBalance(
+export function distributeAmount(
   rows: SplitRow[],
-  amountText: string,
-  autoBalance: boolean,
+  amountCents: number | null,
+  outstandingOf: (gigId: string) => number | null,
 ): SplitRow[] {
-  const only = rows[0];
-  if (!autoBalance || rows.length !== 1 || only === undefined) return rows;
-  return [{ ...only, amount: only.gigId === "" ? "" : amountText }];
+  if (amountCents === null) return rows.map((row) => ({ ...row, amount: "" }));
+  const lastGigIndex = rows.reduce((last, row, i) => (row.gigId === "" ? last : i), -1);
+  let remaining = amountCents;
+  return rows.map((row, i) => {
+    if (row.gigId === "") return { ...row, amount: "" };
+    const owed = i === lastGigIndex ? remaining : (outstandingOf(row.gigId) ?? 0);
+    const share = Math.max(0, Math.min(owed, remaining));
+    remaining -= share;
+    return { ...row, amount: share > 0 ? centsToInput(share) : "" };
+  });
 }
 
 export interface SplitWrites {
