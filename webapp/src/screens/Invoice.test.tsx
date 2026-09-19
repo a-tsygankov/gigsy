@@ -235,3 +235,96 @@ describe("Invoice — which render is which", () => {
     expect(total!.textContent).toContain("$50.00");
   });
 });
+
+/**
+ * The Print button, in both places it has to work. `window.print()` is
+ * what a browser needs and a silent no-op in the installed iOS app, so
+ * the screen asks where it is running (lib/pwa-env.ts, mocked here) and
+ * either prints or hands the document to the share sheet
+ * (lib/invoice-export.ts). "Not working" was the iOS case, seen on the
+ * phone; it had no test because no test ever asked what the button DID.
+ */
+const pwaEnv = vi.hoisted(() => ({
+  current: {
+    userAgent: "Mozilla/5.0 (Windows NT 10.0) Chrome/150",
+    matchMedia: () => ({ matches: false }),
+  } as { userAgent: string; standalone?: boolean; matchMedia: (q: string) => { matches: boolean } },
+}));
+vi.mock("../lib/pwa-env.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/pwa-env.ts")>()),
+  browserEnv: () => pwaEnv.current,
+}));
+
+describe("Invoice — the Print button does something everywhere", () => {
+  const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15";
+
+  it("prints in a browser", async () => {
+    pwaEnv.current = { userAgent: "Mozilla/5.0 (Windows NT 10.0) Chrome/150", matchMedia: () => ({ matches: false }) };
+    const print = vi.fn();
+    vi.stubGlobal("print", print);
+    try {
+      const el = await render();
+      const button = byId(el, "invoice-print") as HTMLButtonElement;
+      expect(button.textContent).toBe("Print or save as PDF");
+      expect(byId(el, "invoice-print-hint")).toBeNull();
+      await act(async () => {
+        button.click();
+      });
+      expect(print).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shares a file in the installed iOS app, and says why", async () => {
+    pwaEnv.current = { userAgent: IPHONE, standalone: true, matchMedia: () => ({ matches: false }) };
+    const print = vi.fn();
+    const share = vi.fn<(data: { files: File[]; title?: string }) => Promise<void>>(async () => undefined);
+    vi.stubGlobal("print", print);
+    Object.defineProperty(navigator, "share", { configurable: true, value: share });
+    Object.defineProperty(navigator, "canShare", { configurable: true, value: () => true });
+    try {
+      const el = await render();
+      const button = byId(el, "invoice-print") as HTMLButtonElement;
+      expect(button.textContent).toBe("Share as a file");
+      expect(byId(el, "invoice-print-hint")?.textContent).toContain("no print dialog");
+      await act(async () => {
+        button.click();
+      });
+      expect(print).not.toHaveBeenCalled();
+      expect(share).toHaveBeenCalledTimes(1);
+      const data = share.mock.calls[0]![0] as { files: File[] };
+      expect(data.files[0]!.name).toBe("Invoice INV-0001.html");
+      expect(data.files[0]!.type).toBe("text/html");
+      expect(byId(el, "invoice-export-notice")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+      delete (navigator as { share?: unknown }).share;
+      delete (navigator as { canShare?: unknown }).canShare;
+    }
+  });
+
+  it("downloads the file, and says so, when the device cannot share files", async () => {
+    pwaEnv.current = { userAgent: IPHONE, standalone: true, matchMedia: () => ({ matches: false }) };
+    const clicks: string[] = [];
+    const realCreate = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const el = realCreate(tag);
+      if (tag === "a") el.click = () => clicks.push((el as HTMLAnchorElement).download);
+      return el;
+    });
+    vi.stubGlobal("URL", { ...URL, createObjectURL: () => "blob:x", revokeObjectURL: vi.fn() });
+    delete (navigator as { share?: unknown }).share;
+    try {
+      const el = await render();
+      await act(async () => {
+        (byId(el, "invoice-print") as HTMLButtonElement).click();
+      });
+      expect(clicks).toEqual(["Invoice INV-0001.html"]);
+      expect(byId(el, "invoice-export-notice")?.textContent).toContain("Files");
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+});

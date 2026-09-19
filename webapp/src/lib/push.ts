@@ -8,6 +8,8 @@
  */
 
 /** Why push can't be offered, in terms the UI can explain. */
+import { browserEnv, isIos, isStandalone } from "./pwa-env.ts";
+
 export type PushUnavailable =
   | "unsupported" // no service worker or Push API at all
   | "not-installed" // iOS: only an installed PWA gets push
@@ -30,11 +32,8 @@ export function pushAvailability(): PushUnavailable | "available" {
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
     // On iOS the APIs are genuinely absent until installed, so the
     // distinction is worth drawing for the message shown.
-    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    const standalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (navigator as { standalone?: boolean }).standalone === true;
-    return isIos && !standalone ? "not-installed" : "unsupported";
+    const env = browserEnv();
+    return isIos(env) && !isStandalone(env) ? "not-installed" : "unsupported";
   }
   if (Notification.permission === "denied") return "denied";
   return "available";

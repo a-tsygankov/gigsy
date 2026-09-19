@@ -72,3 +72,72 @@ test("the print stylesheet actually hides the app chrome", async ({ page }) => {
     .poll(async () => tabBar.evaluate((el) => getComputedStyle(el).display))
     .not.toBe("none");
 });
+
+/**
+ * What the button DOES — the one thing invoice.spec never asserted,
+ * which is how "Print or save as PDF does nothing" reached a phone
+ * unnoticed. The native dialog is still out of reach; `window.print`
+ * itself is not, so it is replaced before the app loads and the click
+ * is judged by whether it was called.
+ */
+test("the print button really calls window.print in a browser", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { __prints: number }).__prints = 0;
+    window.print = () => {
+      (window as unknown as { __prints: number }).__prints += 1;
+    };
+  });
+  await page.goto(`/reports/invoice?client=whoever&n=1&issued=${Date.now()}`);
+  const button = page.getByTestId("invoice-print");
+  await expect(button).toHaveText("Print or save as PDF");
+  await button.click();
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __prints: number }).__prints))
+    .toBe(1);
+});
+
+/**
+ * The installed iOS app, emulated: an iPhone user agent, Safari's
+ * `navigator.standalone`, and a share sheet that records what it was
+ * handed. There `window.print()` is a silent no-op — WebKit has no
+ * print sheet in standalone mode — so the button must hand the invoice
+ * to the share sheet as a file instead (lib/invoice-export.ts). This is
+ * the report, verbatim, and the test that would have caught it.
+ */
+test("in the installed iOS app the button shares the invoice as a file", async ({ browser, baseURL }) => {
+  const context = await browser.newContext({
+    baseURL: baseURL!,
+    userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+  });
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "standalone", { value: true });
+    const w = window as unknown as { __shared: { name: string; type: string }[]; __prints: number };
+    w.__shared = [];
+    w.__prints = 0;
+    window.print = () => {
+      w.__prints += 1;
+    };
+    Object.defineProperty(navigator, "canShare", { value: () => true });
+    Object.defineProperty(navigator, "share", {
+      value: async (data: { files: File[] }) => {
+        w.__shared.push(...data.files.map((f) => ({ name: f.name, type: f.type })));
+      },
+    });
+  });
+  // Signed in through this fresh context, the same way beforeEach does.
+  await page.goto("/login");
+  await page.getByTestId("test-signin").click();
+  await expect(page.getByTestId("tab-bar")).toBeVisible();
+
+  await page.goto(`/reports/invoice?client=whoever&n=2&issued=${Date.now()}`);
+  const button = page.getByTestId("invoice-print");
+  await expect(button).toHaveText("Share as a file");
+  await expect(page.getByTestId("invoice-print-hint")).toBeVisible();
+  await button.click();
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __shared: unknown[] }).__shared))
+    .toEqual([{ name: "Invoice INV-0002.html", type: "text/html" }]);
+  expect(await page.evaluate(() => (window as unknown as { __prints: number }).__prints)).toBe(0);
+  await context.close();
+});
