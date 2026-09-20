@@ -26,6 +26,7 @@ const api = {
   createDedicatedCalendar: vi.fn(async () => ({ calendarId: "c", removed: 2, failed: 0 })),
   connectCalendar: vi.fn(async () => ({ connected: true })),
   calendarResync: vi.fn(async () => ({ queued: true as const })),
+  calendarSyncNow: vi.fn(async () => ({ created: 0, updated: 0, deleted: 0, failed: 0, cleaned: 0 })),
 };
 
 const authApi = { getConfig: vi.fn(async () => ({ googleClientId: "client-123" })) };
@@ -153,5 +154,55 @@ describe("CalendarSection — the dedicated calendar", () => {
 
     expect(requestCalendarCode).not.toHaveBeenCalled();
     expect(notice(el)).toContain("Couldn't create the calendar.");
+  });
+});
+
+/**
+ * Leaving Settings after changing how events look runs one sync, so
+ * the titles already on the calendar are rewritten now rather than on
+ * the cron's next pass (the server has already reset the watermark —
+ * backend calendar/event-shaping.ts; this is only the "now").
+ */
+describe("CalendarSection — renaming existing events on the way out", () => {
+  const toggle = (el: HTMLElement) =>
+    el.querySelector<HTMLInputElement>('[data-testid="toggle-prefix"]')!;
+
+  async function flipPrefix(el: HTMLElement) {
+    await act(async () => {
+      toggle(el).click();
+    });
+  }
+
+  it("syncs once on unmount after the prefix was changed", async () => {
+    const el = await render();
+    expect(api.calendarSyncNow).not.toHaveBeenCalled();
+    await flipPrefix(el);
+    await flipPrefix(el);
+    // Not per flip: a rewrite of every event is a Google call per gig.
+    expect(api.calendarSyncNow).not.toHaveBeenCalled();
+    act(() => root!.unmount());
+    root = null;
+    expect(api.calendarSyncNow).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing on unmount when nothing event-shaping changed", async () => {
+    await render();
+    act(() => root!.unmount());
+    root = null;
+    expect(api.calendarSyncNow).not.toHaveBeenCalled();
+  });
+
+  it("does nothing on unmount when no calendar is connected", async () => {
+    api.getCalendarStatus.mockResolvedValueOnce({ connected: false });
+    const el = await render();
+    await flipPrefix(el);
+    act(() => root!.unmount());
+    root = null;
+    expect(api.calendarSyncNow).not.toHaveBeenCalled();
+  });
+
+  it("says so under the switch", async () => {
+    const el = await render();
+    expect(el.textContent).toContain("renames every Gigsy event already on your calendar");
   });
 });

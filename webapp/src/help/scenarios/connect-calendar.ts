@@ -101,7 +101,7 @@ export const connectCalendar: HelpScenario = {
               target: HelpTarget.CalendarSection,
               title: "The rest lives in Settings",
               description:
-                "Four things shape what this writes, all under Settings → Calendar. \"Prefix event titles\" puts \"Gigsy:\" in front of each one so your work stands out among personal entries, at the cost of title width on a phone. \"Remind me\" attaches your own reminder to every gig — gigs mean travel — or you can leave your calendar's own defaults alone instead. \"Separate Gigsy calendar\" creates a dedicated calendar and moves existing events onto it, so you can hide or share work on its own. And \"Re-sync everything\" reconsiders every gig you have on the next pass, for when the calendar looks wrong rather than merely out of date.",
+                "Four things shape what this writes, all under Settings → Calendar. \"Prefix event titles\" puts \"Gigsy:\" in front of each one so your work stands out among personal entries, at the cost of title width on a phone — change it and every Gigsy event already on your calendar is renamed to match as soon as you leave Settings, not just the next gig you edit; the reminder settings reach existing events the same way. \"Remind me\" attaches your own reminder to every gig — gigs mean travel — or you can leave your calendar's own defaults alone instead. \"Separate Gigsy calendar\" creates a dedicated calendar and moves existing events onto it, so you can hide or share work on its own. And \"Re-sync everything\" reconsiders every gig you have on the next pass, for when the calendar looks wrong rather than merely out of date.",
             },
           ],
         },
