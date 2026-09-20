@@ -21,6 +21,7 @@ const CLIENT: Client = {
   id: "c1",
   name: "Acme Staffing",
   contactInfo: null,
+  needsDelivery: false,
   notes: null,
   createdAt: 0,
   modifiedAt: 0,
@@ -58,9 +59,16 @@ function gig(over: Partial<Gig>): Gig {
   };
 }
 
+/** What the settings query answers. Reassigned per test; the mock
+ *  reads it at call time so a test can flip the default before
+ *  rendering. */
+let settingsValue: { clientsExpectDelivery: boolean } = { clientsExpectDelivery: false };
+
 const api = {
   getClient: vi.fn(async () => CLIENT),
   listGigs: vi.fn(async () => [] as Gig[]),
+  getSettings: vi.fn(async () => settingsValue),
+  putClient: vi.fn(async () => CLIENT),
 };
 
 // ClientEdit renders <AppHeader>, whose own dependencies go through this
@@ -83,7 +91,7 @@ vi.mock("../lib/app-context.tsx", () => ({
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 
-async function render(gigs: Gig[]) {
+async function render(gigs: Gig[], route = "/clients/c1") {
   api.listGigs.mockResolvedValue(gigs);
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -92,7 +100,7 @@ async function render(gigs: Gig[]) {
   await act(async () => {
     root!.render(
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={["/clients/c1"]}>
+        <MemoryRouter initialEntries={[route]}>
           {/* ClientEdit renders AppHeader, and AppHeader reads help
               state via useHelp() — real, not mocked, since it is
               unrelated to what this test is checking (same pattern as
@@ -132,7 +140,64 @@ afterEach(() => {
   container?.remove();
   container = null;
   root = null;
+  settingsValue = { clientsExpectDelivery: false };
   vi.clearAllMocks();
+});
+
+const deliveryToggle = (el: HTMLElement) =>
+  el.querySelector<HTMLInputElement>('[data-testid="client-needs-delivery"]');
+
+describe("ClientEdit delivery switch", () => {
+  it("starts off on a new client when the setting is off", async () => {
+    const el = await render([], "/clients/new");
+    expect(deliveryToggle(el)?.checked).toBe(false);
+  });
+
+  it("starts on on a new client when the setting is on", async () => {
+    // The setting resolves AFTER mount; the form has to pick it up
+    // once it lands rather than reading it on the first render only.
+    settingsValue = { clientsExpectDelivery: true };
+    const el = await render([], "/clients/new");
+    expect(deliveryToggle(el)?.checked).toBe(true);
+  });
+
+  it("saves the switch through putClient", async () => {
+    const el = await render([], "/clients/new");
+    const name = el.querySelector<HTMLInputElement>('[data-testid="client-name"]')!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+      name,
+      "Shoots Ltd",
+    );
+    await act(async () => {
+      name.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      deliveryToggle(el)!.click();
+    });
+    await act(async () => {
+      el.querySelector<HTMLButtonElement>('[data-testid="client-save"]')!.click();
+    });
+
+    expect(api.putClient).toHaveBeenCalledTimes(1);
+    const [, input] = api.putClient.mock.calls[0] as unknown as [string, { needsDelivery: boolean }];
+    expect(input.needsDelivery).toBe(true);
+  });
+
+  it("shows the stored value on an existing client, whatever the setting says", async () => {
+    // An existing client never reads the setting: the record is the
+    // truth. The setting is on here precisely so a screen that seeded
+    // from it by mistake would show the wrong state.
+    settingsValue = { clientsExpectDelivery: true };
+    api.getClient.mockResolvedValue({ ...CLIENT, needsDelivery: false });
+    const el = await render([]);
+    expect(deliveryToggle(el)?.checked).toBe(false);
+  });
+
+  it("shows a stored true on an existing client", async () => {
+    api.getClient.mockResolvedValue({ ...CLIENT, needsDelivery: true });
+    const el = await render([]);
+    expect(deliveryToggle(el)?.checked).toBe(true);
+  });
 });
 
 describe("ClientEdit history", () => {

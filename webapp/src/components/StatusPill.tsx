@@ -48,22 +48,57 @@ export const STATUS_PILL_CLASSES: Record<GigStatus, string> = {
 // Tile's `good` tone), and "money received" is exactly that.
 export const PAID_BADGE_CLASSES = "bg-emerald-100 text-emerald-700";
 
+/**
+ * `completed` when it is the LAST step (2026-09-20 optional-delivery
+ * design; lib/gig-delivery.ts's `isFinal`). Amber is `completed`'s
+ * hue because on deliverable work it means "done, but not yet handed
+ * over" — there is still something to do. A tasting shift has nothing
+ * to hand over: completed IS finished, and an amber pill on it says the
+ * opposite everywhere the pill appears. So it borrows the paid badge's
+ * emerald — this app's "good news" hue (see PAID_BADGE_CLASSES) — and
+ * a finished, settled gig reads as two green badges, which is what it
+ * is. Not teal: that is `delivered`, a stage this gig never has.
+ *
+ * A separate constant rather than a sixth STATUS_PILL_CLASSES entry
+ * because it is not a status — classes.test.ts keys that record to the
+ * enum exactly and checks the hues are pairwise distinct, and this one
+ * deliberately shares emerald with the paid badge.
+ */
+export const COMPLETED_FINAL_CLASSES = "bg-emerald-100 text-emerald-700";
+
 const BADGE = "inline-flex rounded-full px-2 py-0.5 text-xs font-medium";
 
 export function StatusPill({
   status,
   paid = false,
+  final = false,
 }: {
   status: GigStatus;
   paid?: boolean;
+  /** This status is the gig's last step. Only changes how `completed`
+   *  is drawn (see COMPLETED_FINAL_CLASSES); callers get the answer
+   *  from `isFinal` (lib/gig-delivery.ts) rather than deciding here. */
+  final?: boolean;
 }) {
+  // Only completed has a final form: delivered keeps teal, and nothing
+  // else can be final at all, so a stray `final` on a lead draws
+  // nothing different.
+  const isFinalCompleted = final && status === "completed";
   return (
     <span className="inline-flex items-center gap-1">
       {/* Tagged like the paid badge beside it: on the detail hub this
           pill is the only thing that says what the status control below
           it actually saved, so a spec asserting the write landed has to
-          be able to reach it. */}
-      <span data-testid="status-pill" className={`${BADGE} ${STATUS_PILL_CLASSES[status]}`}>
+          be able to reach it. `data-final` is the same courtesy for the
+          green form — a class-name assertion would pin Tailwind
+          spelling, and the attribute is what the rule actually decided. */}
+      <span
+        data-testid="status-pill"
+        data-final={isFinalCompleted ? "true" : undefined}
+        className={`${BADGE} ${
+          isFinalCompleted ? COMPLETED_FINAL_CLASSES : STATUS_PILL_CLASSES[status]
+        }`}
+      >
         {status}
       </span>
       {paid && (

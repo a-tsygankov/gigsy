@@ -102,7 +102,7 @@ describe("invoiceParams", () => {
 notifyManager.setScheduler((cb) => cb());
 
 const CLIENT: Client = {
-  id: "c1", name: "Bar Co", contactInfo: null, notes: null, createdAt: 0, modifiedAt: 0,
+  id: "c1", name: "Bar Co", contactInfo: null, notes: null, needsDelivery: false, createdAt: 0, modifiedAt: 0,
 };
 
 function gig(over: Partial<Gig>): Gig {

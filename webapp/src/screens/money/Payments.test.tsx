@@ -49,7 +49,7 @@ const ALLOCATIONS: Allocation[] = [
 ];
 
 const CLIENTS: Client[] = [
-  { id: "c1", name: "Acme Staffing", contactInfo: null, notes: null, createdAt: 0, modifiedAt: 0 },
+  { id: "c1", name: "Acme Staffing", contactInfo: null, notes: null, needsDelivery: false, createdAt: 0, modifiedAt: 0 },
 ];
 
 const api = {

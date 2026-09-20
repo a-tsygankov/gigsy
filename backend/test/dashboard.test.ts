@@ -324,6 +324,12 @@ describe("GET /api/reports/dashboard — awaiting delivery", () => {
 
   it("counts work that is finished but not yet handed over", async () => {
     await seedUser(env.DB, U6);
+    // These gigs have no client, so (optional delivery, spec 2026-09-20)
+    // whether they are deliverable at all is the user's setting. On,
+    // here, so this test keeps asking only its own question — the
+    // completed-vs-delivered line — and the "which gigs are
+    // deliverable" question is the next describe's.
+    await api(U6, "PATCH", "/api/settings", { clientsExpectDelivery: true });
     // Seed BOTH statuses so the assertion actually distinguishes them
     // — a test that only seeds 'completed' gigs can't tell whether the
     // query is filtering on 'completed' or on "anything done".
@@ -345,5 +351,85 @@ describe("GET /api/reports/dashboard — awaiting delivery", () => {
     // on this response — proves this test isn't accidentally seeding
     // its way into a state where the two counts can't diverge.
     expect(d.completedCount).toBe(2);
+  });
+});
+
+// Optional delivery (docs/superpowers/specs/2026-09-20-optional-delivery-
+// design.md): delivery is a property of the kind of work, and the
+// client says which kind. A completed gig is AWAITING delivery only if
+// its client has needs_delivery on, or it has no client and the user's
+// clientsExpectDelivery setting is on. Read live from the client row
+// — nothing is copied onto the gig — so these seed the client first
+// and then only ever change the client or the setting.
+describe("GET /api/reports/dashboard — awaiting delivery, only where delivery is expected", () => {
+  const U7 = "user-7";
+  const STUDIO = "71111111-1111-4111-8111-111111111111"; // needs_delivery
+  const BAR = "72222222-2222-4222-8222-222222222222"; // plain
+  const SHOOT = "73333333-3333-4333-8333-333333333333"; // completed, STUDIO
+  const SHIFT = "74444444-4444-4444-8444-444444444444"; // completed, BAR
+  const SOLO = "75555555-5555-4555-8555-555555555555"; // completed, no client
+  const HANDED_OVER = "76666666-6666-4666-8666-666666666666"; // delivered, STUDIO
+
+  async function seedClients(): Promise<void> {
+    await seedUser(env.DB, U7);
+    await api(U7, "PUT", `/api/clients/${STUDIO}`, {
+      name: "Studio",
+      needsDelivery: true,
+    });
+    await api(U7, "PUT", `/api/clients/${BAR}`, { name: "Bar" });
+  }
+
+  it("counts a completed gig only when its client's work needs delivering", async () => {
+    await seedClients();
+    // Two completed gigs, one per client, so the count can only be 1
+    // if the query is reading the client's flag — 0 or 2 would each
+    // mean it is reading something else.
+    await api(U7, "PUT", `/api/gigs/${SHOOT}`, { clientId: STUDIO, status: "completed" });
+    await api(U7, "PUT", `/api/gigs/${SHIFT}`, { clientId: BAR, status: "completed" });
+
+    const d = await dashboard(U7);
+    expect(d.awaitingDeliveryCount).toBe(1);
+    // Both are still finished work for every other count.
+    expect(d.completedCount).toBe(2);
+  });
+
+  it("counts a clientless completed gig only when the setting is on", async () => {
+    await seedClients();
+    await api(U7, "PUT", `/api/gigs/${SOLO}`, { status: "completed" });
+
+    // Setting off (the default): a gig with nobody to say otherwise
+    // is not awaiting anything.
+    expect((await dashboard(U7)).awaitingDeliveryCount).toBe(0);
+
+    // Setting on: the setting IS the answer for a gig with no client.
+    const res = await api(U7, "PATCH", "/api/settings", { clientsExpectDelivery: true });
+    expect(res.status).toBe(200);
+    expect((await dashboard(U7)).awaitingDeliveryCount).toBe(1);
+  });
+
+  it("never counts a delivered gig, even for a client whose work needs delivering", async () => {
+    await seedClients();
+    await api(U7, "PUT", `/api/gigs/${HANDED_OVER}`, {
+      clientId: STUDIO,
+      status: "delivered",
+    });
+    // The setting on too, so neither door is left ajar: a delivered
+    // gig has been handed over whatever the client or the setting say.
+    await api(U7, "PATCH", "/api/settings", { clientsExpectDelivery: true });
+
+    const d = await dashboard(U7);
+    expect(d.awaitingDeliveryCount).toBe(0);
+    expect(d.completedCount).toBe(1);
+  });
+
+  it("follows the client's flag when it is flipped later — nothing is copied onto the gig", async () => {
+    await seedClients();
+    await api(U7, "PUT", `/api/gigs/${SHIFT}`, { clientId: BAR, status: "completed" });
+    expect((await dashboard(U7)).awaitingDeliveryCount).toBe(0);
+
+    // Realising the client was set wrong corrects its older jobs at
+    // once — the whole reason the flag is read live (design doc).
+    await api(U7, "PUT", `/api/clients/${BAR}`, { name: "Bar", needsDelivery: true });
+    expect((await dashboard(U7)).awaitingDeliveryCount).toBe(1);
   });
 });

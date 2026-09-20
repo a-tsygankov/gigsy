@@ -97,6 +97,20 @@ export interface Client {
   name: string;
   contactInfo: string | null;
   notes: string | null;
+  /**
+   * Whether this client's finished work still has to be handed over —
+   * a photo shoot is not done until the files go out; a tasting shift
+   * is over when it is over (docs/superpowers/specs/2026-09-20-
+   * optional-delivery-design.md). Delivery is a property of the KIND
+   * of work, and a client is almost always one kind of work, which is
+   * why the flag lives here and not on every gig form.
+   *
+   * Read live by everything that cares (lib/gig-delivery.ts, the
+   * server's dashboard count), never copied onto gigs: flipping it
+   * corrects the client's older jobs at once. Mirrors
+   * `clients.needs_delivery` (migration 0020).
+   */
+  needsDelivery: boolean;
   createdAt: number;
   modifiedAt: number;
 }
@@ -105,6 +119,10 @@ export interface ClientInput {
   name: string;
   contactInfo?: string | null;
   notes?: string | null;
+  /** Absent means "keep what is stored, or false for a new client" —
+   *  `putClient` resolves it (lib/local-store.ts). The screen always
+   *  sends it; the optionality is for callers that never ask. */
+  needsDelivery?: boolean;
 }
 
 export interface Expense {
@@ -264,7 +282,13 @@ export interface UnpaidJob {
 export interface DashboardSummary {
   completedCount: number;
   /** Finished work not yet handed over — `completed` exactly, never
-   *  `delivered`. A delivered gig has already gone out the door. */
+   *  `delivered`. A delivered gig has already gone out the door.
+   *
+   *  Only DELIVERABLE work counts (2026-09-20 optional-delivery
+   *  design): gigs whose client has `needsDelivery`, or clientless
+   *  gigs when the `clientsExpectDelivery` setting is on. The server
+   *  applies that rule where the count is made; the dashboard shows
+   *  what it is given. */
   awaitingDeliveryCount: number;
   expectedCents: number;
   unpaidCents: number;

@@ -61,6 +61,10 @@ function makeApi(allocations: Allocation[], gigs: Gig[] = GIGS) {
     listAllocationsByPayment: vi.fn(async () => allocations),
     listGigs: vi.fn(async () => gigs),
     listClients: vi.fn(async () => CLIENTS),
+    // The split rows' gig pickers ask `useSettings` for
+    // `clientsExpectDelivery` (lib/gig-delivery.ts); nothing else on
+    // this screen reads settings.
+    getSettings: vi.fn(async () => ({ clientsExpectDelivery: false })),
     queuedPaymentConfirmation: vi.fn(async () => null),
     getPaymentConfirmationBlob: vi.fn(async () => null),
     putPayment: vi.fn(),

@@ -88,6 +88,23 @@ export const SettingsSchema = z.object({
   /** ISO 4217. `formatMoney` hardcoded USD; a gig tracker that can only
    *  speak dollars is a real limit. */
   currency: z.string().regex(/^[A-Z]{3}$/).default("USD"),
+  /**
+   * "My clients expect delivery afterwards" — whether work is normally
+   * handed over after it is done (docs/superpowers/specs/2026-09-20-
+   * optional-delivery-design.md).
+   *
+   * Two jobs, both defaults: it is what the webapp pre-fills
+   * `clients.needsDelivery` with on a NEW client, and it is the answer
+   * services/dashboard.ts uses for a completed gig that has no client
+   * to ask. It does not override a client's own flag — a client that
+   * has been saved keeps whatever it was saved with.
+   *
+   * Off by default: a `delivered` stage exists for some work (a photo
+   * shoot) and not for the rest (a tasting shift), and a user who
+   * never asked for one must not find every completed gig queued on
+   * the dashboard's "To deliver" tile.
+   */
+  clientsExpectDelivery: z.boolean().default(false),
 
   // --- Gig list view ---
   // How the user last left their list, so it survives closing the app

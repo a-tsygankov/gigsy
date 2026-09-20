@@ -14,6 +14,10 @@ export interface ClientData {
   name: string;
   contactInfo: string | null;
   notes: string | null;
+  /** Required rather than optional, so that a door which forgets to
+   *  pass it fails tsc instead of silently writing the default —
+   *  services/sync.ts and routes/clients.ts both have to carry it. */
+  needsDelivery: boolean;
 }
 
 export interface WriteStamps {

@@ -19,6 +19,7 @@ const acme: Client = {
   id: "c1",
   name: "Acme",
   contactInfo: null,
+  needsDelivery: false,
   notes: null,
   createdAt: 0,
   modifiedAt: 0,

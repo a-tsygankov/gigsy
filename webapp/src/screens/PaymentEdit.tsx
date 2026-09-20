@@ -6,6 +6,8 @@ import type { PaymentInput } from "../lib/types.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import { formatMoney } from "../lib/format.ts";
 import { outstandingCents } from "../lib/gig-pay.ts";
+import { isDeliverable } from "../lib/gig-delivery.ts";
+import { useSettings } from "./settings/useSettings.ts";
 import { localInputToMs, msToLocalInput } from "../lib/datetime.ts";
 import {
   distributeAmount,
@@ -105,6 +107,9 @@ export function PaymentEdit() {
   });
   const gigs = useQuery({ queryKey: ["gigs"], queryFn: () => data.listGigs() });
   const clients = useQuery({ queryKey: ["clients"], queryFn: () => data.listClients() });
+  // Only for the split rows' gig pickers: a completed gig with nothing
+  // to hand over reads as final in their pills (lib/gig-delivery.ts).
+  const { settings } = useSettings();
   /**
    * Whether this payment's photo is still on the device. Keyed on
    * `paymentId`, not `id`, so it survives the replace-navigation a new
@@ -492,6 +497,7 @@ export function PaymentEdit() {
                         allowNone={false}
                         gigs={offeredGigs}
                         clients={clients.data ?? []}
+                        deliverable={(g) => isDeliverable(g, clients.data ?? [], settings)}
                         value={row.gigId}
                         onChange={(gigId) =>
                           editRows(

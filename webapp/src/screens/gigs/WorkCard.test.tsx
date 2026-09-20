@@ -51,7 +51,12 @@ let root: Root | null = null;
 
 function render(
   gig: Partial<Gig>,
-  props: Partial<{ saving: boolean; failed: boolean; savedAt: number | null }> = {},
+  props: Partial<{
+    saving: boolean;
+    failed: boolean;
+    savedAt: number | null;
+    deliverable: boolean;
+  }> = {},
 ): {
   el: HTMLDivElement;
   onCommit: ReturnType<typeof vi.fn>;
@@ -71,11 +76,18 @@ function render(
         saving={props.saving ?? false}
         failed={props.failed ?? false}
         savedAt={props.savedAt ?? null}
+        // Deliverable unless a test says otherwise: the fixture gig has
+        // no client, and the pre-delivery tests below were written
+        // against all five statuses being listed.
+        deliverable={props.deliverable ?? true}
       />,
     ),
   );
   return { el: container, onCommit, onFlush };
 }
+
+const statusOptions = (): string[] =>
+  [...find<HTMLSelectElement>("gig-status").options].map((o) => o.value);
 
 afterEach(() => {
   act(() => root?.unmount());
@@ -111,6 +123,28 @@ function blur(el: HTMLElement): void {
     el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
   });
 }
+
+describe("WorkCard status choices", () => {
+  it("leaves delivered out for work that is not delivered", () => {
+    // The whole point of the design: a tasting shift has no hand-over
+    // stage, so the control stops at completed.
+    render({ status: "completed" }, { deliverable: false });
+    expect(statusOptions()).toEqual(["lead", "confirmed", "completed", "cancelled"]);
+  });
+
+  it("offers delivered for deliverable work", () => {
+    render({ status: "completed" }, { deliverable: true });
+    expect(statusOptions()).toContain("delivered");
+  });
+
+  it("keeps delivered listed on a gig already marked delivered", () => {
+    // A stored value is never hidden. Without this the <select> would
+    // show "lead" for a gig the record says was handed over.
+    render({ status: "delivered" }, { deliverable: false });
+    expect(statusOptions()).toContain("delivered");
+    expect(find<HTMLSelectElement>("gig-status").value).toBe("delivered");
+  });
+});
 
 describe("WorkCard", () => {
   it("saves the status the moment it changes — no button to press", () => {
@@ -272,6 +306,7 @@ describe("WorkCard", () => {
           saving={false}
           failed={false}
           savedAt={savedAt}
+          deliverable
         />,
       ),
     );

@@ -306,7 +306,7 @@ describe("buildInvoice — agreement with report-export.ts", () => {
   // client-linking rule that misses the other would fail here.
   it("bills the same reimbursable total that expenseRows exports for this client and range", () => {
     const clients: Client[] = [
-      { id: "c1", name: "Acme", contactInfo: null, notes: null, createdAt: JAN, modifiedAt: JAN },
+      { id: "c1", name: "Acme", contactInfo: null, notes: null, needsDelivery: false, createdAt: JAN, modifiedAt: JAN },
     ];
     const gigs = [
       gig({ id: "g1", dateTime: JAN }),

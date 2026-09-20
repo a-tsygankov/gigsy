@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData, useSyncState } from "../lib/app-context.tsx";
 import { useSettings } from "./settings/useSettings.ts";
+import { isDeliverable } from "../lib/gig-delivery.ts";
 import {
   applyGigFilters,
   filtersFromSettings,
@@ -182,6 +183,11 @@ export function Gigs() {
                 gig={gig}
                 clientName={nameOf(gig.clientId)}
                 unsynced={pending.data?.has(gig.id) === true}
+                // Per row, off the client list and the settings this
+                // screen already holds (lib/gig-delivery.ts): a
+                // completed gig with nothing to hand over gets a final,
+                // green pill instead of amber.
+                deliverable={isDeliverable(gig, clients.data ?? [], settings)}
                 to={`/gigs/${gig.id}`}
               />
             ))}

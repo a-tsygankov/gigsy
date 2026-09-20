@@ -19,6 +19,11 @@ export const ClientInput = z.object({
   name: z.string().min(1).max(200),
   contactInfo: z.string().max(1000).nullish(),
   notes: z.string().max(4000).nullish(),
+  /** "Work for this client needs delivering" (migration 0020). Defaults
+   *  false, like `reimbursable` below, so a payload from a webapp that
+   *  predates the field keeps meaning what it did — and false is also
+   *  what the setting it mirrors defaults to. */
+  needsDelivery: z.boolean().default(false),
 });
 export type ClientInputT = z.infer<typeof ClientInput>;
 

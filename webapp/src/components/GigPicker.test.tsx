@@ -9,10 +9,10 @@ import type { Client, Gig } from "../lib/types.ts";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ACME: Client = {
-  id: "c1", name: "Acme", contactInfo: null, notes: null, createdAt: 0, modifiedAt: 0,
+  id: "c1", name: "Acme", contactInfo: null, notes: null, needsDelivery: false, createdAt: 0, modifiedAt: 0,
 };
 const BRAVO: Client = {
-  id: "c2", name: "Bravo", contactInfo: null, notes: null, createdAt: 0, modifiedAt: 0,
+  id: "c2", name: "Bravo", contactInfo: null, notes: null, needsDelivery: false, createdAt: 0, modifiedAt: 0,
 };
 
 function gig(over: Partial<Gig>): Gig {
@@ -109,6 +109,37 @@ function listedIds(): string[] {
 }
 
 afterEach(unmount);
+
+describe("GigPicker delivery", () => {
+  const DONE = gig({ id: "g3", title: "Finished shift", status: "completed" });
+  const finalOf = (el: Element | null) => (el as HTMLElement | null)?.dataset["final"];
+
+  it("draws a completed gig's pill as final, on the trigger and in the list, when told it is not delivered", () => {
+    render({ gigs: [DONE], value: "g3", deliverable: () => false });
+    expect(finalOf(trigger().querySelector('[data-testid="status-pill"]'))).toBe("true");
+    open();
+    expect(finalOf(byId("p-row-g3")!.querySelector('[data-testid="status-pill"]'))).toBe("true");
+  });
+
+  it("asks per gig, and keeps amber where the answer is deliverable", () => {
+    const asked: string[] = [];
+    render({
+      gigs: [DONE],
+      value: "g3",
+      deliverable: (g) => {
+        asked.push(g.id);
+        return true;
+      },
+    });
+    expect(asked).toContain("g3");
+    expect(finalOf(trigger().querySelector('[data-testid="status-pill"]'))).toBeUndefined();
+  });
+
+  it("assumes deliverable when no rule is given", () => {
+    render({ gigs: [DONE], value: "g3" });
+    expect(finalOf(trigger().querySelector('[data-testid="status-pill"]'))).toBeUndefined();
+  });
+});
 
 describe("GigPicker trigger", () => {
   it("shows the placeholder, and no gig, when nothing is chosen", () => {

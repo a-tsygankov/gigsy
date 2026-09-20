@@ -197,6 +197,30 @@ describe("POST /api/sync", () => {
     expect(body.results[0]?.status).toBe("error");
   });
 
+  // The sync door needs its own round-trip for the reason
+  // gig-batch-column.test.ts spells out: tsc catches the passthrough in
+  // services/sync.ts being DELETED (ClientData.needsDelivery is
+  // required) but not its being MIS-WIRED to a constant. And this is
+  // the door the webapp actually uses — the client form saves through
+  // the outbox, not PUT.
+  it("carries needsDelivery through a client op", async () => {
+    const body = await sync(U1, [
+      {
+        entity: "client",
+        op: "upsert",
+        id: CID,
+        modifiedAt: 1000,
+        payload: { name: "Studio", needsDelivery: true },
+      },
+    ]);
+    expect(body.results[0]?.status).toBe("applied");
+
+    const record = (await (
+      await api(U1, "GET", `/api/clients/${CID}`)
+    ).json()) as { needsDelivery: boolean };
+    expect(record.needsDelivery).toBe(true);
+  });
+
   it("errors on a gig link to a client the caller does not own", async () => {
     await sync(U2, [
       {

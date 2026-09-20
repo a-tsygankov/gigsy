@@ -158,6 +158,7 @@ export async function applySyncOps(
                 name: parsed.data.name,
                 contactInfo: parsed.data.contactInfo ?? null,
                 notes: parsed.data.notes ?? null,
+                needsDelivery: parsed.data.needsDelivery,
               },
               { now, modifiedAt: op.modifiedAt },
             ),

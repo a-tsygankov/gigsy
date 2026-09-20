@@ -61,6 +61,28 @@ afterEach(() => {
   root = null;
 });
 
+describe("GigRow delivery", () => {
+  const pill = (el: HTMLElement) =>
+    el.querySelector<HTMLElement>('[data-testid="status-pill"]')!;
+
+  it("draws completed as final when the work is not delivered", () => {
+    const el = render({ gig: gig({ status: "completed" }), clientName: "Acme", to: "/gigs/g1", deliverable: false });
+    expect(pill(el).dataset["final"]).toBe("true");
+  });
+
+  it("keeps completed amber (not final) on deliverable work", () => {
+    const el = render({ gig: gig({ status: "completed" }), clientName: "Acme", to: "/gigs/g1", deliverable: true });
+    expect(pill(el).dataset["final"]).toBeUndefined();
+  });
+
+  it("assumes deliverable when the caller has not said", () => {
+    // The pre-delivery default: a caller that has not asked must not
+    // declare every completed gig finished.
+    const el = render({ gig: gig({ status: "completed" }), clientName: "Acme", to: "/gigs/g1" });
+    expect(pill(el).dataset["final"]).toBeUndefined();
+  });
+});
+
 describe("gigSummary", () => {
   it("heads with the display title and repeats the client only when it is not the heading", () => {
     expect(gigSummary(gig(), "Acme")).toEqual({

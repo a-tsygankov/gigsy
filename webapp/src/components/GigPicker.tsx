@@ -50,6 +50,7 @@ import { Sheet } from "./Sheet.tsx";
 import { StatusPill } from "./StatusPill.tsx";
 import { DEFAULT_FILTERS, applyGigFilters, type GigFilters as Filters } from "../lib/gig-filters.ts";
 import { isPaid } from "../lib/gig-pay.ts";
+import { isFinal } from "../lib/gig-delivery.ts";
 import type { Client, Gig } from "../lib/types.ts";
 
 export interface GigPickerProps {
@@ -73,6 +74,16 @@ export interface GigPickerProps {
   /** Whether the "none" choice is offered inside the sheet. Default
    *  true. */
   allowNone?: boolean;
+  /**
+   * Whether a gig's work has a hand-over stage — `isDeliverable`
+   * (lib/gig-delivery.ts) — so its `completed` pill can read as final
+   * (green) when it does not. A function from the caller rather than
+   * a settings hook here, for the same reason `gigs` and `clients` are
+   * props: this is a design-system component and the settings query
+   * is a screen's business. Default "yes for every gig", which keeps
+   * the pre-delivery amber for a caller that has not asked.
+   */
+  deliverable?: (gig: Gig) => boolean;
 }
 
 /** What the trigger says about a chosen id the candidate list does not
@@ -92,6 +103,7 @@ export function GigPicker({
   placeholder,
   disabledReason = null,
   allowNone = true,
+  deliverable = () => true,
 }: GigPickerProps) {
   const [open, setOpen] = useState(false);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
@@ -181,7 +193,11 @@ export function GigPicker({
               <Chevron />
             </span>
             <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
-              <StatusPill status={chosen.status} paid={isPaid(chosen)} />
+              <StatusPill
+                status={chosen.status}
+                paid={isPaid(chosen)}
+                final={isFinal(chosen.status, deliverable(chosen))}
+              />
               <span className="min-w-0">{summary.sub}</span>
             </span>
           </>
@@ -246,6 +262,7 @@ export function GigPicker({
                   key={gig.id}
                   gig={gig}
                   clientName={nameOf(gig.clientId)}
+                  deliverable={deliverable(gig)}
                   selected={gig.id === value}
                   testId={`${testId}-row-${gig.id}`}
                   onSelect={() => pick(gig.id)}

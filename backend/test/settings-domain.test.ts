@@ -32,6 +32,9 @@ describe("parseSettings", () => {
       calendarTargetId: "primary",
       defaultGigDurationMinutes: null,
       currency: "USD",
+      // Off: a user who never asked for a delivery stage must not see
+      // every completed gig queued on the dashboard's "To deliver".
+      clientsExpectDelivery: false,
       notificationsEnabled: true,
       nudgeStaleLeadsEnabled: true,
       nudgeUnpaidEnabled: true,
