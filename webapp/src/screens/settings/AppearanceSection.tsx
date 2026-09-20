@@ -12,6 +12,7 @@
  */
 import { useEffect, useState } from "react";
 import { SettingGroup, SettingRow } from "../../components/index.ts";
+import { browserEnv, isIos, isStandalone } from "../../lib/pwa-env.ts";
 import {
   DARK_QUERY,
   applyTheme,
@@ -56,7 +57,17 @@ export function AppearanceSection() {
     <SettingGroup title="Appearance" data-testid="settings-appearance">
       <SettingRow
         label="Theme"
-        description="Stays on this device — your phone can be dark while your laptop isn't."
+        // The installed iOS app paints the bar above the screen from the
+        // theme colour it read at launch, and does not always follow a
+        // switch made mid-session even though the page does — see
+        // lib/theme.ts's applyTheme for what is tried. Said here, on the
+        // one platform where it applies, rather than leaving a dark bar
+        // over a light app looking like a bug with no explanation.
+        description={
+          isIos(browserEnv()) && isStandalone(browserEnv())
+            ? "Stays on this device — your phone can be dark while your laptop isn't. If the bar above the app keeps the old colour, it catches up the next time you open Gigsy."
+            : "Stays on this device — your phone can be dark while your laptop isn't."
+        }
         control={
           <div
             role="radiogroup"

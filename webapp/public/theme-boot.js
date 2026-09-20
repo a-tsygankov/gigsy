@@ -29,8 +29,23 @@
       (choice === "system" &&
         window.matchMedia("(prefers-color-scheme: dark)").matches);
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    // A fresh tag rather than an edited one, as src/lib/theme.ts does:
+    // the installed iOS app has been seen to keep the colour it read
+    // at launch across an in-place edit, and a new node is the change
+    // it notices. Guarded, so a page without replaceWith still gets
+    // the edit.
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute("content", dark ? "#0f172a" : "#f8fafc");
+    if (meta) {
+      var colour = dark ? "#0f172a" : "#f8fafc";
+      if (meta.replaceWith) {
+        var fresh = document.createElement("meta");
+        fresh.setAttribute("name", "theme-color");
+        fresh.setAttribute("content", colour);
+        meta.replaceWith(fresh);
+      } else {
+        meta.setAttribute("content", colour);
+      }
+    }
   } catch (e) {
     document.documentElement.setAttribute("data-theme", "light");
   }
