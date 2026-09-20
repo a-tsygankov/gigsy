@@ -100,3 +100,36 @@ describe("AppearanceSection", () => {
     prefersDark = false;
   });
 });
+
+/**
+ * The installed iOS app does not always repaint the bar above the
+ * screen when the theme switches mid-session (lib/theme.ts). The one
+ * platform where that is true is the one place the control says so.
+ */
+const pwaEnv = vi.hoisted(() => ({
+  current: {
+    userAgent: "Mozilla/5.0 (Windows NT 10.0) Chrome/150",
+    matchMedia: () => ({ matches: false }),
+  } as { userAgent: string; standalone?: boolean; matchMedia: (q: string) => { matches: boolean } },
+}));
+vi.mock("../../lib/pwa-env.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/pwa-env.ts")>()),
+  browserEnv: () => pwaEnv.current,
+}));
+
+describe("AppearanceSection — the installed-app note", () => {
+  const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15";
+
+  it("mentions the bar catching up on the next launch only in the installed iOS app", async () => {
+    pwaEnv.current = { userAgent: IPHONE, standalone: true, matchMedia: () => ({ matches: false }) };
+    await render();
+    expect(container.textContent).toContain("catches up the next time you open Gigsy");
+  });
+
+  it("says nothing of the sort in a browser", async () => {
+    pwaEnv.current = { userAgent: "Mozilla/5.0 (Windows NT 10.0) Chrome/150", matchMedia: () => ({ matches: false }) };
+    await render();
+    expect(container.textContent).not.toContain("catches up");
+    expect(container.textContent).toContain("Stays on this device");
+  });
+});

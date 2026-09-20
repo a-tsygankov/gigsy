@@ -75,15 +75,43 @@ export function resolveTheme(choice: ThemeChoice, prefersDark: boolean): Resolve
  */
 export interface ThemeTarget {
   documentElement: { setAttribute(name: string, value: string): void };
-  querySelector(
-    selector: string,
-  ): { setAttribute(name: string, value: string): void } | null;
+  querySelector(selector: string): ThemeColorMeta | null;
+  /** Present on a real Document. When it is, the theme-color tag is
+   *  REPLACED rather than mutated — see `applyTheme`. */
+  createElement?(tagName: "meta"): ThemeColorMeta;
 }
 
+export interface ThemeColorMeta {
+  setAttribute(name: string, value: string): void;
+  replaceWith?(node: ThemeColorMeta): void;
+}
+
+/**
+ * Write the resolved theme where CSS and the browser can see it.
+ *
+ * The theme-color tag is swapped for a fresh node, not edited in
+ * place, when the document can make one. Safari in a browser tab
+ * repaints its chrome when the tag's `content` changes; the installed
+ * iOS app reads the tag at launch and has been seen to keep that
+ * colour across an in-place edit, so a Dark → Light switch in Settings
+ * left a dark bar over a light app until the next launch. A new node
+ * is a new tag as far as the engine is concerned and is the change it
+ * does notice. Tests hand in a document without `createElement`, and
+ * get the in-place edit.
+ */
 export function applyTheme(doc: ThemeTarget, resolved: ResolvedTheme): void {
   doc.documentElement.setAttribute("data-theme", resolved);
   const meta = doc.querySelector('meta[name="theme-color"]');
-  if (meta !== null) meta.setAttribute("content", THEME_COLORS[resolved]);
+  if (meta === null) return;
+  const colour = THEME_COLORS[resolved];
+  if (doc.createElement !== undefined && meta.replaceWith !== undefined) {
+    const fresh = doc.createElement("meta");
+    fresh.setAttribute("name", "theme-color");
+    fresh.setAttribute("content", colour);
+    meta.replaceWith(fresh);
+    return;
+  }
+  meta.setAttribute("content", colour);
 }
 
 export const DARK_QUERY = "(prefers-color-scheme: dark)";

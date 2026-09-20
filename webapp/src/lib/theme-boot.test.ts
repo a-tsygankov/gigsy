@@ -179,3 +179,40 @@ describe("followSystemTheme — the app-wide OS follower", () => {
     expect(removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
   });
 });
+
+describe("public/theme-boot.js — a fresh theme-color tag when the page allows it", () => {
+  it("replaces the tag rather than editing it, and still edits where it cannot", () => {
+    const created: Map<string, string>[] = [];
+    let replacedWith: unknown = null;
+    const html = new Map<string, string>();
+    const context = {
+      localStorage: { getItem: () => "dark" },
+      window: { matchMedia: () => ({ matches: false }) },
+      document: {
+        documentElement: { setAttribute: (k: string, v: string) => html.set(k, v) },
+        querySelector: () => ({
+          setAttribute: () => {
+            throw new Error("the old tag must not be edited when it can be replaced");
+          },
+          replaceWith: (node: unknown) => {
+            replacedWith = node;
+          },
+        }),
+        createElement: () => {
+          const attrs = new Map<string, string>();
+          created.push(attrs);
+          return { setAttribute: (k: string, v: string) => attrs.set(k, v) };
+        },
+      },
+    };
+    vm.runInNewContext(SCRIPT, context);
+    expect(html.get("data-theme")).toBe("dark");
+    expect(created).toHaveLength(1);
+    expect(created[0]!.get("name")).toBe("theme-color");
+    expect(created[0]!.get("content")).toBe(THEME_COLORS.dark);
+    expect(replacedWith).not.toBeNull();
+    // The fakes in `page()` above have no replaceWith, and the cases
+    // there still pass: that is the in-place path.
+    expect(run({ stored: "dark" }).chrome).toBe(THEME_COLORS.dark);
+  });
+});

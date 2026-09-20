@@ -114,3 +114,52 @@ describe("applyTheme", () => {
     expect(() => applyTheme(doc, "dark")).not.toThrow();
   });
 });
+
+/**
+ * On a real document the theme-color tag is REPLACED, not edited: the
+ * installed iOS app reads the tag at launch and has kept that colour
+ * across an in-place edit (a Dark → Light switch left a dark bar over
+ * a light app), and a fresh node is the change it notices.
+ */
+describe("applyTheme — a fresh theme-color tag on a real document", () => {
+  it("swaps the tag for a new node carrying the new colour", () => {
+    const made: { attrs: Map<string, string> }[] = [];
+    const old = {
+      attrs: new Map<string, string>([["content", "#f8fafc"]]),
+      setAttribute(k: string, v: string) {
+        this.attrs.set(k, v);
+      },
+      replaced: null as unknown,
+      replaceWith(node: unknown) {
+        this.replaced = node;
+      },
+    };
+    const doc = {
+      documentElement: { setAttribute: () => undefined },
+      querySelector: () => old,
+      createElement: () => {
+        const node = {
+          attrs: new Map<string, string>(),
+          setAttribute(k: string, v: string) {
+            this.attrs.set(k, v);
+          },
+        };
+        made.push(node);
+        return node;
+      },
+    };
+    applyTheme(doc, "dark");
+    expect(made).toHaveLength(1);
+    expect(made[0]!.attrs.get("name")).toBe("theme-color");
+    expect(made[0]!.attrs.get("content")).toBe(THEME_COLORS.dark);
+    expect(old.replaced).toBe(made[0]);
+    // The old node itself was not edited — it is gone, not repainted.
+    expect(old.attrs.get("content")).toBe("#f8fafc");
+  });
+
+  it("edits in place when the document cannot make a node", () => {
+    const meta = { content: "", setAttribute: (_: string, v: string) => (meta.content = v) };
+    applyTheme({ documentElement: { setAttribute: () => undefined }, querySelector: () => meta }, "light");
+    expect(meta.content).toBe(THEME_COLORS.light);
+  });
+});
