@@ -6,7 +6,7 @@
  * daily loop. Both say what they will do before they do it, because
  * both touch every event the user has.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData, useServices } from "../../lib/app-context.tsx";
 import {
@@ -39,6 +39,43 @@ export function CalendarSection() {
     queryKey: ["calendar-status"],
     queryFn: () => data.getCalendarStatus(),
   });
+
+  /**
+   * Whether an event-shaping setting changed during this visit.
+   *
+   * "Prefix event titles" and the reminder settings are written into
+   * every event, and the server resets the sync watermark when one of
+   * them changes (backend calendar/event-shaping.ts) so the next run
+   * rewrites them all. "Next run" is the cron's, up to fifteen minutes
+   * away — and someone who flips the prefix and opens their calendar
+   * expects the titles to have changed already. So on the way OUT of
+   * Settings, one sync-now for the whole visit: not per flip, because
+   * a rewrite of every event is a Google call per gig and three flips
+   * while deciding would cost three of them. A ref, not state — this
+   * must not re-render anything, only be remembered for the cleanup.
+   *
+   * Fire-and-forget on unmount: the cleanup cannot await, the result
+   * has no screen left to show on, and the cron is the safety net if
+   * the call is lost with the tab. Only when a calendar is connected —
+   * sync-now is a 409 otherwise.
+   */
+  const eventShapeChanged = useRef(false);
+  const connectedRef = useRef(false);
+  useEffect(() => {
+    return () => {
+      if (eventShapeChanged.current && connectedRef.current) {
+        void data.calendarSyncNow().catch(() => {
+          // The cron will do it within fifteen minutes; nothing to show.
+        });
+      }
+    };
+    // Mount/unmount only: `data` is a stable service instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const updateEventShape = (patch: Parameters<typeof update>[0]) => {
+    eventShapeChanged.current = true;
+    update(patch);
+  };
 
   const resync = useMutation({
     mutationFn: () => data.calendarResync(),
@@ -120,6 +157,8 @@ export function CalendarSection() {
   if (settings === undefined) return null;
 
   const connected = status.data?.connected === true;
+  // Kept in a ref for the unmount cleanup above, which cannot see state.
+  connectedRef.current = connected;
   const onDedicated = settings.calendarTargetId !== "primary";
 
   return (
@@ -130,7 +169,7 @@ export function CalendarSection() {
     >
       <SettingRow
         label="Prefix event titles"
-        description={`Shows "Gigsy: Acme — Pier 39" so your gigs stand out among personal entries. Costs some title width on a phone.`}
+        description={`Shows "Gigsy: Acme — Pier 39" so your gigs stand out among personal entries. Costs some title width on a phone. Changing it renames every Gigsy event already on your calendar when you leave Settings.`}
         htmlFor="set-prefix"
         control={
           <Toggle
@@ -138,7 +177,7 @@ export function CalendarSection() {
             data-testid="toggle-prefix"
             checked={settings.calendarTitlePrefix}
             disabled={isSaving}
-            onChange={(next) => update({ calendarTitlePrefix: next })}
+            onChange={(next) => updateEventShape({ calendarTitlePrefix: next })}
           />
         }
       />
@@ -153,7 +192,7 @@ export function CalendarSection() {
             data-testid="toggle-default-reminder"
             checked={settings.calendarUseDefaultReminder}
             disabled={isSaving}
-            onChange={(next) => update({ calendarUseDefaultReminder: next })}
+            onChange={(next) => updateEventShape({ calendarUseDefaultReminder: next })}
           />
         }
       />
@@ -170,7 +209,7 @@ export function CalendarSection() {
               value={String(settings.calendarReminderMinutes)}
               disabled={isSaving}
               onChange={(e) =>
-                update({ calendarReminderMinutes: Number(e.target.value) })
+                updateEventShape({ calendarReminderMinutes: Number(e.target.value) })
               }
             >
               {REMINDER_CHOICES.map((c) => (

@@ -124,3 +124,66 @@ describe("PATCH /api/settings", () => {
     expect((await getSettings(U2)).currency).toBe("USD");
   });
 });
+
+/**
+ * A setting that changes how every calendar event looks has to reach
+ * the events already on the calendar. The sync only reconsiders gigs
+ * stored since the watermark, and a settings change stores no gig —
+ * so the route resets the watermark itself (calendar/event-shaping.ts)
+ * and the next run rewrites every event with the new shape.
+ */
+describe("PATCH /api/settings — event-shaping settings reset the sync watermark", () => {
+  const U3 = "settings-user-3";
+  const WATERMARK = 1_700_000_000_000;
+
+  beforeAll(async () => {
+    await seedUser(env.DB, U3, "settings-three@example.com");
+  });
+
+  async function watermark(): Promise<number | null> {
+    const row = await env.DB.prepare("SELECT last_calendar_sync_at AS w FROM users WHERE id = ?1")
+      .bind(U3)
+      .first<{ w: number | null }>();
+    return row?.w ?? null;
+  }
+
+  it("resets it when the title prefix changes", async () => {
+    await env.DB.prepare("UPDATE users SET last_calendar_sync_at = ?1 WHERE id = ?2")
+      .bind(WATERMARK, U3)
+      .run();
+    expect((await patchSettings(U3, { calendarTitlePrefix: true })).status).toBe(200);
+    expect(await watermark()).toBe(0);
+  });
+
+  it("resets it when a reminder setting changes", async () => {
+    await env.DB.prepare("UPDATE users SET last_calendar_sync_at = ?1 WHERE id = ?2")
+      .bind(WATERMARK, U3)
+      .run();
+    await patchSettings(U3, { calendarReminderMinutes: 30 });
+    expect(await watermark()).toBe(0);
+    await env.DB.prepare("UPDATE users SET last_calendar_sync_at = ?1 WHERE id = ?2")
+      .bind(WATERMARK, U3)
+      .run();
+    await patchSettings(U3, { calendarUseDefaultReminder: true });
+    expect(await watermark()).toBe(0);
+  });
+
+  it("leaves it alone for a setting that shapes no event", async () => {
+    await env.DB.prepare("UPDATE users SET last_calendar_sync_at = ?1 WHERE id = ?2")
+      .bind(WATERMARK, U3)
+      .run();
+    await patchSettings(U3, { nudgeUnpaidDays: 9 });
+    expect(await watermark()).toBe(WATERMARK);
+  });
+
+  it("leaves it alone when the patch re-sends the value already stored", async () => {
+    // A re-send is not a change, and a full rewrite of every event is
+    // not free — a Google call per gig.
+    await patchSettings(U3, { calendarTitlePrefix: true });
+    await env.DB.prepare("UPDATE users SET last_calendar_sync_at = ?1 WHERE id = ?2")
+      .bind(WATERMARK, U3)
+      .run();
+    await patchSettings(U3, { calendarTitlePrefix: true });
+    expect(await watermark()).toBe(WATERMARK);
+  });
+});
