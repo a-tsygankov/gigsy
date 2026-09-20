@@ -50,10 +50,10 @@ vi.mock("../components/DateTimeField.tsx", () => ({
 }));
 
 const ACME: Client = {
-  id: "c1", name: "Acme", contactInfo: null, notes: null, createdAt: 0, modifiedAt: 0,
+  id: "c1", name: "Acme", contactInfo: null, notes: null, needsDelivery: false, createdAt: 0, modifiedAt: 0,
 };
 const BRAVO: Client = {
-  id: "c2", name: "Bravo", contactInfo: null, notes: null, createdAt: 0, modifiedAt: 0,
+  id: "c2", name: "Bravo", contactInfo: null, notes: null, needsDelivery: false, createdAt: 0, modifiedAt: 0,
 };
 
 function gig(over: Partial<Gig>): Gig {
@@ -88,6 +88,9 @@ const api = {
   getGig: vi.fn(async (id: string) => ALL.find((g) => g.id === id) ?? null),
   listGigs: vi.fn(async () => ALL),
   listClients: vi.fn(async () => [ACME, BRAVO]),
+  // The "Part of" picker asks `useSettings` for `clientsExpectDelivery`
+  // (lib/gig-delivery.ts); nothing else on this form reads settings.
+  getSettings: vi.fn(async () => ({ clientsExpectDelivery: false })),
   putGig: vi.fn(async (id: string, input: unknown) => ({ ...gig({ id }), ...(input as object) })),
   putClient: vi.fn(
     async (id: string, input: ClientInput): Promise<Client> => ({

@@ -1008,6 +1008,46 @@ describe("GigsyUserDB v4 upgrade", () => {
   });
 });
 
+describe("client delivery flag", () => {
+  it("sends needsDelivery to the server, not just to Dexie", async () => {
+    // The same silent failure parentGigId and batchId guard against
+    // below: the record would keep the value and the client form would
+    // keep showing it, right up until a pull overwrote it with the
+    // server's DEFAULT 0. `Required<ClientInput>` keeps the KEY in the
+    // payload at compile time; this proves the VALUE gets there.
+    const { store, db } = makeStore();
+    await store.putClient(C1, { name: "Shoots Ltd", needsDelivery: true });
+
+    const [op] = await db.pendingOps.toArray();
+    expect((op?.payload as { needsDelivery?: boolean }).needsDelivery).toBe(true);
+    expect((await store.getClient(C1))?.needsDelivery).toBe(true);
+  });
+
+  it("stores false, and sends false, for a client nobody asked about", async () => {
+    // A caller that never mentions delivery (the capture review's
+    // auto-created client) gets the server column's default — and the
+    // payload says so explicitly rather than leaving the key undefined.
+    const { store, db } = makeStore();
+    await store.putClient(C1, { name: "Acme" });
+
+    const [op] = await db.pendingOps.toArray();
+    expect((op?.payload as { needsDelivery?: boolean }).needsDelivery).toBe(false);
+    expect((await store.getClient(C1))?.needsDelivery).toBe(false);
+  });
+
+  it("keeps a stored switch when a later save does not mention it", async () => {
+    // Absent means "leave it alone", not "turn it off": a save from a
+    // caller that did not ask must not undo what the user set.
+    const { store, db } = makeStore();
+    await store.putClient(C1, { name: "Shoots Ltd", needsDelivery: true });
+    await store.putClient(C1, { name: "Shoots Ltd (renamed)" });
+
+    expect((await store.getClient(C1))?.needsDelivery).toBe(true);
+    const op = (await db.pendingOps.toArray()).find((o) => o.entityId === C1);
+    expect((op?.payload as { needsDelivery?: boolean }).needsDelivery).toBe(true);
+  });
+});
+
 describe("gig parent link", () => {
   it("sends parentGigId to the server, not just to Dexie", async () => {
     // The failure this guards is silent: the local record keeps the

@@ -48,7 +48,7 @@ vi.mock("../components/DateTimeField.tsx", () => ({
 }));
 
 const ACME: Client = {
-  id: "c1", name: "Acme", contactInfo: null, notes: null, createdAt: 0, modifiedAt: 0,
+  id: "c1", name: "Acme", contactInfo: null, notes: null, needsDelivery: false, createdAt: 0, modifiedAt: 0,
 };
 
 // Three local moments, as epoch ms — what extraction hands back.

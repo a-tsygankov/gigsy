@@ -26,6 +26,7 @@ import { formatMoney } from "../lib/format.ts";
 import { formatLocalMoment } from "../lib/datetime.ts";
 import { gigDisplayTitle } from "../lib/gig-title.ts";
 import { isPaid, storedOrDerivedExpectedCents } from "../lib/gig-pay.ts";
+import { isFinal } from "../lib/gig-delivery.ts";
 import type { Gig } from "../lib/types.ts";
 
 /** Same formatter DateTimeField's trigger uses, so the line you read in
@@ -66,6 +67,16 @@ interface GigRowContent {
   /** Show the "not synced yet" dot. The Gigs tab reads this off the
    *  outbox; the picker never sets it. */
   unsynced?: boolean;
+  /**
+   * Whether this gig's work has a hand-over stage — `isDeliverable`
+   * (lib/gig-delivery.ts), which the CALLER answers from its client
+   * list and settings, the same way it answers `clientName`: the row
+   * knows a gig, not the user's clients. Decides only how the pill
+   * draws `completed` (final and green when false). Defaults to true
+   * so a caller that has not asked keeps the pre-delivery amber rather
+   * than declaring every completed gig finished.
+   */
+  deliverable?: boolean;
 }
 
 export type GigRowProps = GigRowContent &
@@ -86,7 +97,7 @@ export type GigRowProps = GigRowContent &
   );
 
 export function GigRow(props: GigRowProps) {
-  const { gig, clientName, unsynced = false } = props;
+  const { gig, clientName, unsynced = false, deliverable = true } = props;
   const { heading, sub } = gigSummary(gig, clientName);
   // What was paid if anything was, otherwise what the gig is expected
   // to earn. Not `amountOfferedCents`: on an hourly gig that is only an
@@ -118,7 +129,7 @@ export function GigRow(props: GigRowProps) {
             (lib/gig-pay.ts) — a confirmed gig paid in full up front has
             nowhere else in this row to say so, since `money` above
             shows the figure but not whether it is settled. */}
-        <StatusPill status={gig.status} paid={isPaid(gig)} />
+        <StatusPill status={gig.status} paid={isPaid(gig)} final={isFinal(gig.status, deliverable)} />
         {money !== null && (
           <span className="text-sm font-semibold text-slate-800">{formatMoney(money)}</span>
         )}

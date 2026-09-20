@@ -1,0 +1,40 @@
+-- A client can say whether its work needs delivering.
+--
+-- `delivered` (0017) is a real stage for some work — a photo shoot is
+-- not finished until the files are handed over — and a stage that does
+-- not exist for the rest: a tasting shift is over when it is over. Until
+-- now the app assumed every completed gig was waiting for it, so the
+-- dashboard's "To deliver" tile counted every completed job. Delivery is
+-- a property of the KIND of work, and a client is almost always one kind
+-- of work, so the flag lives here and not on the gig
+-- (docs/superpowers/specs/2026-09-20-optional-delivery-design.md).
+--
+-- 1 means "work for this client needs delivering"; 0 means it does not.
+-- Read live by services/dashboard.ts, never copied onto gigs: flipping
+-- a client's switch corrects that client's older jobs on the dashboard
+-- at once, which is what someone wants after realising it was set
+-- wrong. A gig with no client falls back to the user's
+-- `clientsExpectDelivery` setting (domain/settings.ts), which is also
+-- the default the webapp offers on a NEW client.
+--
+-- NO REBUILD, for the same reason as 0018 and 0019: SQLite's ADD COLUMN
+-- takes a NOT NULL column in place provided it has a constant default,
+-- which this one does.
+--
+-- NOTHING IS BACKFILLED. Every existing client gets 0, which matches
+-- the setting's own default of "no" — a database that has never heard
+-- of delivery reads the same after this as a fresh one with every
+-- switch left alone. A user whose clients DO need delivering flips
+-- them on the client form; there is nothing here to guess it from.
+--
+-- ONE STATEMENT DOES NOT SELF-HEAL, the same way 0018's and 0019's
+-- ALTER TABLE ... ADD COLUMN do not. SQLite has no `ADD COLUMN IF NOT
+-- EXISTS` (it fails with `near "EXISTS": syntax error`), so applying
+-- this file twice aborts with `duplicate column name: needs_delivery`.
+--
+-- WHAT THAT COSTS AN OPERATOR: nothing beyond the error. This file is
+-- one statement, so unlike 0019 there is no second statement for a
+-- dropped run to leave behind — either the column is there or it is
+-- not, and the retry's failure message says which. No rerun test sits
+-- beside 0016's and 0017's for that reason.
+ALTER TABLE clients ADD COLUMN needs_delivery INTEGER NOT NULL DEFAULT 0;

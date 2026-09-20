@@ -22,9 +22,11 @@ import { formatMoney } from "../lib/format.ts";
 import { gigDisplayTitle } from "../lib/gig-title.ts";
 import { commitGigPatch } from "../lib/gig-write.ts";
 import { isPaid } from "../lib/gig-pay.ts";
+import { isDeliverable, isFinal } from "../lib/gig-delivery.ts";
 import type { Gig, GigInput } from "../lib/types.ts";
 import { JobCard } from "./gigs/JobCard.tsx";
 import { WorkCard } from "./gigs/WorkCard.tsx";
+import { useSettings } from "./settings/useSettings.ts";
 import {
   AppHeader,
   Button,
@@ -41,6 +43,11 @@ export function GigDetail() {
 
   const gig = useQuery({ queryKey: ["gig", id], queryFn: () => api.getGig(id) });
   const clients = useQuery({ queryKey: ["clients"], queryFn: () => api.listClients() });
+  // For `isDeliverable` below — the one thing on this screen that reads
+  // a setting. The same hook the settings screen uses, so the value is
+  // one cache entry and a switch flipped there is seen here without a
+  // reload.
+  const { settings } = useSettings();
   const services = useQuery({
     queryKey: ["services", id],
     queryFn: () => api.listServicesByGig(id),
@@ -122,6 +129,14 @@ export function GigDetail() {
       ? null
       : (clients.data?.find((c) => c.id === data.clientId)?.name ??
         (clients.isPending ? "…" : null));
+  // Read live off the client list and the setting, never stored on the
+  // gig (lib/gig-delivery.ts): flipping the client's switch changes
+  // this gig's choices on the next render, which is the correction
+  // someone wants after setting it wrong. Computed once, because two
+  // things on this hub read it — the status control's choices
+  // (WorkCard) and how the pill draws `completed` (final and green when
+  // there is nothing to hand over).
+  const deliverable = data == null ? false : isDeliverable(data, clients.data ?? [], settings);
 
   /** How a sibling gig (parent or child) is named — same helper the
    * heading above uses, so a follow-up reads the same way it would if
@@ -182,7 +197,11 @@ export function GigDetail() {
                 {gigDisplayTitle(data, clientName)}
               </h2>
               <span className="shrink-0 pt-1">
-                <StatusPill status={data.status} paid={isPaid(data)} />
+                <StatusPill
+                  status={data.status}
+                  paid={isPaid(data)}
+                  final={isFinal(data.status, deliverable)}
+                />
               </span>
             </div>
 
@@ -226,6 +245,7 @@ export function GigDetail() {
               saving={save.isPending}
               failed={save.isError}
               savedAt={save.data ?? null}
+              deliverable={deliverable}
             />
 
             {/* ── Additional services (addable at any time) ──

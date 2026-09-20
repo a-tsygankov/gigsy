@@ -353,7 +353,11 @@ What stands in for icons:
   `prefers-reduced-motion`. It is the exception to "no image icons", made for a link that
   points out of the app; nothing inside the app's own screens should follow it.
 - **Colour carries meaning** where an icon normally would: the status pill's hue is the
-  gig's lifecycle state.
+  gig's lifecycle state. One deliberate exception to "one hue per status": a `completed`
+  gig whose work has nothing to hand over (its client's "needs delivering" switch is off)
+  is finished, and its pill takes the green the paid badge uses rather than the amber that
+  says "still something to do" — `StatusPill`'s `final` prop, decided by
+  `lib/gig-delivery.ts`.
 
 **The app mark** (`assets/logo.svg`, `assets/icon-*.png`) is an emerald-600 tile with a
 white open ring and bar reading as a "G". It exists only as PWA/favicon artwork — it never

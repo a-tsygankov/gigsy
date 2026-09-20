@@ -34,7 +34,8 @@ import { localInputToMs, msToLocalInput } from "../../lib/datetime.ts";
 import { centsToInput, parseMoney } from "../../lib/money.ts";
 import { workLogProblem } from "../../lib/work-log.ts";
 import { expectedCents, workedMinutes, type PayableGig } from "../../lib/gig-pay.ts";
-import { GIG_STATUSES, type Gig, type GigInput, type GigStatus } from "../../lib/types.ts";
+import { offeredStatuses } from "../../lib/gig-delivery.ts";
+import type { Gig, GigInput, GigStatus } from "../../lib/types.ts";
 
 /** Stamped to the current minute, not the current second: every other
  *  time in the app is minute-resolution (lib/datetime.ts), and a stored
@@ -117,6 +118,19 @@ export interface WorkCardProps {
   /** When the last successful write landed, or null if none has this
    *  session. */
   savedAt: number | null;
+  /**
+   * Whether this gig's work has a hand-over stage — `isDeliverable`
+   * (lib/gig-delivery.ts), which the hub computes from the client list
+   * and the settings it already holds. A prop rather than a query here
+   * because this card owns no data: it renders a gig and writes
+   * patches, and a second copy of the clients query on it would be a
+   * second thing to keep in step with the hub's.
+   *
+   * Decides only which statuses the select LISTS: `delivered` is left
+   * out when false, except that a gig already marked delivered keeps
+   * it — a stored value is never hidden.
+   */
+  deliverable: boolean;
 }
 
 export function WorkCard({
@@ -126,6 +140,7 @@ export function WorkCard({
   saving,
   failed,
   savedAt,
+  deliverable,
 }: WorkCardProps) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(gig));
   const [problem, setProblem] = useState<string | null>(null);
@@ -248,12 +263,19 @@ export function WorkCard({
       </CardHeader>
       <CardContent className="space-y-3 p-4 pt-0">
         <Field label="Status">
+          {/* Not GIG_STATUSES: `delivered` is a stage only some work
+              has (lib/gig-delivery.ts), and offering it on a tasting
+              shift is what put every completed gig on the dashboard's
+              "To deliver" tile. The saved status is always among the
+              options — `offeredStatuses` keeps a stored `delivered`
+              listed — so the select never shows a value the record
+              does not hold. */}
           <Select
             data-testid="gig-status"
             value={gig.status}
             onChange={(e) => onCommit({ status: e.target.value as GigStatus })}
           >
-            {GIG_STATUSES.map((s) => (
+            {offeredStatuses(gig.status, deliverable).map((s) => (
               <option key={s} value={s}>
                 {s}
               </option>

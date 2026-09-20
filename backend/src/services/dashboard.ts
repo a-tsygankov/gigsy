@@ -8,7 +8,15 @@
  * - awaitingDeliveryCount — the opposite widening from every other
  *   count here: `completed` EXACTLY, never `delivered`. A delivered
  *   gig has already been handed over, so it has left the queue of work
- *   still waiting to go out the door.
+ *   still waiting to go out the door. And only the completed gigs
+ *   whose work is DELIVERABLE at all (optional delivery, spec
+ *   2026-09-20): the gig's client has `needs_delivery` (migration
+ *   0020), or the gig has no client and the user's
+ *   `clientsExpectDelivery` setting says yes. A tasting shift is over
+ *   when it is over; it never joins this queue. The client flag is
+ *   read live off the join, never copied onto the gig, so flipping a
+ *   client corrects its older jobs here at once. The setting is read
+ *   once per call, through UsersRepo, and bound into the query.
  * - expectedCents — promised money still ahead: the expected pay of
  *   `lead|confirmed` gigs (optionally windowed by future date) plus
  *   their services' offered amounts. The window applies ONLY here —
@@ -39,6 +47,8 @@
  * it isn't "unpaid work", it's unattributed money, which is a reports
  * question (reports.ts's `totals.paidCents`), not a dashboard one.
  */
+import { UsersRepo } from "../repos/users.ts";
+
 export interface DashboardWindow {
   futureFrom?: number;
   futureTo?: number;
@@ -68,7 +78,10 @@ export interface DashboardSummary {
    *  EXACTLY, not `completed|delivered`. This is the one count in this
    *  file that must NOT widen: a delivered gig has already been handed
    *  over, so it does not belong in a queue whose whole purpose is
-   *  what still needs delivering. */
+   *  what still needs delivering. Narrowed further to gigs whose work
+   *  is deliverable in the first place — the client's
+   *  `needs_delivery`, or the `clientsExpectDelivery` setting for a
+   *  gig with no client (see the header). */
   awaitingDeliveryCount: number;
   expectedCents: number;
   unpaidCents: number;
@@ -102,12 +115,25 @@ export async function dashboardSummary(
   // `completed` exactly, NOT the `IN ('completed','delivered')` the
   // money queries use: this is the one place where the distinction is
   // the point. Work that has been handed over is not awaiting delivery.
+  //
+  // And only where delivery is expected at all. The client's flag is
+  // read off the LEFT JOIN — never copied onto the gig — so a client
+  // corrected after the fact corrects its older jobs here at once. For
+  // a gig with no client (or one whose client row is gone: the join
+  // yields NULL and `NULL = 1` is not true) the user's setting is the
+  // answer, bound as ?2 so SQL decides both arms in one pass rather
+  // than the count being assembled from two queries. The setting is
+  // read once here, not per row: it is one blob on the user.
+  const settings = await UsersRepo.for(d1).getSettings(userId);
   const awaitingDelivery = await d1
     .prepare(
-      `SELECT COUNT(*) AS n FROM gigs
-       WHERE user_id = ?1 AND status = 'completed'`,
+      `SELECT COUNT(*) AS n
+       FROM gigs g
+       LEFT JOIN clients c ON c.id = g.client_id
+       WHERE g.user_id = ?1 AND g.status = 'completed'
+         AND (c.needs_delivery = 1 OR (g.client_id IS NULL AND ?2 = 1))`,
     )
-    .bind(userId)
+    .bind(userId, settings.clientsExpectDelivery ? 1 : 0)
     .first<{ n: number }>();
 
   const futureClauses: string[] = [];

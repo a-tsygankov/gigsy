@@ -8,7 +8,7 @@ import { describe, it, expect } from "vitest";
 import { buttonClasses } from "./Button.tsx";
 import { cardClasses } from "./Card.tsx";
 import { inputShellClasses, shellWith, textareaClasses } from "./Input.tsx";
-import { PAID_BADGE_CLASSES, STATUS_PILL_CLASSES } from "./StatusPill.tsx";
+import { COMPLETED_FINAL_CLASSES, PAID_BADGE_CLASSES, STATUS_PILL_CLASSES } from "./StatusPill.tsx";
 import { TILE_TONE_CLASSES } from "./Tile.tsx";
 import { GIG_STATUSES } from "../lib/types.ts";
 
@@ -205,6 +205,19 @@ describe("status + tone maps", () => {
     // "Save failed" line, SyncBadge's failure state) isn't one of
     // those, so it needs its own assertion.
     expect(PAID_BADGE_CLASSES).not.toContain("red");
+  });
+
+  it("a final completed pill is emerald — the paid badge's 'good news' hue, not amber", () => {
+    // Deliberately the SAME hue as the paid badge (StatusPill.tsx):
+    // finished and settled are both good news, and a finished gig
+    // with nothing to hand over must not keep the "still something to
+    // do" amber that `completed` carries on deliverable work. Pinned
+    // to the tokenised -100/-700 steps the badge uses, so it follows
+    // the theme the way every other pill does.
+    expect(COMPLETED_FINAL_CLASSES).toBe(PAID_BADGE_CLASSES);
+    expect(COMPLETED_FINAL_CLASSES).toContain("emerald");
+    expect(COMPLETED_FINAL_CLASSES).not.toContain("amber");
+    expect(COMPLETED_FINAL_CLASSES).not.toContain("teal");
   });
 
   it("tile tones map to the money semantics", () => {

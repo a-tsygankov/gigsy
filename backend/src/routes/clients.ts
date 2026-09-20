@@ -30,6 +30,7 @@ export const clientsRouter = new Hono<{ Bindings: Bindings; Variables: AuthVars 
         name: input.name,
         contactInfo: input.contactInfo ?? null,
         notes: input.notes ?? null,
+        needsDelivery: input.needsDelivery,
       },
       { now: Date.now() },
     );

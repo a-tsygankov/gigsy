@@ -20,6 +20,15 @@ export interface Settings {
   calendarTargetId: string;
   defaultGigDurationMinutes: number | null;
   currency: string;
+  /**
+   * "My clients expect delivery afterwards" (2026-09-20 optional-
+   * delivery design). Two jobs, both defaults: it is the initial value
+   * of `Client.needsDelivery` on a NEW client, and it is the answer for
+   * a gig with no client at all (lib/gig-delivery.ts). It does not
+   * reach back into existing clients — each keeps its own switch.
+   * Server default false.
+   */
+  clientsExpectDelivery: boolean;
   notificationsEnabled: boolean;
   nudgeStaleLeadsEnabled: boolean;
   nudgeUnpaidEnabled: boolean;

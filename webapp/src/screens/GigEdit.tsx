@@ -22,6 +22,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
+import { isDeliverable } from "../lib/gig-delivery.ts";
+import { useSettings } from "./settings/useSettings.ts";
 import type { Gig, GigInput, PayType } from "../lib/types.ts";
 import { commitGigPatch } from "../lib/gig-write.ts";
 import { collectGigDates } from "../lib/gig-dates.ts";
@@ -108,6 +110,10 @@ export function GigEdit() {
     queryKey: ["clients"],
     queryFn: () => api.listClients(),
   });
+  // Only for the "Part of" picker's pills: a completed candidate with
+  // nothing to hand over reads as final (lib/gig-delivery.ts). The
+  // form's own defaults do not come from here.
+  const { settings } = useSettings();
   /**
    * Every gig, for the "Part of" picker below. Keyed ["gigs"] — the
    * same key the list and the hub use — so this shares that cache
@@ -514,6 +520,7 @@ export function GigEdit() {
                 placeholder="Not part of anything"
                 gigs={parentOptions}
                 clients={clients.data ?? []}
+                deliverable={(g) => isDeliverable(g, clients.data ?? [], settings)}
                 value={form.parentGigId}
                 onChange={(id) => set("parentGigId", id)}
                 disabledReason={hasChildren ? PARENT_BLOCKED_REASON : null}

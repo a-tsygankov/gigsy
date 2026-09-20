@@ -90,6 +90,36 @@ describe("/api/clients", () => {
     expect(res.status).toBe(400);
   });
 
+  // Migration 0020: a client says whether its work needs delivering.
+  // Both the true and the omitted case, on both PUT's response and a
+  // fresh GET — a door that drops the field on the way in reads back
+  // false whatever was sent, and a door that hardcodes it reads back
+  // the same value whatever was sent, so each case alone proves less
+  // than the pair.
+  it("round-trips needsDelivery via PUT and GET", async () => {
+    const res = await api(U1, "PUT", `/api/clients/${C1}`, {
+      name: "Studio",
+      needsDelivery: true,
+    });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { needsDelivery: boolean }).needsDelivery).toBe(true);
+
+    const read = (await (
+      await api(U1, "GET", `/api/clients/${C1}`)
+    ).json()) as { needsDelivery: boolean };
+    expect(read.needsDelivery).toBe(true);
+  });
+
+  it("reads needsDelivery as false when the payload omits it", async () => {
+    // What a client written by a webapp that predates the field sends.
+    await api(U1, "PUT", `/api/clients/${C1}`, { name: "Bar" });
+
+    const read = (await (
+      await api(U1, "GET", `/api/clients/${C1}`)
+    ).json()) as { needsDelivery: boolean };
+    expect(read.needsDelivery).toBe(false);
+  });
+
   it("deletes own client; delete is scoped", async () => {
     await api(U1, "PUT", `/api/clients/${C1}`, { name: "Mine" });
 

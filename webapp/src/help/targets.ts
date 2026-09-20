@@ -43,6 +43,13 @@ export const HelpTarget = {
   SettingsAvailability: element("settings-availability"),
   AvailWorkingWeek: element("avail-working-week"),
 
+  // The "My clients expect delivery afterwards" ROW in the Gigs group
+  // (settings/GigDefaultsSection.tsx) — a SettingRow, so a plain div
+  // and an `element`. The switch inside it is `toggle-clients-delivery`
+  // and would be `painted`; the row is the target because what the
+  // tour explains is the description beside the switch, not the switch.
+  SettingsClientsDelivery: element("settings-clients-delivery"),
+
   // A calendar *title prefix* switch — nothing to do with toggle naming.
   TogglePrefix: painted("toggle-prefix"),
 
@@ -271,6 +278,12 @@ export const HelpTarget = {
   ClientName: element("client-name"),
   ClientContact: element("client-contact"),
   ClientNotes: element("client-notes"),
+  // A Toggle (components/Toggle.tsx), so `painted`, per this file's
+  // header: the id sits on the sr-only input, and the switch a person
+  // can see is the sibling span. Unconditional on the form — rendered
+  // on `/clients/new` alongside the three fields — so it resolves
+  // wherever `create-client` walks. Checked against ClientEdit.tsx.
+  ClientNeedsDelivery: painted("client-needs-delivery"),
   ClientSave: element("client-save"),
 
   // ── the expense form (ExpenseEdit.tsx) ──

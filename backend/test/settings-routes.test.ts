@@ -104,6 +104,19 @@ describe("PATCH /api/settings", () => {
     expect((await getSettings(U1)).defaultGigDurationMinutes).toBeNull();
   });
 
+  // Optional delivery (2026-09-20): the global default for whether a
+  // client's work needs delivering. Off by default — the dashboard's
+  // "To deliver" tile stays empty for a user who never asked for it.
+  it("defaults clientsExpectDelivery to false and round-trips a change", async () => {
+    expect((await getSettings(U1)).clientsExpectDelivery).toBe(false);
+
+    const res = await patchSettings(U1, { clientsExpectDelivery: true });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Settings).clientsExpectDelivery).toBe(true);
+
+    expect((await getSettings(U1)).clientsExpectDelivery).toBe(true);
+  });
+
   it("keeps one user's settings out of another's", async () => {
     await patchSettings(U1, { currency: "JPY" });
 

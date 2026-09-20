@@ -19,6 +19,7 @@ import paymentAllocationsSql from "../../migrations/0016_payment_allocations.sql
 import gigStatusDeliveredSql from "../../migrations/0017_gig_status_delivered.sql?raw";
 import gigParentSql from "../../migrations/0018_gig_parent.sql?raw";
 import gigBatchSql from "../../migrations/0019_gig_batch.sql?raw";
+import clientNeedsDeliverySql from "../../migrations/0020_client_needs_delivery.sql?raw";
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
@@ -108,9 +109,21 @@ export const MIGRATIONS_BEFORE_GIG_BATCH = [
 
 export const GIG_BATCH_MIGRATION = gigBatchSql;
 
-const MIGRATIONS = [
+// Split again at 0020, on the same terms as 0019: nothing is
+// backfilled (every existing client reads 0, matching the setting's
+// default), so no test needs the pre-state, and the name is kept so
+// the shape stays reachable for whatever next needs "the schema just
+// before clients.needs_delivery".
+export const MIGRATIONS_BEFORE_CLIENT_NEEDS_DELIVERY = [
   ...MIGRATIONS_BEFORE_GIG_BATCH,
   GIG_BATCH_MIGRATION,
+];
+
+export const CLIENT_NEEDS_DELIVERY_MIGRATION = clientNeedsDeliverySql;
+
+const MIGRATIONS = [
+  ...MIGRATIONS_BEFORE_CLIENT_NEEDS_DELIVERY,
+  CLIENT_NEEDS_DELIVERY_MIGRATION,
 ];
 
 /**

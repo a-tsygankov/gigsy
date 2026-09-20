@@ -91,6 +91,16 @@ export const clients = sqliteTable(
     name: text("name").notNull(),
     contactInfo: text("contact_info"),
     notes: text("notes"),
+    /** Whether work for this client needs delivering (migration 0020).
+     *  Delivery is a property of the KIND of work, and a client is
+     *  almost always one kind, so the flag lives here rather than on
+     *  every gig. Read live by services/dashboard.ts — never copied
+     *  onto gigs — so flipping it corrects the client's older jobs at
+     *  once. A gig with no client falls back to the user's
+     *  `clientsExpectDelivery` setting (domain/settings.ts). */
+    needsDelivery: integer("needs_delivery", { mode: "boolean" })
+      .notNull()
+      .default(false),
     createdAt: integer("created_at").notNull(),
     modifiedAt: integer("modified_at").notNull(),
   },

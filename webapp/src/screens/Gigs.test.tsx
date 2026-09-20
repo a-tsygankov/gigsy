@@ -129,6 +129,34 @@ afterEach(() => {
 const empty = (el: HTMLElement) => el.querySelector('[data-testid="gigs-empty"]');
 const filters = (el: HTMLElement) => el.querySelector('[data-testid="gig-filters"]');
 
+describe("Gigs — final pills", () => {
+  const client = (needsDelivery: boolean): Client => ({
+    id: "c1",
+    name: "Acme",
+    contactInfo: null,
+    notes: null,
+    needsDelivery,
+    createdAt: 0,
+    modifiedAt: 0,
+  });
+  const pill = (el: HTMLElement) =>
+    el.querySelector<HTMLElement>('[data-testid="status-pill"]')!;
+
+  it("draws a completed gig for a non-delivery client as final", async () => {
+    api.listClients.mockResolvedValue([client(false)]);
+    api.listGigs.mockResolvedValue([{ ...GIG, clientId: "c1", status: "completed" }]);
+    const el = await render();
+    expect(pill(el).dataset["final"]).toBe("true");
+  });
+
+  it("keeps a completed gig for a delivery client amber — delivery is still to come", async () => {
+    api.listClients.mockResolvedValue([client(true)]);
+    api.listGigs.mockResolvedValue([{ ...GIG, clientId: "c1", status: "completed" }]);
+    const el = await render();
+    expect(pill(el).dataset["final"]).toBeUndefined();
+  });
+});
+
 describe("Gigs — which render is which", () => {
   it("tags the empty state, and shows it only once the query has answered with nothing", async () => {
     api.listGigs.mockResolvedValueOnce([]);

@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
 import type { Gig, ClientInput } from "../lib/types.ts";
 import { formatMoney } from "../lib/format.ts";
 import { isPaid, storedOrDerivedExpectedCents } from "../lib/gig-pay.ts";
+import { useSettings } from "./settings/useSettings.ts";
 import {
   AppHeader,
   Button,
@@ -12,8 +13,10 @@ import {
   Field,
   Input,
   SectionHeading,
+  SettingRow,
   StatusPill,
   Textarea,
+  Toggle,
 } from "../components/index.ts";
 
 /** 'delivered' counts here too: delivery is a milestone, not a change
@@ -100,6 +103,7 @@ export function ClientEdit() {
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
   const [notes, setNotes] = useState("");
+  const [needsDelivery, setNeedsDelivery] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -107,7 +111,36 @@ export function ClientEdit() {
     setName(client.data.name);
     setContact(client.data.contactInfo ?? "");
     setNotes(client.data.notes ?? "");
+    setNeedsDelivery(client.data.needsDelivery);
   }, [client.data]);
+
+  /**
+   * A NEW client's delivery switch starts from the "My clients expect
+   * delivery afterwards" setting (settings-schema.ts). The settings
+   * query resolves AFTER mount — the form is already on screen with the
+   * switch off — so this is seeded once when the value arrives, and
+   * only if the user has not already touched the switch. The ref is
+   * what stops a later refetch (every sync pull hands back a new
+   * settings object) from flipping a switch the user set on purpose —
+   * the same guard PaymentEdit.tsx's `seededFor` gives its form.
+   *
+   * An existing client never reads the setting: its record is the
+   * truth, and the effect above seeds from that.
+   */
+  const { settings } = useSettings();
+  const deliverySeeded = useRef(false);
+  useEffect(() => {
+    if (!isNew || settings === undefined || deliverySeeded.current) return;
+    deliverySeeded.current = true;
+    setNeedsDelivery(settings.clientsExpectDelivery);
+  }, [isNew, settings]);
+
+  function changeNeedsDelivery(next: boolean): void {
+    // A touch counts as seeded: whatever the settings query says
+    // afterwards, the user has answered for this client.
+    deliverySeeded.current = true;
+    setNeedsDelivery(next);
+  }
 
   const save = useMutation({
     mutationFn: (input: ClientInput) =>
@@ -136,6 +169,7 @@ export function ClientEdit() {
       name: name.trim(),
       contactInfo: contact.trim() === "" ? null : contact.trim(),
       notes: notes.trim() === "" ? null : notes.trim(),
+      needsDelivery,
     });
   }
 
@@ -170,6 +204,29 @@ export function ClientEdit() {
                 onChange={(e) => setNotes(e.target.value)}
               />
             </Field>
+
+            {/* A SettingRow rather than a Field: a Field frames a text
+                box, and a switch needs the label-plus-explanation shape
+                the settings screen already has. The description is the
+                point — "delivering" means nothing until it says what
+                turns on: the `delivered` status on this client's gigs
+                (lib/gig-delivery.ts) and the dashboard's "To deliver"
+                tile. The help target is the sr-only input, so the tour
+                spotlights the painted switch (help/targets.ts). */}
+            <SettingRow
+              label="Work for this client needs delivering"
+              description="Turns on the delivered status for their gigs, and counts their finished work on the dashboard until it is handed over."
+              htmlFor="client-needs-delivery-input"
+              data-testid="client-needs-delivery-row"
+              control={
+                <Toggle
+                  id="client-needs-delivery-input"
+                  data-testid="client-needs-delivery"
+                  checked={needsDelivery}
+                  onChange={changeNeedsDelivery}
+                />
+              }
+            />
 
             {save.isError && (
               <p className="text-sm text-red-600">Save failed — try again.</p>

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useData } from "../lib/app-context.tsx";
+import { isDeliverable } from "../lib/gig-delivery.ts";
+import { useSettings } from "./settings/useSettings.ts";
 import type { ExpenseInput } from "../lib/types.ts";
 import { centsToInput, parseMoney } from "../lib/money.ts";
 import {
@@ -36,6 +38,9 @@ export function ExpenseEdit() {
    */
   const gigs = useQuery({ queryKey: ["gigs"], queryFn: () => api.listGigs() });
   const clients = useQuery({ queryKey: ["clients"], queryFn: () => api.listClients() });
+  // Only for the linked-gig picker's pills: a completed gig with
+  // nothing to hand over reads as final (lib/gig-delivery.ts).
+  const { settings } = useSettings();
 
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("");
@@ -129,6 +134,7 @@ export function ExpenseEdit() {
                 placeholder="Not linked"
                 gigs={gigs.data ?? []}
                 clients={clients.data ?? []}
+                deliverable={(g) => isDeliverable(g, clients.data ?? [], settings)}
                 value={gigId}
                 onChange={setGigId}
               />

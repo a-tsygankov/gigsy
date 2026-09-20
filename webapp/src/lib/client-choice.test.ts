@@ -16,6 +16,7 @@ function makeData() {
       name: input.name,
       contactInfo: input.contactInfo ?? null,
       notes: input.notes ?? null,
+      needsDelivery: input.needsDelivery ?? false,
       createdAt: 0,
       modifiedAt: 0,
     }),

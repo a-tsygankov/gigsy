@@ -224,6 +224,13 @@ export class LocalStore {
       name: input.name,
       contactInfo: input.contactInfo ?? null,
       notes: input.notes ?? null,
+      // Absent means "leave it alone", the way `PaymentInput.clientId`
+      // reads (types.ts): a caller that never asked about delivery —
+      // the capture review's auto-created client, say — must not flip a
+      // switch the user set on purpose. A brand-new client with nobody
+      // asking is "no", matching the server column's DEFAULT 0 and the
+      // `clientsExpectDelivery` setting's own default.
+      needsDelivery: input.needsDelivery ?? existing?.needsDelivery ?? false,
       createdAt: existing?.createdAt ?? now,
       modifiedAt: now,
     };
@@ -231,6 +238,11 @@ export class LocalStore {
       name: record.name,
       contactInfo: record.contactInfo,
       notes: record.notes,
+      // From the RECORD, not the input: the resolved value is what the
+      // screen now shows, and the server must agree with it or the
+      // next pull silently reverts the switch (the `OutboxPayload`
+      // incident above, in miniature).
+      needsDelivery: record.needsDelivery,
     };
     await this.write("client", id, record, payload, now);
     return record;

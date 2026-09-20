@@ -59,6 +59,17 @@ export const createClient: HelpScenario = {
     },
     {
       action: "highlight",
+      // A switch, spotlit rather than flipped — the highlight-only rule
+      // in this file's header covers every control on the form, and a
+      // switch the tour flipped would be one more thing left changed
+      // on a form the user has not saved.
+      target: HelpTarget.ClientNeedsDelivery,
+      title: "Work for this client needs delivering",
+      description:
+        "Whether a finished job for this client still has something to hand over — a photo shoot isn't done until the files go out; a tasting shift is over when it's over. On, and their gigs get a \"delivered\" step after \"completed\", and the dashboard's \"To deliver\" tile counts their finished work until you mark it delivered. Off, and neither happens: the status stops at completed and the tile ignores them. It starts from \"My clients expect delivery afterwards\" in Settings, which only sets this default for new clients — flip it here for the one client that's different, and their older jobs follow at once.",
+    },
+    {
+      action: "highlight",
       // Deliberately a highlight and never a click — see this file's
       // header. The save is the user's to press.
       target: HelpTarget.ClientSave,

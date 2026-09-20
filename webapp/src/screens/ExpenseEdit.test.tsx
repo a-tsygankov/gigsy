@@ -16,7 +16,7 @@ import type { Client, Expense, Gig } from "../lib/types.ts";
 notifyManager.setScheduler((cb) => cb());
 
 const ACME: Client = {
-  id: "c1", name: "Acme", contactInfo: null, notes: null, createdAt: 0, modifiedAt: 0,
+  id: "c1", name: "Acme", contactInfo: null, notes: null, needsDelivery: false, createdAt: 0, modifiedAt: 0,
 };
 
 function gig(over: Partial<Gig>): Gig {
@@ -66,6 +66,9 @@ const api = {
   getExpense: vi.fn(async () => EXPENSE),
   listGigs: vi.fn(async () => [TASTING, PROMO]),
   listClients: vi.fn(async () => [ACME]),
+  // The linked-gig picker asks `useSettings` for `clientsExpectDelivery`
+  // (lib/gig-delivery.ts); nothing else on this form reads settings.
+  getSettings: vi.fn(async () => ({ clientsExpectDelivery: false })),
   putExpense: vi.fn(async (id: string, input: object) => ({ ...EXPENSE, id, ...input })),
   deleteExpense: vi.fn(async () => undefined),
 };

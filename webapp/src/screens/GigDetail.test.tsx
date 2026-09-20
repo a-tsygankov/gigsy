@@ -16,7 +16,7 @@ import type { Client, Gig } from "../lib/types.ts";
 notifyManager.setScheduler((cb) => cb());
 
 const ACME: Client = {
-  id: "c1", name: "Acme", contactInfo: null, notes: null, createdAt: 0, modifiedAt: 0,
+  id: "c1", name: "Acme", contactInfo: null, notes: null, needsDelivery: false, createdAt: 0, modifiedAt: 0,
 };
 
 function gig(over: Partial<Gig>): Gig {
@@ -47,10 +47,15 @@ function gig(over: Partial<Gig>): Gig {
   };
 }
 
+/** What the settings query answers; reassigned per test, read at call
+ *  time. Only the key `isDeliverable` looks at (lib/gig-delivery.ts). */
+let settingsValue: { clientsExpectDelivery: boolean } = { clientsExpectDelivery: false };
+
 const api = {
   getGig: vi.fn(async (id: string) => ALL.find((g) => g.id === id) ?? null),
   listGigs: vi.fn(async () => ALL),
   listClients: vi.fn(async () => [ACME]),
+  getSettings: vi.fn(async () => settingsValue),
   listServicesByGig: vi.fn(async () => []),
   listPaymentsByGig: vi.fn(async () => []),
   listAllocationsByGig: vi.fn(async () => []),
@@ -123,7 +128,60 @@ afterEach(() => {
   container?.remove();
   container = null;
   root = null;
+  settingsValue = { clientsExpectDelivery: false };
   vi.clearAllMocks();
+});
+
+const statusOptions = (el: HTMLElement): string[] =>
+  [...el.querySelector<HTMLSelectElement>('[data-testid="gig-status"]')!.options].map(
+    (o) => o.value,
+  );
+
+/**
+ * The wiring, not the rule: lib/gig-delivery.test.ts proves what
+ * `isDeliverable` and `offeredStatuses` answer, and WorkCard.test.tsx
+ * proves the card lists what it is told. What only this screen can
+ * prove is that the card is told the right thing — from the client
+ * list and the settings query this hub already runs.
+ */
+describe("GigDetail delivery choices", () => {
+  it("leaves delivered out when the gig's client does not need it", async () => {
+    api.listClients.mockResolvedValue([{ ...ACME, needsDelivery: false }]);
+    const el = await render([gig({ status: "completed" })], "g1");
+    expect(statusOptions(el)).not.toContain("delivered");
+  });
+
+  it("offers delivered when the gig's client needs it", async () => {
+    api.listClients.mockResolvedValue([{ ...ACME, needsDelivery: true }]);
+    const el = await render([gig({ status: "completed" })], "g1");
+    expect(statusOptions(el)).toContain("delivered");
+  });
+
+  it("answers with the setting for a gig with no client", async () => {
+    settingsValue = { clientsExpectDelivery: true };
+    const el = await render([gig({ clientId: null, status: "completed" })], "g1");
+    expect(statusOptions(el)).toContain("delivered");
+  });
+
+  it("keeps a stored delivered on a client that no longer needs it", async () => {
+    api.listClients.mockResolvedValue([{ ...ACME, needsDelivery: false }]);
+    const el = await render([gig({ status: "delivered" })], "g1");
+    expect(statusOptions(el)).toContain("delivered");
+  });
+
+  it("draws the hub's pill as final for a completed gig with nothing to hand over", async () => {
+    api.listClients.mockResolvedValue([{ ...ACME, needsDelivery: false }]);
+    const el = await render([gig({ status: "completed" })], "g1");
+    const pill = el.querySelector<HTMLElement>('[data-testid="status-pill"]')!;
+    expect(pill.dataset["final"]).toBe("true");
+  });
+
+  it("keeps the hub's pill amber for a completed gig that is still to be delivered", async () => {
+    api.listClients.mockResolvedValue([{ ...ACME, needsDelivery: true }]);
+    const el = await render([gig({ status: "completed" })], "g1");
+    const pill = el.querySelector<HTMLElement>('[data-testid="status-pill"]')!;
+    expect(pill.dataset["final"]).toBeUndefined();
+  });
 });
 
 describe("GigDetail parent link", () => {
