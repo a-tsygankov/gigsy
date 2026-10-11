@@ -9,7 +9,7 @@ import { dateToLocalDate } from "../lib/datetime.ts";
 // this, because nothing here is React Testing Library.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-beforeAll(() => {
+beforeAll(async () => {
   // Radix's popover positions itself with floating-ui, which observes
   // the trigger. jsdom has no ResizeObserver, and without one the
   // popover throws on open rather than failing an assertion — so the
@@ -20,6 +20,15 @@ beforeAll(() => {
     unobserve(): void {}
     disconnect(): void {}
   };
+  // Pay for the calendar's cold load HERE, not inside the first test
+  // that opens the popover. react-day-picker and its date-fns imports
+  // are a real file read and transform, and in a full `vitest run` with
+  // every worker busy that once took over the 5 s a test is allowed —
+  // which failed that test with a timeout and, because the timeout
+  // fired inside an `act`, left every later `act` in the file
+  // "overlapping" and every later render empty. The hook has no
+  // per-test budget; `open()` below then hits the module cache.
+  await import("./DateTimeCalendar.tsx");
 });
 
 let container: HTMLDivElement | null = null;
