@@ -40,6 +40,7 @@ export class OfflineDataService {
       | "uploadPaymentConfirmation"
       | "getPaymentConfirmationBlob"
       | "capturePhoto"
+      | "sendFeedback"
       | "listDrafts"
       | "getDraft"
       | "setDraftStatus"
@@ -275,6 +276,17 @@ export class OfflineDataService {
   // ── capture + drafts (online-only server records) ────────────────
   capturePhoto(file: Blob) {
     return this.reportsApi.capturePhoto(file);
+  }
+  /** Online-only, straight to the server — not the outbox. Feedback is
+   *  mail the server sends; a message held for a connection that never
+   *  comes is one nobody reads, and the form says so when offline. */
+  sendFeedback(input: {
+    message: string;
+    page: string;
+    clientVersion: string;
+    images: File[];
+  }) {
+    return this.reportsApi.sendFeedback(input);
   }
   listDrafts(status?: Draft["status"]) {
     return this.reportsApi.listDrafts(status);

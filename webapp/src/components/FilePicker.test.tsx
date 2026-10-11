@@ -66,6 +66,42 @@ describe("FilePicker", () => {
     expect(onFile).not.toHaveBeenCalled();
   });
 
+  it("is single-select unless asked otherwise", () => {
+    // `multiple` is the attribute the OS sheet reads; without it the
+    // picker is single-select whatever the handler can take.
+    const input = render({ accept: "image/*", onFile: () => {} });
+    expect(input.hasAttribute("multiple")).toBe(false);
+  });
+
+  it("lets the OS offer several files when told to", () => {
+    const input = render({ accept: "image/*", multiple: true, onFiles: () => {} });
+    expect(input.hasAttribute("multiple")).toBe(true);
+  });
+
+  it("hands every chosen file to onFiles, and the first to onFile", () => {
+    // Both handlers at once: a screen that wants the batch AND keeps a
+    // legacy single-file handler sees the same choice from both.
+    const onFile = vi.fn();
+    const onFiles = vi.fn();
+    const input = render({ accept: "image/*", multiple: true, onFile, onFiles });
+    const a = new File(["a"], "a.png", { type: "image/png" });
+    const b = new File(["b"], "b.png", { type: "image/png" });
+    choose(input, [a, b]);
+    expect(onFiles).toHaveBeenCalledTimes(1);
+    expect(onFiles).toHaveBeenCalledWith([a, b]);
+    expect(onFile).toHaveBeenCalledTimes(1);
+    expect(onFile).toHaveBeenCalledWith(a);
+  });
+
+  it("never calls onFiles with an empty list", () => {
+    // The same rule as `onFile`: a cancelled picker is not a choice,
+    // and a screen's list of attachments must not be touched by it.
+    const onFiles = vi.fn();
+    const input = render({ accept: "image/*", multiple: true, onFiles });
+    choose(input, []);
+    expect(onFiles).not.toHaveBeenCalled();
+  });
+
   it("disables the input when told to", () => {
     const input = render({ accept: "image/*", onFile: () => {}, disabled: true });
     expect(input.disabled).toBe(true);

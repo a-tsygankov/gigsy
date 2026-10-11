@@ -452,6 +452,60 @@ export const activityEvents = sqliteTable(
   }),
 );
 
+/**
+ * What a user told the people running Gigsy — mirrors
+ * migrations/0021_feedback.sql
+ * (docs/superpowers/specs/2026-10-11-feedback-design.md).
+ *
+ * Written by routes/feedback.ts BEFORE any mail is attempted and kept
+ * whichever way the mail goes; `emailStatus` records which way. The
+ * mail is the admin UI, this table is the record — nothing reads it
+ * back except the daily-cap count.
+ */
+export const FEEDBACK_EMAIL_STATUSES = ["unsent", "sent", "failed"] as const;
+export type FeedbackEmailStatus = (typeof FEEDBACK_EMAIL_STATUSES)[number];
+
+/** One entry of `feedback.imagesJson`: an R2 object under
+ *  u/<userId>/feedback/<feedbackId>/<n>, plus what the mail needs to
+ *  attach it without fetching R2 metadata. */
+export interface FeedbackImage {
+  key: string;
+  type: string;
+  size: number;
+  name: string;
+}
+
+export const feedback = sqliteTable(
+  "feedback",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    /** Copied onto the row so the mail and a later reader both know
+     *  who wrote in without a join — and still know it once the user
+     *  is gone. */
+    userEmail: text("user_email").notNull(),
+    message: text("message").notNull(),
+    /** The pathname the webapp reported. Context, not truth. */
+    page: text("page"),
+    clientVersion: text("client_version"),
+    userAgent: text("user_agent"),
+    /** JSON-encoded FeedbackImage[]. One column, not a child table:
+     *  nobody queries by image, and these rows are read whole. */
+    imagesJson: text("images_json").notNull().default("[]"),
+    /** No CHECK in the migration — this type is the constraint, so a
+     *  finer-grained status later needs no table rebuild. */
+    emailStatus: text("email_status").$type<FeedbackEmailStatus>().notNull(),
+    /** What the binding said when it threw; NULL otherwise. */
+    emailError: text("email_error"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => ({
+    userCreatedIdx: index("idx_feedback_user_created").on(t.userId, t.createdAt),
+  }),
+);
+
 /** A browser/device subscription (Phase 10). Keyed by the push
  * service's own endpoint, so re-subscribing replaces rather than
  * duplicates. */

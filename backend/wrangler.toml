@@ -69,6 +69,17 @@ CAPTURE_EMAIL_DOMAIN = ""
 VAPID_PUBLIC_KEY = "BChOgtoYJF0huIquThGFdr052Hb8Ey5Zu1qLQPjB9afaPHgXnj5BeQNFmDB0T_vqOfG49K8YTC0HU0l4LF7OWIA"
 # Contact a push service can use to reach the sender (RFC 8292).
 PUSH_SUBJECT = "mailto:noreply@gigsy.app"
+# Sender address for "Send feedback" mail (docs/superpowers/specs/
+# 2026-10-11-feedback-design.md). Empty means mail is not configured:
+# every feedback is still stored, with email_status = unsent, and the
+# user is told it was saved. Set it to an address on a domain onboarded
+# for Cloudflare Email Sending — the platform refuses any other sender
+# — at the same time as enabling the [[send_email]] block below.
+FEEDBACK_FROM = ""
+# ADMIN_EMAILS (who receives feedback mail) is a SECRET, not a var, on
+# exactly the terms ALLOWED_EMAILS is above: the list is other people's
+# addresses in a public repository, and a var of the same name would
+# block `wrangler secret put` with error 10053. See the secrets block.
 # Secrets — set via `wrangler secret put` (bootstrap with
 # scripts/setup-secrets.ps1 -Cloudflare). Full matrix: docs/plan.md §11.
 #   AUTH_SECRET             — HS256 JWT signing key
@@ -87,6 +98,31 @@ PUSH_SUBJECT = "mailto:noreply@gigsy.app"
 #                             and paste the whole list — it replaces
 #                             rather than appends. Keep your own address
 #                             in it; a list without you locks you out.
+#   ADMIN_EMAILS            — comma-separated list of who receives
+#                             "Send feedback" mail. A secret for the
+#                             same reason as ALLOWED_EMAILS. Unset or
+#                             empty means feedback is stored `unsent`
+#                             and nobody is mailed. Set with:
+#                               wrangler secret put ADMIN_EMAILS
+
+# Email Sending for feedback mail — DELIBERATELY COMMENTED OUT.
+#
+# A [[send_email]] binding on an account with no onboarded Email Sending
+# domain is refused at deploy time, and this repository deploys on every
+# merge: an unconditional block here would break every deploy until the
+# domain exists. src/env.ts types EMAIL as optional for the same reason,
+# and until it is bound every feedback row reads email_status = unsent.
+#
+# Enable it ("Turn it on" in the feedback design doc) once:
+#   1. a sending domain is onboarded in the Cloudflare dashboard
+#      (Compute -> Email Service -> Email Sending);
+#   2. ADMIN_EMAILS is set as a secret (above);
+#   3. FEEDBACK_FROM above is an address on that domain.
+# Then uncomment these two lines, deploy, send one feedback with an
+# image, and confirm every admin inbox receives it with the attachment.
+#
+# [[send_email]]
+# name = "EMAIL"
 
 [observability]
 enabled = true

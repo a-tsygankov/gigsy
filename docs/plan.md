@@ -258,7 +258,12 @@ expenses. Plus CSV export (open item in handoff, planned here).
 | Worker secret | `ANTHROPIC_API_KEY` | yes (optional) | Fallback/alt extraction provider |
 | Worker secret | `VAPID_PRIVATE_KEY` | yes (optional) | Web Push signing (`GENERATE_VAPID`); rotating it invalidates every subscription |
 | Worker secret | `ALLOWED_EMAILS` | yes | Comma-separated list of who may sign in. A secret because the repo is public and these are other people's addresses — not because the values are confidential. Unset means **anyone** with a Google account. Never add it to `[vars]`: the two cannot coexist, and Cloudflare rejects `wrangler secret put` while the var is bound (`already in use`, code 10053) |
+| Worker secret | `ADMIN_EMAILS` | yes | Comma-separated addresses that receive in-app feedback (`POST /api/feedback`). A secret for the same reason `ALLOWED_EMAILS` is. Unset means feedback is stored but mailed to nobody (`email_status = unsent`) |
+| Worker binding | `EMAIL` (`[[send_email]]`) | no | Cloudflare Email Sending, used for feedback mail. Deliberately absent from wrangler.toml until a sending domain is onboarded — the binding is refused at deploy time without one. See the feedback design's "Turn it on" |
 | wrangler.toml `[vars]` | `GOOGLE_CLIENT_ID` | no | Public OAuth client ID |
+| wrangler.toml `[vars]` | `AI_DAILY_CAP` | no | AI captures per user per UTC day (default 50) |
+| wrangler.toml `[vars]` | `CAPTURE_EMAIL_DOMAIN` | no | Domain for per-user capture addresses; empty disables email capture |
+| wrangler.toml `[vars]` | `FEEDBACK_FROM` | no | Sender address for feedback mail, on the onboarded Email Sending domain; empty disables sending (feedback is still stored) |
 | wrangler.toml `[vars]` | `AI_PROVIDER`, `AI_MODEL` | no | Extraction provider selection |
 | wrangler.toml `[vars]` | `VAPID_PUBLIC_KEY` | no | Web Push public key — the browser needs it to subscribe; empty disables push |
 | wrangler.toml `[vars]` | `PUSH_SUBJECT` | no | Contact for push services (RFC 8292) |
@@ -589,6 +594,7 @@ utility exists in the codebase, by design.
 - Whether `lead` gigs sync to calendar (default no).
 - Fuzzy-match threshold for client names (avoid silent merges).
 - Email Routing domain for per-user forwarding addresses.
+- Email Sending domain + `ADMIN_EMAILS` secret, so in-app feedback is mailed to the admins rather than only stored (docs/superpowers/specs/2026-10-11-feedback-design.md, "Turn it on").
 - Where model choice lives long-term (global deployment config for now;
   per-user setting deferred). ~~Fallback behavior on provider errors /
   free-tier exhaustion.~~ **Decided in Phase 8:** `providerFromEnv`

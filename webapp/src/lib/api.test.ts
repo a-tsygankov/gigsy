@@ -197,6 +197,73 @@ describe("ApiClient", () => {
     ]);
   });
 
+  it("POSTs feedback as multipart with the message, page, version and one part per image", async () => {
+    let seenUrl = "";
+    let seenMethod = "";
+    let seenHeaders: Headers | null = null;
+    let seenBody: unknown = null;
+    const fetchFn = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      seenUrl = String(url);
+      seenMethod = init?.method ?? "";
+      seenHeaders = new Headers(init?.headers);
+      seenBody = init?.body;
+      return jsonResponse({ id: "f1", emailStatus: "unsent" });
+    }) as typeof fetch;
+    const api = new ApiClient(stubTokens(), fetchFn);
+    const a = new File(["a"], "a.png", { type: "image/png" });
+    const b = new File(["b"], "b.jpg", { type: "image/jpeg" });
+
+    const receipt = await api.sendFeedback({
+      message: "The gig list is empty",
+      page: "/gigs",
+      clientVersion: "0.0.189",
+      images: [a, b],
+    });
+
+    expect(seenUrl).toBe("/api/feedback");
+    expect(seenMethod).toBe("POST");
+    expect(seenHeaders!.get("Authorization")).toBe("Bearer token-1");
+    // The browser writes `multipart/form-data; boundary=…` itself from
+    // the FormData body; a content-type set here would lack the
+    // boundary and the server could not split the parts.
+    expect(seenHeaders!.has("content-type")).toBe(false);
+    expect(seenBody).toBeInstanceOf(FormData);
+    const form = seenBody as FormData;
+    expect(form.get("message")).toBe("The gig list is empty");
+    expect(form.get("page")).toBe("/gigs");
+    expect(form.get("clientVersion")).toBe("0.0.189");
+    const images = form.getAll("image");
+    expect(images).toHaveLength(2);
+    expect(images.map((part) => (part as File).name)).toEqual(["a.png", "b.jpg"]);
+    expect(images.map((part) => (part as File).type)).toEqual(["image/png", "image/jpeg"]);
+    expect(receipt).toEqual({ id: "f1", emailStatus: "unsent" });
+  });
+
+  it("turns a 413 on feedback into an ApiError a person can read", async () => {
+    const fetchFn = (async () => new Response("", { status: 413 })) as typeof fetch;
+    const api = new ApiClient(stubTokens(), fetchFn);
+    const attempt = api.sendFeedback({
+      message: "x",
+      page: "/",
+      clientVersion: "0",
+      images: [],
+    });
+    await expect(attempt).rejects.toBeInstanceOf(ApiError);
+    await expect(attempt).rejects.toMatchObject({
+      status: 413,
+      message: "That's too much to send at once — try fewer or smaller images.",
+    });
+  });
+
+  it("shows the server's own sentence for a feedback 400", async () => {
+    const fetchFn = (async () =>
+      jsonResponse({ error: "message is required" }, 400)) as typeof fetch;
+    const api = new ApiClient(stubTokens(), fetchFn);
+    await expect(
+      api.sendFeedback({ message: "", page: "/", clientVersion: "0", images: [] }),
+    ).rejects.toMatchObject({ status: 400, message: "message is required" });
+  });
+
   it("calendar endpoints hit the right URLs with bearer", async () => {
     const seen: string[] = [];
     const fetchFn = (async (url: RequestInfo | URL, init?: RequestInit) => {

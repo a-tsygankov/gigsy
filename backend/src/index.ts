@@ -16,6 +16,7 @@ import { syncRouter } from "./routes/sync.ts";
 import { reportsRouter } from "./routes/reports.ts";
 import { draftsRouter } from "./routes/drafts.ts";
 import { makeCaptureRouter } from "./routes/capture.ts";
+import { makeFeedbackRouter } from "./routes/feedback.ts";
 import { makeCalendarRouter } from "./routes/calendar.ts";
 import { makeAvailabilityRouter } from "./routes/availability.ts";
 import { makeAvailabilityLinkRouter } from "./routes/availability-link.ts";
@@ -81,6 +82,10 @@ app.route("/api/availability/link", makeAvailabilityLinkRouter());
 app.route("/api/reports", reportsRouter);
 app.route("/api/drafts", draftsRouter);
 app.route("/api/capture", makeCaptureRouter());
+// "Send feedback" from the help sheet. The default sender factory reads
+// the EMAIL binding, which is absent until the operator turns Email
+// Sending on — feedback is stored `unsent` until then, never dropped.
+app.route("/api/feedback", makeFeedbackRouter());
 app.route("/api/calendar", makeCalendarRouter());
 app.route("/api/geo", geoRouter);
 app.route("/api/push", pushRouter);
