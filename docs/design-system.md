@@ -101,6 +101,10 @@ styled like an input that opens a full-screen `Sheet` holding the Gigs tab's own
 filters and sort over the caller's candidate list, one `GigRow` per match. Native
 `<select>`s are for short, fixed vocabularies (status, sort, pay type), never for records.
 
+`FilePicker` takes one file (`onFile`) or, with `multiple`, every chosen file at once
+(`onFiles`); neither callback ever fires for an empty selection. The help sheet's
+"Send feedback" form (2026-10-11) is the first `multiple` caller — screenshots, up to five.
+
 The inventory mirrors the codebase exactly: `ui.ts` (button/input/card recipes),
 `Scaffold.tsx` (Field, EmptyState, ListSkeleton, Fab), `StatusPill.tsx`, `Header.tsx`
 (+ its inline `SyncBadge`), `TabBar.tsx`, and `Dashboard.tsx`'s `Tile`/section headings.
