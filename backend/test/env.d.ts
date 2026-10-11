@@ -23,5 +23,12 @@ declare module "cloudflare:test" {
     // secret that wrangler.toml must NOT declare, so `undefined` is the
     // correct production shape. See test/allowlist-config.test.ts.
     ALLOWED_EMAILS?: string;
+    // A secret in production like ALLOWED_EMAILS; vitest.config.ts
+    // injects a two-address list so the feedback route tests have
+    // admins to mail. Optional so a test can override it away.
+    ADMIN_EMAILS?: string;
+    // A var in wrangler.toml (empty there); vitest.config.ts pins a
+    // configured sender so the route tests reach the sender at all.
+    FEEDBACK_FROM: string;
   }
 }

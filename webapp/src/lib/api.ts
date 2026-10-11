@@ -248,6 +248,45 @@ export class ApiClient {
     return (await res.json()) as Draft;
   }
 
+  /**
+   * Send feedback to the people running Gigsy (docs/superpowers/specs/
+   * 2026-10-11-feedback-design.md). Online-only like `capturePhoto`:
+   * the server is where the mail goes out from, and a message queued
+   * for a connection that never comes is a message nobody reads.
+   *
+   * Multipart, not JSON: the images are files and base64-ing them into
+   * a JSON body would be a third larger for nothing. NO `content-type`
+   * header is set here — the browser writes `multipart/form-data;
+   * boundary=…` itself when the body is a FormData, and a hand-written
+   * one would lack the boundary and leave the server unable to parse
+   * any part. `clientVersion` rides along so a report can be matched to
+   * the build that produced it; the user agent needs no part, the
+   * browser sends it as a header.
+   */
+  async sendFeedback(input: {
+    message: string;
+    page: string;
+    clientVersion: string;
+    images: File[];
+  }): Promise<FeedbackReceipt> {
+    const token = await this.tokens.getAccessToken();
+    const body = new FormData();
+    body.set("message", input.message);
+    body.set("page", input.page);
+    body.set("clientVersion", input.clientVersion);
+    // Repeated `image` parts, one per file, each keeping its own name —
+    // the server reads `formData.getAll("image")`.
+    for (const image of input.images) body.append("image", image, image.name);
+
+    const res = await this.fetchFn("/api/feedback", {
+      method: "POST",
+      headers: token !== null ? { Authorization: `Bearer ${token}` } : {},
+      body,
+    });
+    if (!res.ok) throw new ApiError(res.status, await feedbackFailureMessage(res));
+    return (await res.json()) as FeedbackReceipt;
+  }
+
   async listDrafts(status?: Draft["status"]): Promise<Draft[]> {
     const qs = status !== undefined ? `?status=${status}` : "";
     return (
@@ -466,6 +505,34 @@ export class ApiClient {
   getDebugLogs(limit: number): Promise<{ entries: WorkerLogEntry[] }> {
     return this.request("GET", `/api/debug/logs?limit=${limit}`);
   }
+}
+
+/** What the server answers once a feedback message is stored. The
+ *  message is kept whatever `emailStatus` says — `unsent` means no
+ *  sender is configured yet, `failed` means it was tried and the row
+ *  records why; neither loses what the user wrote. */
+export interface FeedbackReceipt {
+  id: string;
+  emailStatus: "sent" | "unsent" | "failed";
+}
+
+/**
+ * The sentence shown when `POST /api/feedback` refuses. The server puts
+ * a human one in `{ error }` for a 400 — "message is required", "too
+ * many images" — and that is the best thing to show. Statuses whose
+ * body may be empty or generic get a fixed sentence here, because a 413
+ * from the edge arrives before the route does and says nothing useful.
+ */
+async function feedbackFailureMessage(res: Response): Promise<string> {
+  if (res.status === 413) return "That's too much to send at once — try fewer or smaller images.";
+  if (res.status === 429) return "You've sent a lot of feedback today — try again tomorrow.";
+  try {
+    const body = (await res.json()) as { error?: unknown };
+    if (typeof body.error === "string" && body.error !== "") return body.error;
+  } catch {
+    // Not JSON, or no body — fall through to the generic sentence.
+  }
+  return "Couldn't send — try again.";
 }
 
 export interface SyncOp {

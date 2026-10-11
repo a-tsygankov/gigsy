@@ -20,6 +20,7 @@ import gigStatusDeliveredSql from "../../migrations/0017_gig_status_delivered.sq
 import gigParentSql from "../../migrations/0018_gig_parent.sql?raw";
 import gigBatchSql from "../../migrations/0019_gig_batch.sql?raw";
 import clientNeedsDeliverySql from "../../migrations/0020_client_needs_delivery.sql?raw";
+import feedbackSql from "../../migrations/0021_feedback.sql?raw";
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
@@ -121,10 +122,18 @@ export const MIGRATIONS_BEFORE_CLIENT_NEEDS_DELIVERY = [
 
 export const CLIENT_NEEDS_DELIVERY_MIGRATION = clientNeedsDeliverySql;
 
-const MIGRATIONS = [
+// Split again at 0021, on the same terms as 0019 and 0020: a new,
+// empty table (feedback), so nothing is backfilled and no test needs
+// the pre-state. The name keeps the shape reachable for whatever next
+// needs "the schema just before feedback".
+export const MIGRATIONS_BEFORE_FEEDBACK = [
   ...MIGRATIONS_BEFORE_CLIENT_NEEDS_DELIVERY,
   CLIENT_NEEDS_DELIVERY_MIGRATION,
 ];
+
+export const FEEDBACK_MIGRATION = feedbackSql;
+
+const MIGRATIONS = [...MIGRATIONS_BEFORE_FEEDBACK, FEEDBACK_MIGRATION];
 
 /**
  * Comment lines dropped, then split on the statement terminator — the

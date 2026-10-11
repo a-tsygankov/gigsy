@@ -34,6 +34,14 @@ export default defineWorkersConfig({
             REFRESH_TOKEN_ENC_KEY: "dGVzdC1rZXktdGVzdC1rZXktdGVzdC1rZXktdGVzdCE=",
             GOOGLE_CLIENT_SECRET: "test-google-client-secret",
             GEMINI_API_KEY: "test-gemini-key",
+            // Feedback mail (test/feedback.test.ts). Two admins so the
+            // route tests can see every one of them addressed, and a
+            // configured sender so the route reaches the injected
+            // EmailSender at all — tests inject the sender itself; the
+            // EMAIL binding is never present here, exactly as in a
+            // deployment that has not turned Email Sending on.
+            ADMIN_EMAILS: "admin-a@example.com,admin-b@example.com",
+            FEEDBACK_FROM: "feedback@example.com",
           },
         },
       },

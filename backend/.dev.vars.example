@@ -10,3 +10,11 @@ GEMINI_API_KEY=local-dev-unused
 # Local dev/e2e use the deterministic stub extractor (no AI cost).
 AI_PROVIDER=stub
 AI_DAILY_CAP=500
+# "Send feedback" mail. Both are optional locally: there is no EMAIL
+# binding in wrangler dev, so feedback is stored with
+# email_status = unsent whatever these say — set them only to watch the
+# route choose that status for the right reason in the logs. In
+# production ADMIN_EMAILS is a secret (`wrangler secret put`), never a
+# var, and FEEDBACK_FROM must be on an onboarded Email Sending domain.
+ADMIN_EMAILS=
+FEEDBACK_FROM=
