@@ -28,24 +28,28 @@ import { useLocation } from "react-router-dom";
 import { Button, FilePicker, Textarea } from "../../components/index.ts";
 import { useData, useSyncState } from "../../lib/app-context.tsx";
 import {
+  FEEDBACK_FAILED_MESSAGE,
   FEEDBACK_MAX_IMAGES,
   FEEDBACK_MAX_MESSAGE,
+  FEEDBACK_OFFLINE_MESSAGE,
+  FEEDBACK_SAVED_MESSAGE,
+  FEEDBACK_SENT_MESSAGE,
   addFeedbackImages,
   feedbackProblem,
 } from "../../lib/feedback.ts";
 import { CLIENT_VERSION } from "../../lib/versions.ts";
 
-/** The success sentence. Fixed here so the test asserts the copy the
- *  design doc specifies, not a paraphrase. */
-export const FEEDBACK_SENT_MESSAGE = "Thanks — it's on its way to the team.";
-/** Appended when the server stored the message but could not mail it
- *  (`emailStatus` ≠ "sent"): nothing was lost, the delivery is just
- *  not instant. */
-export const FEEDBACK_SAVED_MESSAGE = "Saved; the team will see it.";
-/** The fallback when a failure carries no sentence of its own. */
-export const FEEDBACK_FAILED_MESSAGE = "Couldn't send — try again.";
-export const FEEDBACK_OFFLINE_MESSAGE =
-  "Sending feedback needs a connection — it goes straight to the team.";
+// The form's sentences live in lib/feedback.ts beside the limits, so the
+// capture "Report error" sheet (components/CaptureReportSheet.tsx) says
+// the same thing about the same endpoint without importing this form —
+// a component importing help/runtime, which imports the component
+// barrel, would be an import cycle. Re-exported for this form's test.
+export {
+  FEEDBACK_FAILED_MESSAGE,
+  FEEDBACK_OFFLINE_MESSAGE,
+  FEEDBACK_SAVED_MESSAGE,
+  FEEDBACK_SENT_MESSAGE,
+};
 
 type Notice = { kind: "success" | "error"; text: string };
 

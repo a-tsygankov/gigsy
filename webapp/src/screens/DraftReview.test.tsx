@@ -113,6 +113,7 @@ const api = {
   putClient: vi.fn(async (id: string, input: { name: string }) => ({ ...ACME, id, ...input })),
   setDraftStatus: vi.fn(async () => DRAFT),
   getDraftRawBlob: vi.fn(async () => null),
+  sendFeedback: vi.fn(async () => ({ id: "f1", emailStatus: "sent" as const })),
 };
 
 vi.mock("../lib/app-context.tsx", () => ({
@@ -432,5 +433,74 @@ describe("DraftReview client match", () => {
       expect(api.putClient).not.toHaveBeenCalled();
       expect(api.putGig).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("DraftReview report error", () => {
+  /** The sheet portals to <body>, outside the render container. */
+  const inSheet = <T extends HTMLElement>(id: string) =>
+    document.querySelector<T>(`[data-testid="${id}"]`);
+  /** The gig's "Offered ($)" box — the only decimal input on a gig. */
+  const amountBox = (el: HTMLElement) =>
+    el.querySelector<HTMLInputElement>('input[inputmode="decimal"]')!;
+
+  it("offers Report error on a loaded draft and opens the sheet", async () => {
+    const el = await render(draft({ dateTimeMs: MON }));
+    expect(inSheet("capture-report-sheet")).toBeNull();
+    await click(byId(el, "draft-report-error"));
+    expect(inSheet("capture-report-sheet")).not.toBeNull();
+    // Untouched form: nothing corrected, so nothing to send yet.
+    expect(inSheet("capture-report-row-amountCents")).toBeNull();
+    expect(inSheet<HTMLButtonElement>("capture-report-send")!.disabled).toBe(true);
+  });
+
+  it("shows a changed amount as a recognised → corrected row", async () => {
+    const el = await render(draft({ dateTimeMs: MON }));
+    await type(amountBox(el), "150");
+    await click(byId(el, "draft-report-error"));
+
+    const row = inSheet("capture-report-row-amountCents")!;
+    expect(row.textContent).toContain("$125.00");
+    expect(row.textContent).toContain("$150.00");
+    expect(inSheet("capture-report-row-clientName")).toBeNull();
+  });
+
+  it("does not count an unanswered client question as a correction", async () => {
+    // Unsure band: the select reads "No client" while the screen asks
+    // "is this Acme?". The person has not removed the client.
+    const el = await render(
+      draft({ matchedClientId: "c1", matchConfidence: 0.8, clientName: "ACME LLC", dateTimeMs: MON }),
+    );
+    await click(byId(el, "draft-report-error"));
+    expect(inSheet("capture-report-row-clientName")).toBeNull();
+  });
+
+  it("sends a capture-error report with the draft id and the form's current values", async () => {
+    const el = await render(draft({ dateTimeMs: MON }));
+    await type(amountBox(el), "150");
+    await click(byId(el, "draft-report-error"));
+    await click(inSheet("capture-report-send"));
+
+    expect(api.sendFeedback).toHaveBeenCalledTimes(1);
+    expect(api.sendFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "capture-error",
+        stage: "review",
+        draftId: "d1",
+        message: "Capture read 1 field wrong: Amount",
+        corrected: {
+          kind: "gig",
+          clientName: "Acme",
+          location: "Expo Hall",
+          dateTimes: [MON],
+          amountCents: 15000,
+          category: null,
+          notes: null,
+        },
+      }),
+    );
+    // Reporting is not confirming: nothing was created or closed.
+    expect(api.putGig).not.toHaveBeenCalled();
+    expect(api.setDraftStatus).not.toHaveBeenCalled();
   });
 });

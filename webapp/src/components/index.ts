@@ -10,7 +10,7 @@
  *   data        Tile, SectionHeading, GigRow
  *   feedback    StatusPill, SyncBadge, EmptyState, ListSkeleton, Splash
  *   navigation  AppHeader, TabBar, Fab, Segmented
- *   overlay     Sheet
+ *   overlay     Sheet, CaptureReportSheet
  */
 export { Button, ButtonLink, buttonClasses } from "./Button.tsx";
 export { Card, CardLink, cardClasses } from "./Card.tsx";
@@ -39,3 +39,8 @@ export { TabBar } from "./TabBar.tsx";
 export { Fab } from "./Fab.tsx";
 export { Segmented, type SegmentedOption } from "./Segmented.tsx";
 export { Sheet, type SheetProps } from "./Sheet.tsx";
+export {
+  CaptureReportSheet,
+  type CaptureReportMode,
+  type CaptureReportSheetProps,
+} from "./CaptureReportSheet.tsx";

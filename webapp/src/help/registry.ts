@@ -16,6 +16,7 @@ import { configureNotifications } from "./scenarios/notifications.ts";
 import { openSettings } from "./scenarios/open-settings.ts";
 import { recordAPayment } from "./scenarios/record-a-payment.ts";
 import { recordWork } from "./scenarios/record-work.ts";
+import { reportCaptureError } from "./scenarios/report-capture-error.ts";
 import { configureWorkingHours } from "./scenarios/working-hours.ts";
 import type { HelpScenario, HelpScenarioId } from "./types.ts";
 
@@ -48,6 +49,9 @@ export const helpScenarios: HelpScenario[] = [
   // that has email capture switched on.
   captureReceipt,
   setUpEmailCapture,
+  // Reporting a wrong reading follows both: it is what you do with a
+  // draft either road produced.
+  reportCaptureError,
   configureNotifications,
   configureWorkingHours,
   connectCalendar,

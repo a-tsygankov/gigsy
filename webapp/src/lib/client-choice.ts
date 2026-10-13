@@ -22,6 +22,7 @@
  * name and have to decide which wins.
  */
 import type { OfflineDataService } from "./data-service.ts";
+import type { Client } from "./types.ts";
 
 export type ClientChoice =
   | { kind: "none" }
@@ -54,6 +55,33 @@ export function hasClientName(choice: ClientChoice): boolean {
  */
 export function clientChoiceId(choice: ClientChoice): string | null {
   return choice.kind === "existing" ? choice.id : null;
+}
+
+/**
+ * The name a choice stands for, as a person would read it: an
+ * `existing` client by its name in `clients` (the local list the select
+ * offers), a `new` one by what was typed, `none` as null.
+ *
+ * An `existing` id missing from the list — a client deleted since the
+ * form was seeded — reads as null rather than as the id: an opaque id
+ * is not a name, and the one caller (lib/capture-report.ts) compares
+ * names against what a document said.
+ *
+ * Not trimmed: what to do with whitespace is the caller's rule, not
+ * this lookup's.
+ */
+export function clientChoiceName(
+  choice: ClientChoice,
+  clients: readonly Pick<Client, "id" | "name">[],
+): string | null {
+  switch (choice.kind) {
+    case "none":
+      return null;
+    case "existing":
+      return clients.find((c) => c.id === choice.id)?.name ?? null;
+    case "new":
+      return choice.name;
+  }
 }
 
 /** The choice a stored gig's `clientId` seeds a form with. */

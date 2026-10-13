@@ -475,6 +475,50 @@ export interface FeedbackImage {
   name: string;
 }
 
+/** What wrote the row (migration 0022,
+ *  docs/superpowers/specs/2026-10-12-capture-report-error-design.md):
+ *    general       — the help sheet's "Send feedback" form; every row
+ *                    written before 0022 reads this (the DEFAULT)
+ *    capture-error — capture's "Report error" / "Report this"
+ *  No CHECK in the migration, the way email_status has none: this
+ *  list is the constraint, and routes/feedback.ts refuses anything
+ *  outside it with a 400. */
+export const FEEDBACK_KINDS = ["general", "capture-error"] as const;
+export type FeedbackKind = (typeof FEEDBACK_KINDS)[number];
+
+/**
+ * `feedback.contextJson` for a capture-error row — the shape the design
+ * names, every key always present (null when it does not apply) so a
+ * reader never has to tell "missing" from "absent".
+ *
+ * `recognized` is what the SERVER read off the caller's draft row
+ * (draft.extracted_json), never the client's copy; `corrected` is what
+ * the client sent from the review form. Both are kept as plain objects
+ * rather than typed as ExtractedData: the report's whole point is to
+ * record what was there, including whatever a future field adds, and
+ * the mail's diff (feedback/capture-diff.ts) reads them defensively.
+ */
+export interface FeedbackCaptureContext {
+  /** "review" (from a draft) | "extraction-failed" (no draft exists),
+   *  as the client reported it. */
+  stage: string | null;
+  draftId: string | null;
+  source: DraftSource | null;
+  /** u/<uid>/feedback/<id>/original — the draft's raw object, COPIED so
+   *  the report outlives the draft being discarded. Null when there was
+   *  no draft, or its object was already gone. */
+  originalKey: string | null;
+  originalType: string | null;
+  recognized: Record<string, unknown> | null;
+  corrected: Record<string, unknown> | null;
+  /** The error the capture screen showed, when it showed one. */
+  error: string | null;
+}
+
+/** One type per kind would be a union today with one member; the
+ *  general kind has no context at all (null on the row). */
+export type FeedbackContext = FeedbackCaptureContext;
+
 export const feedback = sqliteTable(
   "feedback",
   {
@@ -499,6 +543,11 @@ export const feedback = sqliteTable(
     emailStatus: text("email_status").$type<FeedbackEmailStatus>().notNull(),
     /** What the binding said when it threw; NULL otherwise. */
     emailError: text("email_error"),
+    /** Migration 0022. Which form wrote the row — see FEEDBACK_KINDS. */
+    kind: text("kind").$type<FeedbackKind>().notNull().default("general"),
+    /** Migration 0022. JSON-encoded FeedbackContext for capture-error;
+     *  NULL for general. One column like imagesJson, read whole. */
+    contextJson: text("context_json"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => ({

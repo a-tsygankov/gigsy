@@ -3,6 +3,7 @@ import {
   NEW_CLIENT_NAME_REQUIRED,
   clientChoiceFromId,
   clientChoiceId,
+  clientChoiceName,
   hasClientName,
   resolveClientChoice,
 } from "./client-choice.ts";
@@ -89,5 +90,19 @@ describe("hasClientName", () => {
     expect(hasClientName({ kind: "existing", id: "c1" })).toBe(true);
     expect(hasClientName({ kind: "new", name: "Acme" })).toBe(true);
     expect(hasClientName({ kind: "new", name: " " })).toBe(false);
+  });
+});
+
+describe("clientChoiceName", () => {
+  const clients = [{ id: "c1", name: "Acme" }];
+
+  it("names an existing client by the list, a new one by what was typed, none as null", () => {
+    expect(clientChoiceName({ kind: "existing", id: "c1" }, clients)).toBe("Acme");
+    expect(clientChoiceName({ kind: "new", name: "Full Field" }, clients)).toBe("Full Field");
+    expect(clientChoiceName({ kind: "none" }, clients)).toBeNull();
+  });
+
+  it("reads an id missing from the list as no name, never as the id", () => {
+    expect(clientChoiceName({ kind: "existing", id: "gone" }, clients)).toBeNull();
   });
 });

@@ -30,29 +30,37 @@ export function Drafts() {
             hint="Captured photos and forwarded emails land here for review."
             cta="Capture something"
             to="/capture"
+            testId="drafts-empty"
           />
         )}
-        {drafts.data?.map((draft) => (
-          <CardLink key={draft.id} to={`/drafts/${draft.id}`}>
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-slate-900">
-                  {draft.source === "photo" ? "📸 " : "✉️ "}
-                  {draft.extracted.clientName ??
-                    (draft.extracted.kind === "expense"
-                      ? "Expense"
-                      : "Unlabeled capture")}
-                </p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {new Date(draft.createdAt).toLocaleString()}
-                </p>
-              </div>
-              <span className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700">
-                {draft.extracted.kind}
-              </span>
-            </div>
-          </CardLink>
-        ))}
+        {/* `drafts-list` wraps the rows only when there are rows: help's
+            "Report a wrong reading" branches on it, and on `drafts-empty`
+            above, so neither may render while the list is loading. */}
+        {drafts.data !== undefined && drafts.data.length > 0 && (
+          <div data-testid="drafts-list" className="space-y-3">
+            {drafts.data.map((draft) => (
+              <CardLink key={draft.id} to={`/drafts/${draft.id}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">
+                      {draft.source === "photo" ? "📸 " : "✉️ "}
+                      {draft.extracted.clientName ??
+                        (draft.extracted.kind === "expense"
+                          ? "Expense"
+                          : "Unlabeled capture")}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {new Date(draft.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700">
+                    {draft.extracted.kind}
+                  </span>
+                </div>
+              </CardLink>
+            ))}
+          </div>
+        )}
       </main>
     </>
   );

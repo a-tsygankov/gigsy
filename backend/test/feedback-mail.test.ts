@@ -23,6 +23,10 @@ const RECORD: FeedbackRecord = {
   imagesJson: "[]",
   emailStatus: "unsent",
   emailError: null,
+  // Migration 0022's columns: a help-sheet submission is `general`
+  // with no context, which is the mail every assertion below pins.
+  kind: "general",
+  contextJson: null,
   createdAt: Date.UTC(2026, 9, 11, 14, 30, 0),
 };
 

@@ -12,8 +12,10 @@ import { and, count, eq, gte } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import {
   feedback,
+  type FeedbackContext,
   type FeedbackEmailStatus,
   type FeedbackImage,
+  type FeedbackKind,
 } from "../db/schema.ts";
 
 export type FeedbackRecord = typeof feedback.$inferSelect;
@@ -26,6 +28,14 @@ export interface NewFeedback {
   clientVersion: string | null;
   userAgent: string | null;
   images: FeedbackImage[];
+  /** Which form wrote the row (migration 0022). Optional so every
+   *  caller that predates it — the help sheet's path, and the tests
+   *  that seed rows — keeps meaning `general`, as the column's DEFAULT
+   *  does for rows written before it existed. */
+  kind?: FeedbackKind;
+  /** Serialised to `context_json`. Null (or omitted) for `general`:
+   *  the help sheet has nothing beyond what the other columns hold. */
+  context?: FeedbackContext | null;
   /** What the row says before any mail is attempted. The route inserts
    *  `unsent` and moves it with setEmailStatus — so a crash mid-send
    *  leaves a row that is honest about what happened to the mail. */
@@ -54,6 +64,11 @@ export class FeedbackRepo {
         imagesJson: JSON.stringify(input.images),
         emailStatus: input.emailStatus,
         emailError: null,
+        kind: input.kind ?? "general",
+        contextJson:
+          input.context === undefined || input.context === null
+            ? null
+            : JSON.stringify(input.context),
         createdAt: input.now,
       })
       .returning();

@@ -1,0 +1,43 @@
+-- 0022_feedback_kind_context: feedback that knows what it is about.
+--
+-- Until now every feedback row was the help sheet's free-text form.
+-- Capture's "Report error" (docs/superpowers/specs/2026-10-12-capture-
+-- report-error-design.md) sends a second kind: a report that carries
+-- the original the user captured, what extraction recognised in it,
+-- and what the user corrected it to — so every fix on the review
+-- screen can become a test case instead of being lost.
+--
+-- `kind` says which form wrote the row:
+--   general       — the help sheet's "Send feedback" (every row before
+--                   this migration, hence the DEFAULT)
+--   capture-error — capture's "Report error" / "Report this"
+-- No CHECK, for the reason 0021 gives for email_status: the TypeScript
+-- type (FEEDBACK_KINDS in db/schema.ts) is the constraint, and a third
+-- kind later should not need a table rebuild.
+--
+-- `context_json` is one JSON column, like images_json: for
+-- capture-error the { stage, draftId, source, originalKey,
+-- originalType, recognized, corrected, error } object the design
+-- names; NULL for general. Nobody queries inside it — the mail is the
+-- admin UI and the row is the record, read whole.
+--
+-- NOTHING IS BACKFILLED. Every existing row reads kind = 'general'
+-- (the DEFAULT) and context_json = NULL, which is exactly what they
+-- were. test/feedback-kind-migration.test.ts seeds a row against the
+-- 0021 schema and checks both.
+--
+-- ONE STATEMENT DOES NOT SELF-HEAL, the same way 0016's and 0018's
+-- ALTERs do not: SQLite has no `ADD COLUMN IF NOT EXISTS` (a syntax
+-- error, checked against this D1 instance for 0016). Applying this
+-- file twice aborts at statement 1 with `duplicate column name: kind`.
+--
+-- WHAT THAT COSTS AN OPERATOR: a --remote run that drops between the
+-- two ALTERs leaves `kind` added and `context_json` missing, and a
+-- re-run of the file dies on the first ALTER before reaching the
+-- second. Recovery is to run the second ALTER on its own. Nothing is
+-- lost or corrupted either way — both columns are additive and
+-- nullable-or-defaulted — so, like 0018, this note is the whole remedy
+-- and no rerun test sits beside it.
+ALTER TABLE feedback ADD COLUMN kind TEXT NOT NULL DEFAULT 'general';
+
+ALTER TABLE feedback ADD COLUMN context_json TEXT;

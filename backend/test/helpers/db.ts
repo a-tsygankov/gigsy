@@ -21,6 +21,7 @@ import gigParentSql from "../../migrations/0018_gig_parent.sql?raw";
 import gigBatchSql from "../../migrations/0019_gig_batch.sql?raw";
 import clientNeedsDeliverySql from "../../migrations/0020_client_needs_delivery.sql?raw";
 import feedbackSql from "../../migrations/0021_feedback.sql?raw";
+import feedbackKindContextSql from "../../migrations/0022_feedback_kind_context.sql?raw";
 
 // In application order. New migrations get appended here — the test
 // DB always mirrors what production migrations produce.
@@ -133,7 +134,23 @@ export const MIGRATIONS_BEFORE_FEEDBACK = [
 
 export const FEEDBACK_MIGRATION = feedbackSql;
 
-const MIGRATIONS = [...MIGRATIONS_BEFORE_FEEDBACK, FEEDBACK_MIGRATION];
+// Split again at 0022, and this time a test DOES want the pre-state:
+// 0022 adds two columns to a table that already has rows in
+// production, and "every existing row reads kind = 'general' with a
+// null context" is a claim about rows written before the ALTER — so
+// test/feedback-kind-migration.test.ts seeds one against the 0021
+// schema and applies 0022 on top.
+export const MIGRATIONS_BEFORE_FEEDBACK_KIND_CONTEXT = [
+  ...MIGRATIONS_BEFORE_FEEDBACK,
+  FEEDBACK_MIGRATION,
+];
+
+export const FEEDBACK_KIND_CONTEXT_MIGRATION = feedbackKindContextSql;
+
+const MIGRATIONS = [
+  ...MIGRATIONS_BEFORE_FEEDBACK_KIND_CONTEXT,
+  FEEDBACK_KIND_CONTEXT_MIGRATION,
+];
 
 /**
  * Comment lines dropped, then split on the statement terminator — the

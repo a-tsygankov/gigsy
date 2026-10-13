@@ -239,6 +239,82 @@ describe("ApiClient", () => {
     expect(receipt).toEqual({ id: "f1", emailStatus: "unsent" });
   });
 
+  /** A fetch that keeps the FormData it was handed, for the part checks. */
+  function capturingFeedbackFetch() {
+    const seen: { body: FormData | null } = { body: null };
+    const fetchFn = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      seen.body = init?.body as FormData;
+      return jsonResponse({ id: "f2", emailStatus: "sent" });
+    }) as typeof fetch;
+    return { seen, fetchFn };
+  }
+
+  const CAPTURE_PARTS = ["kind", "draftId", "corrected", "stage", "error"];
+
+  it("sends a general message with none of the capture-error parts", async () => {
+    // The old contract, byte for byte: a part the server does not
+    // expect is a 400, so absent must mean absent, not "".
+    const { seen, fetchFn } = capturingFeedbackFetch();
+    const api = new ApiClient(stubTokens(), fetchFn);
+    await api.sendFeedback({ message: "hi", page: "/", clientVersion: "0", images: [] });
+    for (const part of CAPTURE_PARTS) expect(seen.body!.has(part)).toBe(false);
+  });
+
+  it("adds the capture-error parts of a review report, corrected as JSON", async () => {
+    const { seen, fetchFn } = capturingFeedbackFetch();
+    const api = new ApiClient(stubTokens(), fetchFn);
+    const corrected = {
+      kind: "gig" as const,
+      clientName: "Acme",
+      location: null,
+      dateTimes: [1_700_000_000_000],
+      amountCents: 15000,
+      category: null,
+      notes: null,
+    };
+    const receipt = await api.sendFeedback({
+      message: "Capture read 1 field wrong: Amount",
+      page: "/drafts/d1",
+      clientVersion: "0.0.190",
+      images: [],
+      kind: "capture-error",
+      draftId: "d1",
+      corrected,
+      stage: "review",
+    });
+    const form = seen.body!;
+    expect(form.get("kind")).toBe("capture-error");
+    expect(form.get("draftId")).toBe("d1");
+    expect(JSON.parse(form.get("corrected") as string)).toEqual(corrected);
+    expect(form.get("stage")).toBe("review");
+    // Only what was given: no error on the review path, no images.
+    expect(form.has("error")).toBe(false);
+    expect(form.getAll("image")).toHaveLength(0);
+    expect(receipt).toEqual({ id: "f2", emailStatus: "sent" });
+  });
+
+  it("adds the stage, the error and the chosen file for an extraction failure", async () => {
+    const { seen, fetchFn } = capturingFeedbackFetch();
+    const api = new ApiClient(stubTokens(), fetchFn);
+    const flyer = new File(["png"], "flyer.png", { type: "image/png" });
+    await api.sendFeedback({
+      message: "Capture could not read this.",
+      page: "/capture",
+      clientVersion: "0",
+      images: [flyer],
+      kind: "capture-error",
+      stage: "extraction-failed",
+      error: "capture failed",
+    });
+    const form = seen.body!;
+    expect(form.get("kind")).toBe("capture-error");
+    expect(form.get("stage")).toBe("extraction-failed");
+    expect(form.get("error")).toBe("capture failed");
+    expect(form.has("draftId")).toBe(false);
+    expect(form.has("corrected")).toBe(false);
+    expect((form.get("image") as File).name).toBe("flyer.png");
+  });
+
   it("turns a 413 on feedback into an ApiError a person can read", async () => {
     const fetchFn = (async () => new Response("", { status: 413 })) as typeof fetch;
     const api = new ApiClient(stubTokens(), fetchFn);

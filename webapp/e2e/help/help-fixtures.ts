@@ -240,6 +240,50 @@ async function ensureAtLeastOnePayment(
   });
 }
 
+/** A 1x1 PNG: all the stub extractor (AI_PROVIDER=stub) needs to
+ *  return its fixed reading. The same bytes e2e/capture.spec.ts sends. */
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+/**
+ * Guarantee the account has at least one PENDING draft, capturing one
+ * through the stub extractor when it has none. `ensureAtLeastOnePayment`'s
+ * reasoning, one entity over: `report-capture-error` declares
+ * `expectedCiBranches: ["drafts-showing"]`, and a freshly migrated D1 —
+ * or a run after capture.spec.ts confirmed and discarded its own drafts
+ * — has none, so the scenario would correctly take `no-drafts` and the
+ * branch assertion would fail on a missing precondition.
+ *
+ * Seed-if-empty rather than unconditional: each capture spends one of
+ * the day's readings (AI_DAILY_CAP), and the scenario never confirms or
+ * discards the draft it walks, so one seeded draft serves every later
+ * run. A refused capture (no stub provider, the cap) is left alone: the
+ * scenario then takes `no-drafts` and the branch assertion says so.
+ */
+async function ensureAtLeastOneDraft(
+  request: APIRequestContext,
+  baseURL: string,
+): Promise<void> {
+  const login = await request.post(`${baseURL}/api/auth/test-login`, {
+    data: { email: "dev@test.local" },
+  });
+  if (!login.ok()) return; // No test auth here; the spec skips anyway.
+  const { accessToken } = (await login.json()) as { accessToken: string };
+  const headers = { authorization: `Bearer ${accessToken}` };
+
+  const listed = await request.get(`${baseURL}/api/drafts?status=pending`, { headers });
+  if (!listed.ok()) return;
+  const { items } = (await listed.json()) as { items?: unknown[] };
+  if (items === undefined || items.length > 0) return; // Already has one.
+
+  await request.post(`${baseURL}/api/capture/photo`, {
+    headers: { ...headers, "content-type": "image/png" },
+    data: TINY_PNG,
+  });
+}
+
 /**
  * Wait for the FIRST pull to finish, before anything navigates.
  *
@@ -495,6 +539,7 @@ export async function prepareHelpScenario(
   await resetGigListView(request, baseURL);
   await ensureWalkableGig(request, baseURL);
   await ensureAtLeastOnePayment(request, baseURL);
+  await ensureAtLeastOneDraft(request, baseURL);
 
   await page.goto("/login");
   await page.getByTestId("test-signin").click();

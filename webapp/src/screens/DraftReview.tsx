@@ -8,9 +8,11 @@ import { collectGigDates } from "../lib/gig-dates.ts";
 import { createGigBatch } from "../lib/gig-batch.ts";
 import { resolveClientChoice, type ClientChoice } from "../lib/client-choice.ts";
 import { matchBand, seedDraftClient } from "../lib/draft-client-match.ts";
+import { correctedFromForm } from "../lib/capture-report.ts";
 import {
   AppHeader,
   Button,
+  CaptureReportSheet,
   ClientSelect,
   DateTimeField,
   ExtraDatesField,
@@ -106,6 +108,8 @@ export function DraftReview() {
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  /** The "Report error" sheet (components/CaptureReportSheet.tsx). */
+  const [reportOpen, setReportOpen] = useState(false);
 
   useEffect(() => {
     const extracted = draft.data?.extracted;
@@ -565,6 +569,53 @@ export function DraftReview() {
             >
               Discard draft
             </Button>
+          </>
+        )}
+
+        {/* "Report error" (docs/superpowers/specs/2026-10-12-capture-
+            report-error-design.md): for any loaded draft, under the
+            form's own buttons and quieter than them — it is a side
+            errand, not one of the three ways out of this screen. The
+            sheet is handed what the form holds RIGHT NOW, read through
+            `correctedFromForm`, so the person's fixes are the report;
+            the original and what was recognised the server takes from
+            the draft itself. Not gated on `offline`: the sheet says
+            why it cannot send, which a greyed-out button would not. */}
+        {draft.data !== undefined && (
+          <>
+            <Button
+              variant="ghost"
+              block
+              data-testid="draft-report-error"
+              onClick={() => setReportOpen(true)}
+            >
+              Report error
+            </Button>
+            <CaptureReportSheet
+              open={reportOpen}
+              onClose={() => setReportOpen(false)}
+              mode={{
+                draftId: id,
+                recognized: draft.data.extracted,
+                corrected: correctedFromForm({
+                  kind,
+                  // An unanswered "is this X?" is not a correction: the
+                  // select reads "No client" only because the screen is
+                  // still asking. Report the name as read, so the sheet
+                  // shows no Client row the person never made.
+                  client: questionOpen
+                    ? { kind: "new", name: extractedName }
+                    : client,
+                  clients: clients.data ?? [],
+                  location,
+                  dateTime,
+                  extraDates,
+                  amount,
+                  category,
+                  notes,
+                }),
+              }}
+            />
           </>
         )}
       </main>
