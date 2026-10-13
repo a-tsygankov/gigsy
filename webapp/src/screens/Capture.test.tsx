@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CAPTURE_TOO_LARGE_MESSAGE, Capture } from "./Capture.tsx";
 import { HelpProvider } from "../help/runtime/HelpProvider.tsx";
 import { MAX_IMAGE_BYTES } from "../lib/image-queue.ts";
+import { ApiError, type FeedbackInput } from "../lib/api.ts";
 import type { Draft } from "../lib/types.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -27,7 +28,8 @@ const DRAFT: Draft = {
 };
 
 const api = {
-  capturePhoto: vi.fn(async () => DRAFT),
+  capturePhoto: vi.fn(async (): Promise<Draft> => DRAFT),
+  sendFeedback: vi.fn(async (_input: FeedbackInput) => ({ id: "f1", emailStatus: "sent" as const })),
 };
 
 /** Mutable so one test can take the device offline; the mock reads it
@@ -182,5 +184,64 @@ describe("Capture", () => {
     expect(byId<HTMLButtonElement>(el, "capture-start")?.disabled).toBe(true);
     expect(byId<HTMLInputElement>(el, "capture-camera-input")?.disabled).toBe(true);
     expect(el.textContent).toContain("Capture needs a connection");
+  });
+});
+
+describe("Capture — reporting a failed reading", () => {
+  /** The sheet portals to <body>, outside the render container. */
+  const inSheet = <T extends HTMLElement>(id: string) =>
+    document.querySelector<T>(`[data-testid="${id}"]`);
+
+  /** What the api throws when the server answers 502: the extraction
+   *  ran and could not read the file. */
+  const extractionFailed = () => new ApiError(502, "capture failed");
+
+  it("offers Report this only when the reading failed", async () => {
+    const el = await render();
+    expect(byId(el, "capture-report-error")).toBeNull();
+
+    // A good capture: no error, no offer.
+    await choose(byId<HTMLInputElement>(el, "capture-input")!, flyer());
+    expect(byId(el, "capture-report-error")).toBeNull();
+  });
+
+  it("does not offer it for the daily limit, which is not a misreading", async () => {
+    api.capturePhoto.mockRejectedValueOnce(new ApiError(429, "daily capture limit reached"));
+    const el = await render();
+    await choose(byId<HTMLInputElement>(el, "capture-input")!, flyer());
+    expect(el.textContent).toContain("daily capture limit reached");
+    expect(byId(el, "capture-report-error")).toBeNull();
+  });
+
+  it("sends the chosen file and the error as an extraction-failed report", async () => {
+    api.capturePhoto.mockRejectedValueOnce(extractionFailed());
+    const el = await render();
+    const file = flyer();
+    await choose(byId<HTMLInputElement>(el, "capture-input")!, file);
+
+    const report = byId(el, "capture-report-error");
+    expect(report?.textContent).toBe("Report this");
+    // Still on the capture screen — no draft was made.
+    expect(byId(el, "landed-draft")).toBeNull();
+
+    await act(async () => {
+      report!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(inSheet("capture-report-sheet")).not.toBeNull();
+    await act(async () => {
+      inSheet("capture-report-send")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(api.sendFeedback).toHaveBeenCalledTimes(1);
+    expect(api.sendFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "capture-error",
+        stage: "extraction-failed",
+        error: "capture failed",
+        message: "Capture could not read this.",
+        images: [file],
+      }),
+    );
+    expect(api.sendFeedback.mock.calls[0]![0]).not.toHaveProperty("draftId");
   });
 });

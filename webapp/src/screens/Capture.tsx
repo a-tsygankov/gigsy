@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { useData, useSyncState } from "../lib/app-context.tsx";
 import { MAX_IMAGE_BYTES } from "../lib/image-queue.ts";
-import { AppHeader, Button, FilePicker } from "../components/index.ts";
+import { ApiError } from "../lib/api.ts";
+import { AppHeader, Button, CaptureReportSheet, FilePicker } from "../components/index.ts";
 
 /**
  * Refused at the moment the file is chosen, while the picker is still
@@ -17,6 +18,17 @@ import { AppHeader, Button, FilePicker } from "../components/index.ts";
 export const CAPTURE_TOO_LARGE_MESSAGE = `That file is too large to read — keep it under ${Math.round(
   MAX_IMAGE_BYTES / (1024 * 1024),
 )} MB.`;
+
+/**
+ * Whether a capture failure is the one worth reporting: the server got
+ * the file and the extraction could not read it — `POST /api/capture/
+ * photo` answers 502 for exactly that (backend/src/routes/capture.ts).
+ * Not a 429 (the daily limit is not a misreading) and not a network
+ * failure (the file never arrived; there is nothing to learn from it).
+ */
+function isExtractionFailure(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 502;
+}
 
 /**
  * Capture entry (docs/plan.md §8): pick or shoot a flyer, booking
@@ -40,6 +52,11 @@ export const CAPTURE_TOO_LARGE_MESSAGE = `That file is too large to read — kee
  *
  * Both hand the file to the same `choose`, so the size check and the
  * upload are written once.
+ *
+ * When extraction fails no draft exists, so this screen holds the only
+ * copy of what was chosen — and "Report this" (docs/superpowers/specs/
+ * 2026-10-12-capture-report-error-design.md) sends that file to the
+ * team with the error, through the same sheet the review screen uses.
  */
 export function Capture() {
   const data = useData();
@@ -47,6 +64,7 @@ export function Capture() {
   const navigate = useNavigate();
   const cameraInput = useRef<HTMLInputElement>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
   const offline = sync !== null && !sync.online;
 
   const capture = useMutation({
@@ -64,6 +82,13 @@ export function Capture() {
   }
 
   const busy = offline || capture.isPending;
+  const captureError =
+    capture.error instanceof Error ? capture.error.message : "Capture failed — try again.";
+  // Only for a failed READING (see `isExtractionFailure`), and only
+  // while that failure is on screen: a new attempt clears the error,
+  // and with it the offer.
+  const failedFile =
+    capture.isError && isExtractionFailure(capture.error) ? capture.variables : undefined;
 
   return (
     <>
@@ -129,11 +154,30 @@ export function Capture() {
         )}
 
         {capture.isError && (
-          <p className="text-sm text-red-600">
-            {capture.error instanceof Error
-              ? capture.error.message
-              : "Capture failed — try again."}
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-red-600">{captureError}</p>
+            {/* The last chosen file is the mutation's own `variables`
+                — what was handed to `mutate` and failed — so there is
+                no second copy of it in state to fall out of step. */}
+            {failedFile !== undefined && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="shrink-0"
+                data-testid="capture-report-error"
+                onClick={() => setReportOpen(true)}
+              >
+                Report this
+              </Button>
+            )}
+          </div>
+        )}
+        {failedFile !== undefined && (
+          <CaptureReportSheet
+            open={reportOpen}
+            onClose={() => setReportOpen(false)}
+            mode={{ file: failedFile, error: captureError }}
+          />
         )}
 
         <p className="text-xs text-slate-400">

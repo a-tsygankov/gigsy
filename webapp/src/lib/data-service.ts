@@ -9,7 +9,7 @@ import type { SettingsPatch } from "./settings-schema.ts";
 import type { LocalStore, QueueImageResult } from "./local-store.ts";
 import type { PendingImage } from "./db.ts";
 import type { SyncEngine } from "./sync-engine.ts";
-import type { ApiClient } from "./api.ts";
+import type { ApiClient, FeedbackInput } from "./api.ts";
 import type {
   Allocation,
   AllocationInput,
@@ -280,12 +280,7 @@ export class OfflineDataService {
   /** Online-only, straight to the server — not the outbox. Feedback is
    *  mail the server sends; a message held for a connection that never
    *  comes is one nobody reads, and the form says so when offline. */
-  sendFeedback(input: {
-    message: string;
-    page: string;
-    clientVersion: string;
-    images: File[];
-  }) {
+  sendFeedback(input: FeedbackInput) {
     return this.reportsApi.sendFeedback(input);
   }
   listDrafts(status?: Draft["status"]) {

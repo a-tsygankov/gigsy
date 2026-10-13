@@ -37,6 +37,7 @@ import type {
   Service,
   ServiceInput,
 } from "./types.ts";
+import type { CorrectedCapture } from "./capture-report.ts";
 
 export interface TokenSource {
   getAccessToken(): Promise<string | null>;
@@ -262,13 +263,15 @@ export class ApiClient {
    * any part. `clientVersion` rides along so a report can be matched to
    * the build that produced it; the user agent needs no part, the
    * browser sends it as a header.
+   *
+   * A capture "Report error" (docs/superpowers/specs/2026-10-12-
+   * capture-report-error-design.md) is the same endpoint with the
+   * optional parts of `FeedbackInput` set. Each is appended only when
+   * present, so a `general` message goes out exactly as it did before
+   * those parts existed — the server reads an absent `kind` as
+   * `general`, and a part it does not expect is a 400.
    */
-  async sendFeedback(input: {
-    message: string;
-    page: string;
-    clientVersion: string;
-    images: File[];
-  }): Promise<FeedbackReceipt> {
+  async sendFeedback(input: FeedbackInput): Promise<FeedbackReceipt> {
     const token = await this.tokens.getAccessToken();
     const body = new FormData();
     body.set("message", input.message);
@@ -277,6 +280,13 @@ export class ApiClient {
     // Repeated `image` parts, one per file, each keeping its own name —
     // the server reads `formData.getAll("image")`.
     for (const image of input.images) body.append("image", image, image.name);
+    if (input.kind !== undefined) body.set("kind", input.kind);
+    if (input.draftId !== undefined) body.set("draftId", input.draftId);
+    // JSON as a text part: the server parses it (and refuses it, 400,
+    // when it does not) — multipart has no structured part type.
+    if (input.corrected !== undefined) body.set("corrected", JSON.stringify(input.corrected));
+    if (input.stage !== undefined) body.set("stage", input.stage);
+    if (input.error !== undefined) body.set("error", input.error);
 
     const res = await this.fetchFn("/api/feedback", {
       method: "POST",
@@ -505,6 +515,31 @@ export class ApiClient {
   getDebugLogs(limit: number): Promise<{ entries: WorkerLogEntry[] }> {
     return this.request("GET", `/api/debug/logs?limit=${limit}`);
   }
+}
+
+/**
+ * What `sendFeedback` posts. The first four parts are every message's;
+ * the rest are the capture-error report's (lib/capture-report.ts) and
+ * are left out of the form entirely when undefined.
+ *
+ * - `kind` — absent means `general`, the help sheet's form.
+ * - `draftId` — the server copies that draft's original and reads its
+ *   recognised fields itself; the client never re-uploads either.
+ * - `corrected` — the review form's values, serialised to JSON here.
+ * - `stage` — where the report came from: the review screen, or the
+ *   capture screen after extraction failed with no draft made.
+ * - `error` — the failure the capture screen showed, on that path.
+ */
+export interface FeedbackInput {
+  message: string;
+  page: string;
+  clientVersion: string;
+  images: File[];
+  kind?: "general" | "capture-error";
+  draftId?: string;
+  corrected?: CorrectedCapture;
+  stage?: "review" | "extraction-failed";
+  error?: string;
 }
 
 /** What the server answers once a feedback message is stored. The

@@ -65,8 +65,47 @@ means Gigsy had no sending domain / sender address / admin list
 configured at the time — those rows are exactly the ones nobody has
 seen by email, so they matter most to this screen.
 
-**Verify the DDL against the migration file when the branch merges**;
-this document was written from the design spec before the file landed.
+The DDL above matches `0021_feedback.sql` as merged (gigsy PR #104).
+
+### Added 2026-10-12: `kind` and `context_json` (migration `0022`)
+
+```sql
+ALTER TABLE feedback ADD COLUMN kind TEXT NOT NULL DEFAULT 'general';
+ALTER TABLE feedback ADD COLUMN context_json TEXT;
+```
+
+- `kind = 'general'` — the help-sheet "Send feedback" form; `context_json`
+  is null. Every row written before 0022 reads this way.
+- `kind = 'capture-error'` — the "Report error" button on capture's review
+  screen, or "Report this" when the photo could not be read at all.
+  `context_json` is:
+
+```json
+{ "stage": "review" | "extraction-failed",
+  "draftId": "…" | null,
+  "source": "photo" | "email" | null,
+  "originalKey": "u/<uid>/feedback/<id>/original" | null,
+  "originalType": "image/jpeg" | "message/rfc822" | null,
+  "recognized": { …what the AI extracted… } | null,
+  "corrected": { "kind", "clientName", "location", "dateTimes": [ms…],
+                 "amountCents", "category", "notes" } | null,
+  "error": "…" | null }
+```
+
+`recognized` comes from Gigsy's own draft row, not from the phone, so it
+is what the model actually returned. `corrected` is what the user had on
+the review form when they reported. The original is **copied** to
+`originalKey` so the report survives the draft being discarded; it is in
+`images_json` only when it is an image — an emailed booking is a
+`message/rfc822` object reachable only through `originalKey`, so serve it
+through the same authenticated image route with its stored content type
+(a download, not an `<img>`).
+
+**For the UI:** give capture-error reports their own filter chip
+(`General / Capture errors`) and, on the detail view, a two-column
+"Recognised → Corrected" table of the fields that differ, beside the
+original. These reports are test cases for the extraction prompt; the
+diff is the point of them.
 
 ## "New" vs "old": gigsy-analytics owns the marker
 

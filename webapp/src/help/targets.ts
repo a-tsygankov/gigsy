@@ -336,6 +336,20 @@ export const HelpTarget = {
   CaptureFile: element("capture-input"),
   CaptureStart: element("capture-start"),
 
+  // ── drafts and "Report error" (Drafts.tsx, DraftReview.tsx,
+  //    components/CaptureReportSheet.tsx) ──
+  // `drafts-list` wraps the rows and renders only when there is at least
+  // one; `drafts-empty` is the "No drafts waiting" box. Both are positive
+  // states, so a branch on either never fires while the list is loading.
+  // `capture-report-original` is a Toggle, so it is a painted switch.
+  DraftsList: element("drafts-list"),
+  DraftsEmpty: element("drafts-empty"),
+  DraftReportError: element("draft-report-error"),
+  CaptureReportDiff: element("capture-report-diff"),
+  CaptureReportMessage: element("capture-report-message"),
+  CaptureReportOriginal: painted("capture-report-original"),
+  CaptureReportSend: element("capture-report-send"),
+
   // ── the report filters (Reports.tsx) ──
   ReportRange: element("report-range"),
   ReportClient: element("report-client"),

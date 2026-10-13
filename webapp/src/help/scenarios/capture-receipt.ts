@@ -42,6 +42,12 @@ import type { HelpScenario } from "../types.ts";
  * the description is the whole of what a person needs before they get
  * there.
  *
+ * The same step names "Report error" (docs/superpowers/specs/
+ * 2026-10-12-capture-report-error-design.md) in one sentence and no
+ * target, for the same reason: the button is on the review screen,
+ * which this walk never reaches. `report-capture-error` is the walk
+ * that does, and the sentence points there by title.
+ *
  * No branch: Capture.tsx renders both controls unconditionally. They
  * are disabled while offline or mid-upload, but disabled is not absent
  * — the targets resolve and the spotlight lands either way, and the
@@ -88,7 +94,7 @@ export const captureReceipt: HelpScenario = {
       target: HelpTarget.CaptureStart,
       title: "Nothing exists until you confirm",
       description:
-        "You land on a review screen with the photo at the top and a \"This is a…\" choice — gig, expense, or payment — with only the fields that kind needs editable underneath: client, date and offered amount for a gig; amount and category for an expense; amount and when it was received for a payment. Only for a gig does it also read the client: when the name matches one you already have it says so and picks that client; when it is only close — initials like \"FFA\" for Full Field Agency, or a longer or shorter form of the name — it asks \"is this X?\" with a Yes and a No button, and Confirm waits until you answer; when nothing matches it offers a new client with the name it read, in the same client box the gig form has, so you can pick an existing one instead or fix the spelling. A booking sheet that lists several dates shows the first as the date and the rest as \"Also on\" rows you can edit, add to or remove — Confirm then creates one gig per date, each a copy of the rest, all linked as created together. Confirm creates the gig (as a lead), the expense, or the payment — for a payment, the same photo usually becomes its proof with no second upload, though a storage hiccup can leave that for you to attach afterward instead; Later leaves the draft on your Drafts list; Discard throws it away. Until you press Confirm, nothing exists. If the reading fails outright you're told here instead, and no draft is made at all — the photo is worth retaking in better light. Prefer email? \"Forward a booking email\" is the same machinery by the other road.",
+        "You land on a review screen with the photo at the top and a \"This is a…\" choice — gig, expense, or payment — with only the fields that kind needs editable underneath: client, date and offered amount for a gig; amount and category for an expense; amount and when it was received for a payment. Only for a gig does it also read the client: when the name matches one you already have it says so and picks that client; when it is only close — initials like \"FFA\" for Full Field Agency, or a longer or shorter form of the name — it asks \"is this X?\" with a Yes and a No button, and Confirm waits until you answer; when nothing matches it offers a new client with the name it read, in the same client box the gig form has, so you can pick an existing one instead or fix the spelling. A booking sheet that lists several dates shows the first as the date and the rest as \"Also on\" rows you can edit, add to or remove — Confirm then creates one gig per date, each a copy of the rest, all linked as created together. Confirm creates the gig (as a lead), the expense, or the payment — for a payment, the same photo usually becomes its proof with no second upload, though a storage hiccup can leave that for you to attach afterward instead; Later leaves the draft on your Drafts list; Discard throws it away. Until you press Confirm, nothing exists. If the reading fails outright you're told here instead, and no draft is made at all — the photo is worth retaking in better light. If it read something wrong, \"Report error\" on the review screen sends the team the original, what was read and what you changed it to — nothing to type unless you want to; \"Report a wrong reading\" walks through it. Prefer email? \"Forward a booking email\" is the same machinery by the other road.",
     },
   ],
 };

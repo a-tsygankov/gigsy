@@ -28,6 +28,21 @@ export const FEEDBACK_MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 /** Longest message accepted. A bug report, not an essay. */
 export const FEEDBACK_MAX_MESSAGE = 4000;
 
+/** The success sentence. Fixed here so the tests assert the copy the
+ *  design doc specifies, not a paraphrase. Shared by the help sheet's
+ *  form (help/runtime/FeedbackForm.tsx) and the capture "Report error"
+ *  sheet (components/CaptureReportSheet.tsx): one endpoint, one promise
+ *  to the person, one wording of it. */
+export const FEEDBACK_SENT_MESSAGE = "Thanks — it's on its way to the team.";
+/** Appended when the server stored the message but could not mail it
+ *  (`emailStatus` ≠ "sent"): nothing was lost, the delivery is just
+ *  not instant. */
+export const FEEDBACK_SAVED_MESSAGE = "Saved; the team will see it.";
+/** The fallback when a failure carries no sentence of its own. */
+export const FEEDBACK_FAILED_MESSAGE = "Couldn't send — try again.";
+export const FEEDBACK_OFFLINE_MESSAGE =
+  "Sending feedback needs a connection — it goes straight to the team.";
+
 /** Derived from the constants so the number in the sentence can never
  *  drift from the number in the check (CAPTURE_TOO_LARGE_MESSAGE does
  *  the same). */
